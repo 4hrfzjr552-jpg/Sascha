@@ -31,6 +31,7 @@ export interface PantResult {
 }
 
 export type PantStatus = "waiting" | "analyzing" | "done" | "error";
+export type SaleStatus = "draft" | "ready" | "uploaded" | "sold" | "archived";
 
 export interface PantItem {
   id: string;
@@ -40,6 +41,11 @@ export interface PantItem {
   measurements: PantMeasurements;
   customNotes: string;
   status: PantStatus;
+  saleStatus: SaleStatus;
+  uploadedAt?: number;
+  salePrice?: number;
+  saleDate?: string;
+  soldAt?: number;
   errorMessage?: string;
   result?: PantResult;
   isCollapsed?: boolean;
@@ -48,4 +54,4 @@ export interface PantItem {
   updatedAt: number;
 }
 
-export type FilterType = "all" | "waiting" | "done" | "error";
+export type FilterType = "all" | SaleStatus;

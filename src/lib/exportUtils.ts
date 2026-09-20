@@ -1,4 +1,5 @@
 import { PantItem } from "../types";
+import { normalizePantSaleStatus } from "./saleStatus";
 
 /**
  * Cleanly escapes a string cell for CSV according to RFC 4180
@@ -79,6 +80,11 @@ export function exportPantsAsJson(pants: PantItem[]): void {
       measurements: p.measurements,
       customNotes: p.customNotes,
       status: p.status,
+      saleStatus: p.saleStatus,
+      uploadedAt: p.uploadedAt,
+      salePrice: p.salePrice,
+      saleDate: p.saleDate,
+      soldAt: p.soldAt,
       result: p.result,
       imageCount: p.images.length,
       createdAt: p.createdAt,
@@ -112,7 +118,7 @@ export function parseImportedJson(jsonString: string): PantItem[] {
   }
 
   return rawList.map((item: any, index: number): PantItem => {
-    return {
+    const importedPant: PantItem = {
       id: item.id || `pant_${Date.now()}_${index}`,
       number: typeof item.number === "number" ? item.number : index + 1,
       artikelnummer: item.artikelnummer || "",
@@ -126,6 +132,11 @@ export function parseImportedJson(jsonString: string): PantItem[] {
       },
       customNotes: item.customNotes || "",
       status: item.status || (item.result ? "done" : "waiting"),
+      saleStatus: item.saleStatus,
+      uploadedAt: typeof item.uploadedAt === "number" ? item.uploadedAt : undefined,
+      salePrice: typeof item.salePrice === "number" ? item.salePrice : undefined,
+      saleDate: typeof item.saleDate === "string" ? item.saleDate : undefined,
+      soldAt: typeof item.soldAt === "number" ? item.soldAt : undefined,
       errorMessage: item.errorMessage || undefined,
       result: item.result || undefined,
       isCollapsed: item.status === "done",
@@ -133,5 +144,6 @@ export function parseImportedJson(jsonString: string): PantItem[] {
       createdAt: item.createdAt || Date.now(),
       updatedAt: item.updatedAt || Date.now(),
     };
+    return normalizePantSaleStatus(importedPant);
   });
 }

@@ -3,6 +3,7 @@ import {
   PantItem,
   PantImage,
   PantMeasurements,
+  SaleStatus,
 } from "../types";
 import {
   Trash2,
@@ -22,6 +23,7 @@ import {
 } from "lucide-react";
 import { compressImageFile } from "../lib/imageCompressor";
 import { formatTitleWithArticleNumber } from "../lib/titleUtils";
+import { SALE_STATUS_OPTIONS } from "../lib/saleStatus";
 
 interface PantCardProps {
   pant: PantItem;
@@ -29,6 +31,8 @@ interface PantCardProps {
   onDelete: (id: string) => void;
   onDuplicate: (pant: PantItem) => void;
   onAnalyze: (pant: PantItem) => void;
+  onSaleStatusChange: (pant: PantItem, status: SaleStatus) => void;
+  onEditSale: (pant: PantItem) => void;
   isAnalyzingAny: boolean;
 }
 
@@ -38,6 +42,8 @@ export const PantCard: React.FC<PantCardProps> = ({
   onDelete,
   onDuplicate,
   onAnalyze,
+  onSaleStatusChange,
+  onEditSale,
   isAnalyzingAny,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -247,7 +253,7 @@ export const PantCard: React.FC<PantCardProps> = ({
               id={`status-badge-waiting-${pant.id}`}
               className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300"
             >
-              Wartet
+              Analyse offen
             </span>
           )}
           {pant.status === "analyzing" && (
@@ -265,7 +271,7 @@ export const PantCard: React.FC<PantCardProps> = ({
               className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300"
             >
               <Check className="h-3 w-3" />
-              Fertig
+              Analyse fertig
             </span>
           )}
           {pant.status === "error" && (
@@ -277,10 +283,42 @@ export const PantCard: React.FC<PantCardProps> = ({
               Fehler
             </span>
           )}
+
+          <label className="sr-only" htmlFor={`sale-status-${pant.id}`}>
+            Verkaufsstatus für Hose #{pant.number}
+          </label>
+          <select
+            id={`sale-status-${pant.id}`}
+            value={pant.saleStatus || "draft"}
+            onChange={(event) =>
+              onSaleStatusChange(pant, event.target.value as SaleStatus)
+            }
+            className="min-h-[36px] max-w-[145px] rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 px-2.5 text-xs font-semibold text-stone-800 dark:text-stone-200 focus:border-stone-900 dark:focus:border-stone-300 focus:outline-none focus:ring-2 focus:ring-stone-200 dark:focus:ring-stone-700"
+            aria-label={`Verkaufsstatus Hose ${pant.number}`}
+          >
+            {SALE_STATUS_OPTIONS.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Header Action Buttons */}
         <div className="flex items-center gap-1.5 sm:gap-2">
+          {pant.saleStatus === "sold" && (
+            <button
+              id={`edit-sale-btn-${pant.id}`}
+              type="button"
+              onClick={() => onEditSale(pant)}
+              className="inline-flex min-h-[36px] items-center gap-1 rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50"
+              title="Verkaufsdaten bearbeiten"
+            >
+              {pant.salePrice !== undefined
+                ? `${pant.salePrice.toFixed(2).replace(".", ",")} €`
+                : "Verkauf bearbeiten"}
+            </button>
+          )}
           {/* Duplicate */}
           <button
             id={`duplicate-pant-btn-${pant.id}`}

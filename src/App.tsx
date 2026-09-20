@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { PantItem, PantImage, FilterType } from "./types";
+import { PantItem, PantImage, FilterType, SaleStatus } from "./types";
 import { DEFAULT_VINTED_PROMPT, LEGACY_DEFAULT_PROMPTS } from "./lib/defaultPrompt";
 import {
   getAllPants,
@@ -21,12 +21,15 @@ import {
 } from "./lib/titleUtils";
 import { Header } from "./components/Header";
 import { FilterBar } from "./components/FilterBar";
+import { SaleStatusBar } from "./components/SaleStatusBar";
 import { PantCard } from "./components/PantCard";
 import { SettingsModal } from "./components/SettingsModal";
 import { AddMultipleModal } from "./components/AddMultipleModal";
 import { BulkUploadModal } from "./components/BulkUploadModal";
+import { SoldModal } from "./components/SoldModal";
 import { ConfirmModal } from "./components/ConfirmModal";
 import { Plus, Sparkles, AlertCircle } from "lucide-react";
+import { normalizePantSaleStatus } from "./lib/saleStatus";
 
 const MAX_PANTS_LIMIT = 100;
 const MAX_CONCURRENT_ANALYSES = 3;
@@ -46,6 +49,7 @@ export default function App() {
   const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
   const [isDeleteProjectOpen, setIsDeleteProjectOpen] = useState(false);
   const [pantToDeleteId, setPantToDeleteId] = useState<string | null>(null);
+  const [pantForSaleModalId, setPantForSaleModalId] = useState<string | null>(null);
 
   // Batch Processing State
   const [isBatchRunning, setIsBatchRunning] = useState(false);
@@ -94,7 +98,15 @@ export default function App() {
     async function loadData() {
       try {
         const storedPants = await getAllPants();
-        setPants(storedPants);
+        const normalizedPants = storedPants.map(normalizePantSaleStatus);
+        setPants(normalizedPants);
+        if (
+          normalizedPants.some(
+            (pant, index) => pant.saleStatus !== storedPants[index]?.saleStatus
+          )
+        ) {
+          await saveMultiplePantsToDB(normalizedPants);
+        }
 
         const storedPrompt = await getSetting<string | null>(
           "custom_vinted_prompt",
@@ -146,6 +158,7 @@ export default function App() {
       },
       customNotes: "",
       status: "waiting",
+        saleStatus: "draft",
       createdAt: Date.now(),
       updatedAt: Date.now(),
       isCollapsed: false,
@@ -183,6 +196,7 @@ export default function App() {
         },
         customNotes: "",
         status: "waiting",
+        saleStatus: "draft",
         createdAt: Date.now() + i,
         updatedAt: Date.now() + i,
         isCollapsed: false,
@@ -227,6 +241,7 @@ export default function App() {
         },
         customNotes: "",
         status: "waiting",
+        saleStatus: "draft",
         createdAt: Date.now() + i,
         updatedAt: Date.now() + i,
         isCollapsed: false,
@@ -254,6 +269,7 @@ export default function App() {
       measurements: { ...pant.measurements }, // Copy measurements
       customNotes: pant.customNotes || "", // Copy notes
       status: "waiting", // Reset status
+      saleStatus: "draft",
       result: undefined, // Explicitly no KI result
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -271,6 +287,42 @@ export default function App() {
   const handleUpdatePant = async (updated: PantItem) => {
     setPants((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
     await savePantToDB(updated);
+  };
+
+  const handleSaleStatusChange = (pant: PantItem, saleStatus: SaleStatus) => {
+    if (saleStatus === "sold") {
+      setPantForSaleModalId(pant.id);
+      return;
+    }
+
+    void handleUpdatePant({
+      ...pant,
+      saleStatus,
+      uploadedAt:
+        saleStatus === "uploaded" && pant.saleStatus !== "uploaded"
+          ? Date.now()
+          : pant.uploadedAt,
+      updatedAt: Date.now(),
+    });
+  };
+
+  const handleSaveSale = async (data: {
+    salePrice: number;
+    saleDate: string;
+  }) => {
+    const pant = pants.find((item) => item.id === pantForSaleModalId);
+    if (!pant) return;
+
+    await handleUpdatePant({
+      ...pant,
+      saleStatus: "sold",
+      salePrice: data.salePrice,
+      saleDate: data.saleDate,
+      soldAt: pant.soldAt || Date.now(),
+      updatedAt: Date.now(),
+    });
+    setPantForSaleModalId(null);
+    showToast(`Verkauf für Hose #${pant.number} gespeichert.`, "success");
   };
 
   // Delete single Pant
@@ -548,37 +600,36 @@ export default function App() {
     showToast("Stapelverarbeitung wird angehalten...", "info");
   };
 
-  // Counts
+  const pantForSaleModal = pants.find((pant) => pant.id === pantForSaleModalId);
+
+  // Sale status counts and technical analysis count stay separate.
   const counts = useMemo(() => {
-    let waiting = 0;
-    let done = 0;
-    let error = 0;
-
-    pants.forEach((p) => {
-      if (p.status === "done") done++;
-      else if (p.status === "error") error++;
-      else waiting++;
-    });
-
-    return {
+    const saleCounts = {
       all: pants.length,
-      waiting,
-      done,
-      error,
+      draft: 0,
+      ready: 0,
+      uploaded: 0,
+      sold: 0,
+      archived: 0,
     };
+    pants.forEach((pant) => {
+      const saleStatus = pant.saleStatus || "draft";
+      saleCounts[saleStatus] += 1;
+    });
+    return saleCounts;
   }, [pants]);
+  const analysisDoneCount = useMemo(
+    () => pants.filter((pant) => pant.status === "done").length,
+    [pants]
+  );
 
   // Filtered & Searched List
   const filteredPants = useMemo(() => {
     let result = pants;
 
-    // Status Filter
-    if (filter === "waiting") {
-      result = result.filter((p) => p.status === "waiting" || p.status === "analyzing");
-    } else if (filter === "done") {
-      result = result.filter((p) => p.status === "done");
-    } else if (filter === "error") {
-      result = result.filter((p) => p.status === "error");
+    // Sale status filter. The AI analysis status remains independent.
+    if (filter !== "all") {
+      result = result.filter((p) => p.saleStatus === filter);
     }
 
     // Search Query (Titel oder Marke)
@@ -616,7 +667,7 @@ export default function App() {
       <Header
         totalCount={pants.length}
         maxLimit={MAX_PANTS_LIMIT}
-        doneCount={counts.done}
+        doneCount={analysisDoneCount}
         isBatchRunning={isBatchRunning}
         batchActiveCount={batchActiveCount}
         isDarkMode={isDarkMode}
@@ -639,13 +690,17 @@ export default function App() {
       <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-6 sm:px-6 space-y-6">
         {/* Filter & Search Bar */}
         {pants.length > 0 && (
-          <FilterBar
-            currentFilter={filter}
-            onFilterChange={setFilter}
-            searchQuery={searchQuery}
-            onSearchChange={setSearchQuery}
-            counts={counts}
-          />
+          <div className="space-y-3">
+            <SaleStatusBar
+              currentFilter={filter}
+              onFilterChange={setFilter}
+              counts={counts}
+            />
+            <FilterBar
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+            />
+          </div>
         )}
 
         {/* Empty State when no pants exist */}
@@ -721,6 +776,8 @@ export default function App() {
               onDelete={(id) => setPantToDeleteId(id)}
               onDuplicate={handleDuplicatePant}
               onAnalyze={handleAnalyzeFromCard}
+              onSaleStatusChange={handleSaleStatusChange}
+              onEditSale={(pant) => setPantForSaleModalId(pant.id)}
               isAnalyzingAny={isBatchRunning}
             />
           ))}
@@ -767,6 +824,15 @@ export default function App() {
         remainingPantSlots={Math.max(0, MAX_PANTS_LIMIT - pants.length)}
         onCreatePants={handleCreatePantsFromGroups}
         onToast={showToast}
+      />
+
+      <SoldModal
+        isOpen={pantForSaleModal !== undefined}
+        pantNumber={pantForSaleModal?.number || 0}
+        initialPrice={pantForSaleModal?.salePrice}
+        initialDate={pantForSaleModal?.saleDate}
+        onClose={() => setPantForSaleModalId(null)}
+        onSave={handleSaveSale}
       />
 
       {/* Confirm Delete Single Pant */}

@@ -7,7 +7,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 // Set payload limit to handle up to 5 compressed base64 images per pant
 app.use(express.json({ limit: "35mb" }));
