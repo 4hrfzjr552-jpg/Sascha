@@ -32,6 +32,9 @@ export interface PantResult {
 
 export type PantStatus = "waiting" | "analyzing" | "done" | "error";
 
+// Verkaufsstatus – bewusst getrennt vom technischen KI-Status (PantStatus)
+export type SaleStatus = "draft" | "ready" | "uploaded" | "sold" | "archived";
+
 export interface PantItem {
   id: string;
   number: number;
@@ -40,6 +43,10 @@ export interface PantItem {
   measurements: PantMeasurements;
   customNotes: string;
   status: PantStatus;
+  saleStatus: SaleStatus;
+  uploadedAt?: number;
+  soldAt?: number;
+  salePrice?: number;
   errorMessage?: string;
   result?: PantResult;
   isCollapsed?: boolean;
@@ -49,3 +56,5 @@ export interface PantItem {
 }
 
 export type FilterType = "all" | "waiting" | "done" | "error";
+
+export type SaleFilterType = "all" | SaleStatus;

@@ -3,6 +3,7 @@ import {
   PantItem,
   PantImage,
   PantMeasurements,
+  SaleStatus,
 } from "../types";
 import {
   Trash2,
@@ -19,9 +20,18 @@ import {
   CopyPlus,
   Info,
   Loader2,
+  Tag,
+  Pencil,
 } from "lucide-react";
 import { compressImageFile } from "../lib/imageCompressor";
 import { formatTitleWithArticleNumber } from "../lib/titleUtils";
+import {
+  SALE_STATUS_ORDER,
+  SALE_STATUS_LABELS,
+  SALE_STATUS_BADGE,
+  formatSaleDate,
+  formatPriceEUR,
+} from "../lib/saleStatus";
 
 interface PantCardProps {
   pant: PantItem;
@@ -29,6 +39,8 @@ interface PantCardProps {
   onDelete: (id: string) => void;
   onDuplicate: (pant: PantItem) => void;
   onAnalyze: (pant: PantItem) => void;
+  onChangeSaleStatus: (pant: PantItem, status: SaleStatus) => void;
+  onOpenSaleDetails: (pant: PantItem) => void;
   isAnalyzingAny: boolean;
 }
 
@@ -325,6 +337,68 @@ export const PantCard: React.FC<PantCardProps> = ({
             <Trash2 className="h-4 w-4" />
           </button>
         </div>
+      </div>
+
+      {/* Verkaufsstatus-Zeile (immer sichtbar, unabhängig vom KI-Status) */}
+      <div className="flex flex-wrap items-center gap-2.5 px-4 py-2.5 sm:px-6 border-b border-stone-100 dark:border-stone-800 bg-white dark:bg-stone-900">
+        <div className="flex items-center gap-1.5">
+          <Tag className="h-3.5 w-3.5 text-stone-500 dark:text-stone-400" />
+          <span className="text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">
+            Verkaufsstatus
+          </span>
+        </div>
+
+        {/* Dropdown zum Ändern des Verkaufsstatus (nativ = beste iOS/Safari-Bedienung) */}
+        <div className="relative">
+          <select
+            id={`sale-status-select-${pant.id}`}
+            value={pant.saleStatus}
+            onChange={(e) =>
+              onChangeSaleStatus(pant, e.target.value as SaleStatus)
+            }
+            className={`appearance-none cursor-pointer rounded-full pl-3 pr-8 py-1.5 text-xs font-semibold min-h-[36px] border-0 focus:outline-none focus:ring-2 focus:ring-stone-900 dark:focus:ring-stone-300 transition-colors ${SALE_STATUS_BADGE[pant.saleStatus]}`}
+            aria-label={`Verkaufsstatus für Hose #${pant.number}`}
+          >
+            {SALE_STATUS_ORDER.map((s) => (
+              <option key={s} value={s}>
+                {SALE_STATUS_LABELS[s]}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 opacity-70" />
+        </div>
+
+        {/* Zusatzinfos je nach Status */}
+        {pant.saleStatus === "uploaded" && pant.uploadedAt && (
+          <span className="text-xs font-medium text-stone-500 dark:text-stone-400">
+            Hochgeladen am {formatSaleDate(pant.uploadedAt)}
+          </span>
+        )}
+
+        {pant.saleStatus === "sold" && (
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+              {pant.salePrice !== undefined
+                ? formatPriceEUR(pant.salePrice)
+                : "Kein Preis"}
+            </span>
+            {pant.soldAt && (
+              <span className="text-stone-500 dark:text-stone-400">
+                · verkauft am {formatSaleDate(pant.soldAt)}
+              </span>
+            )}
+            <button
+              id={`edit-sale-details-btn-${pant.id}`}
+              type="button"
+              onClick={() => onOpenSaleDetails(pant)}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-700 transition-colors min-h-[32px]"
+              title="Verkaufspreis und -datum bearbeiten"
+            >
+              <Pencil className="h-3 w-3" />
+              Bearbeiten
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Card Content - can be collapsed */}

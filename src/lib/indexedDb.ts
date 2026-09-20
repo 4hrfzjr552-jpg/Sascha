@@ -81,7 +81,12 @@ export async function getAllPants(): Promise<PantItem[]> {
       const request = store.getAll();
 
       request.onsuccess = () => {
-        const list = (request.result || []) as PantItem[];
+        const raw = (request.result || []) as PantItem[];
+        // Migration: alte Hosen ohne Verkaufsstatus bekommen "Entwurf"
+        const list = raw.map((p) => ({
+          ...p,
+          saleStatus: p.saleStatus ?? "draft",
+        })) as PantItem[];
         // Sort by pant number ascending
         list.sort((a, b) => a.number - b.number);
         resolve(list);

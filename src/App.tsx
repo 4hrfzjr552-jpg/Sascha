@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { PantItem, PantImage, FilterType } from "./types";
+import { PantItem, PantImage, FilterType, SaleStatus, SaleFilterType } from "./types";
 import { DEFAULT_VINTED_PROMPT, LEGACY_DEFAULT_PROMPTS } from "./lib/defaultPrompt";
 import {
   getAllPants,
@@ -21,6 +21,8 @@ import {
 } from "./lib/titleUtils";
 import { Header } from "./components/Header";
 import { FilterBar } from "./components/FilterBar";
+import { SaleStatusBar } from "./components/SaleStatusBar";
+import { SoldModal } from "./components/SoldModal";
 import { PantCard } from "./components/PantCard";
 import { SettingsModal } from "./components/SettingsModal";
 import { AddMultipleModal } from "./components/AddMultipleModal";
@@ -38,6 +40,7 @@ export default function App() {
 
   // Filters & Search
   const [filter, setFilter] = useState<FilterType>("all");
+  const [saleFilter, setSaleFilter] = useState<SaleFilterType>("all");
   const [searchQuery, setSearchQuery] = useState("");
 
   // Modals
@@ -46,6 +49,7 @@ export default function App() {
   const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
   const [isDeleteProjectOpen, setIsDeleteProjectOpen] = useState(false);
   const [pantToDeleteId, setPantToDeleteId] = useState<string | null>(null);
+  const [saleModalPantId, setSaleModalPantId] = useState<string | null>(null);
 
   // Batch Processing State
   const [isBatchRunning, setIsBatchRunning] = useState(false);
@@ -146,6 +150,7 @@ export default function App() {
       },
       customNotes: "",
       status: "waiting",
+      saleStatus: "draft",
       createdAt: Date.now(),
       updatedAt: Date.now(),
       isCollapsed: false,
@@ -183,6 +188,7 @@ export default function App() {
         },
         customNotes: "",
         status: "waiting",
+        saleStatus: "draft",
         createdAt: Date.now() + i,
         updatedAt: Date.now() + i,
         isCollapsed: false,
@@ -227,6 +233,7 @@ export default function App() {
         },
         customNotes: "",
         status: "waiting",
+        saleStatus: "draft",
         createdAt: Date.now() + i,
         updatedAt: Date.now() + i,
         isCollapsed: false,
@@ -254,6 +261,7 @@ export default function App() {
       measurements: { ...pant.measurements }, // Copy measurements
       customNotes: pant.customNotes || "", // Copy notes
       status: "waiting", // Reset status
+      saleStatus: "draft", // Verkaufsstatus zurücksetzen
       result: undefined, // Explicitly no KI result
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -271,6 +279,45 @@ export default function App() {
   const handleUpdatePant = async (updated: PantItem) => {
     setPants((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
     await savePantToDB(updated);
+  };
+
+  // Change Verkaufsstatus (separat vom KI-Status). Setzt Zeitstempel automatisch.
+  const handleChangeSaleStatus = async (pant: PantItem, newStatus: SaleStatus) => {
+    const now = Date.now();
+    const updated: PantItem = {
+      ...pant,
+      saleStatus: newStatus,
+      updatedAt: now,
+    };
+
+    if (newStatus === "uploaded" && !pant.uploadedAt) {
+      updated.uploadedAt = now;
+    }
+    if (newStatus === "sold" && !pant.soldAt) {
+      updated.soldAt = now;
+    }
+
+    await handleUpdatePant(updated);
+
+    // Bei "Verkauft" das Verkaufsdetail-Modal öffnen (Preis ist optional)
+    if (newStatus === "sold") {
+      setSaleModalPantId(pant.id);
+    }
+  };
+
+  // Verkaufsdetails (Preis + Datum) speichern – auch nachträglich editierbar
+  const handleSaveSaleDetails = async (
+    pantId: string,
+    details: { salePrice?: number; soldAt: number }
+  ) => {
+    const target = pants.find((p) => p.id === pantId);
+    if (!target) return;
+    await handleUpdatePant({
+      ...target,
+      salePrice: details.salePrice,
+      soldAt: details.soldAt,
+      updatedAt: Date.now(),
+    });
   };
 
   // Delete single Pant
@@ -568,6 +615,22 @@ export default function App() {
     };
   }, [pants]);
 
+  // Counts pro Verkaufsstatus (für die Verkaufsstatus-Leiste)
+  const saleCounts = useMemo(() => {
+    const c: Record<SaleFilterType, number> = {
+      all: pants.length,
+      draft: 0,
+      ready: 0,
+      uploaded: 0,
+      sold: 0,
+      archived: 0,
+    };
+    pants.forEach((p) => {
+      c[p.saleStatus] = (c[p.saleStatus] ?? 0) + 1;
+    });
+    return c;
+  }, [pants]);
+
   // Filtered & Searched List
   const filteredPants = useMemo(() => {
     let result = pants;
@@ -579,6 +642,11 @@ export default function App() {
       result = result.filter((p) => p.status === "done");
     } else if (filter === "error") {
       result = result.filter((p) => p.status === "error");
+    }
+
+    // Verkaufsstatus-Filter
+    if (saleFilter !== "all") {
+      result = result.filter((p) => p.saleStatus === saleFilter);
     }
 
     // Search Query (Titel oder Marke)
@@ -595,7 +663,7 @@ export default function App() {
     }
 
     return result;
-  }, [pants, filter, searchQuery]);
+  }, [pants, filter, saleFilter, searchQuery]);
 
   if (!isLoaded) {
     return (
@@ -645,6 +713,15 @@ export default function App() {
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
             counts={counts}
+          />
+        )}
+
+        {/* Verkaufsstatus-Leiste */}
+        {pants.length > 0 && (
+          <SaleStatusBar
+            currentFilter={saleFilter}
+            onFilterChange={setSaleFilter}
+            counts={saleCounts}
           />
         )}
 
