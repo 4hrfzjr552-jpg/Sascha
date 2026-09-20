@@ -28,6 +28,7 @@ import { SettingsModal } from "./components/SettingsModal";
 import { AddMultipleModal } from "./components/AddMultipleModal";
 import { BulkUploadModal } from "./components/BulkUploadModal";
 import { SoldModal } from "./components/SoldModal";
+import { StatsModal } from "./components/StatsModal";
 import { ConfirmModal } from "./components/ConfirmModal";
 import { Plus, Sparkles, AlertCircle } from "lucide-react";
 import { normalizePantSaleStatus } from "./lib/saleStatus";
@@ -47,6 +48,7 @@ export default function App() {
 
   // Modals
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isStatsOpen, setIsStatsOpen] = useState(false);
   const [isAddMultipleOpen, setIsAddMultipleOpen] = useState(false);
   const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
   const [isDeleteProjectOpen, setIsDeleteProjectOpen] = useState(false);
@@ -709,6 +711,7 @@ export default function App() {
         onToggleCollapseAll={handleToggleCollapseAll}
         areAllCollapsed={areAllCollapsed}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenStats={() => setIsStatsOpen(true)}
         onExportJson={handleExportJson}
         onImportJson={handleImportJson}
         onExportCsv={handleExportCsv}
@@ -851,6 +854,13 @@ export default function App() {
         onClose={() => setIsSettingsOpen(false)}
         currentPrompt={customPrompt}
         onSavePrompt={handleSavePrompt}
+      />
+
+      {/* Stats Modal */}
+      <StatsModal
+        isOpen={isStatsOpen}
+        pants={pants}
+        onClose={() => setIsStatsOpen(false)}
       />
 
       {/* Add Multiple Modal */}

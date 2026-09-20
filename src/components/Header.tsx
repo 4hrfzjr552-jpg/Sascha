@@ -15,9 +15,11 @@ import {
   Sun,
   Moon,
   Layers,
+  BarChart2,
 } from "lucide-react";
 
 interface HeaderProps {
+  onOpenStats: () => void;
   totalCount: number;
   maxLimit: number;
   doneCount: number;
@@ -59,6 +61,7 @@ export const Header: React.FC<HeaderProps> = ({
   onImportJson,
   onExportCsv,
   onOpenDeleteProject,
+  onOpenStats,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -108,6 +111,19 @@ export const Header: React.FC<HeaderProps> = ({
                 {doneCount} / {totalCount} fertig
               </span>
             </div>
+
+            {/* Statistiken Button */}
+            <button
+              id="open-stats-btn"
+              type="button"
+              onClick={onOpenStats}
+              className="flex h-10 items-center justify-center gap-1.5 px-3 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-700 hover:text-stone-900 dark:hover:text-white transition-colors shadow-xs font-semibold text-xs sm:text-sm"
+              title="Statistiken anzeigen"
+              aria-label="Statistiken anzeigen"
+            >
+              <BarChart2 className="h-4 w-4 sm:h-5 sm:w-5 text-stone-700 dark:text-stone-200" />
+              <span>Statistiken</span>
+            </button>
 
             {/* Dark Mode Toggle */}
             <button
