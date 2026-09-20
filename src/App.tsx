@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { PantItem, FilterType } from "./types";
+import { PantItem, PantImage, FilterType } from "./types";
 import { DEFAULT_VINTED_PROMPT, LEGACY_DEFAULT_PROMPTS } from "./lib/defaultPrompt";
 import {
   getAllPants,
@@ -24,6 +24,7 @@ import { FilterBar } from "./components/FilterBar";
 import { PantCard } from "./components/PantCard";
 import { SettingsModal } from "./components/SettingsModal";
 import { AddMultipleModal } from "./components/AddMultipleModal";
+import { BulkUploadModal } from "./components/BulkUploadModal";
 import { ConfirmModal } from "./components/ConfirmModal";
 import { Plus, Sparkles, AlertCircle } from "lucide-react";
 
@@ -42,6 +43,7 @@ export default function App() {
   // Modals
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAddMultipleOpen, setIsAddMultipleOpen] = useState(false);
+  const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
   const [isDeleteProjectOpen, setIsDeleteProjectOpen] = useState(false);
   const [pantToDeleteId, setPantToDeleteId] = useState<string | null>(null);
 
@@ -192,6 +194,49 @@ export default function App() {
     setPants(updatedList);
     await saveMultiplePantsToDB(newItems);
     showToast(`${toAdd} neue Hosen angelegt.`, "success");
+  };
+
+  // Create pants from bulk-upload groups (each group => one new pant)
+  const handleCreatePantsFromGroups = async (
+    groups: PantImage[][]
+  ): Promise<{ added: number; skipped: number }> => {
+    const remaining = Math.max(0, MAX_PANTS_LIMIT - pants.length);
+    const groupsToAdd = groups.slice(0, remaining);
+    const skipped = groups.length - groupsToAdd.length;
+
+    if (groupsToAdd.length === 0) {
+      return { added: 0, skipped };
+    }
+
+    let currentMax =
+      pants.length > 0 ? Math.max(...pants.map((p) => p.number || 0)) : 0;
+
+    const newItems: PantItem[] = groupsToAdd.map((imgs, i) => {
+      currentMax += 1;
+      return {
+        id: `pant_${Date.now()}_${i}_${Math.random().toString(36).substring(2, 7)}`,
+        number: currentMax,
+        artikelnummer: "",
+        images: imgs.slice(0, 5),
+        measurements: {
+          waist: "",
+          totalLength: "",
+          inseam: "",
+          legOpening: "",
+          thighWidth: "",
+        },
+        customNotes: "",
+        status: "waiting",
+        createdAt: Date.now() + i,
+        updatedAt: Date.now() + i,
+        isCollapsed: false,
+        isDetectedOpen: false,
+      };
+    });
+
+    setPants((prev) => [...prev, ...newItems]);
+    await saveMultiplePantsToDB(newItems);
+    return { added: newItems.length, skipped };
   };
 
   // Duplicate Pant (Only measurements & structure, NO photos or KI results)
@@ -578,6 +623,7 @@ export default function App() {
         onToggleDarkMode={handleToggleDarkMode}
         onAddNewPant={handleAddNewPant}
         onOpenAddMultiple={() => setIsAddMultipleOpen(true)}
+        onOpenBulkUpload={() => setIsBulkUploadOpen(true)}
         onStartBatch={handleStartBatch}
         onStopBatch={handleStopBatch}
         onToggleCollapseAll={handleToggleCollapseAll}
@@ -712,6 +758,15 @@ export default function App() {
         currentCount={pants.length}
         maxLimit={MAX_PANTS_LIMIT}
         onAdd={handleAddMultiple}
+      />
+
+      {/* Sammel-Upload Modal */}
+      <BulkUploadModal
+        isOpen={isBulkUploadOpen}
+        onClose={() => setIsBulkUploadOpen(false)}
+        remainingPantSlots={Math.max(0, MAX_PANTS_LIMIT - pants.length)}
+        onCreatePants={handleCreatePantsFromGroups}
+        onToast={showToast}
       />
 
       {/* Confirm Delete Single Pant */}

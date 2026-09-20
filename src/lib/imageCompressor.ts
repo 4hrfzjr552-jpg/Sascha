@@ -125,3 +125,50 @@ export async function compressImageFile(file: File): Promise<PantImage> {
     reader.readAsDataURL(sourceBlob);
   });
 }
+
+const THUMBNAIL_MAX_DIMENSION = 180;
+const THUMBNAIL_QUALITY = 0.5;
+
+/**
+ * Generates a tiny JPEG thumbnail data URL from an already-compressed data URL.
+ * Used by the bulk uploader so the gallery can render hundreds of previews
+ * cheaply while the full-size images stay in IndexedDB.
+ */
+export function createThumbnail(
+  dataUrl: string,
+  maxDim: number = THUMBNAIL_MAX_DIMENSION,
+  quality: number = THUMBNAIL_QUALITY
+): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        let { width, height } = img;
+        if (width > height) {
+          if (width > maxDim) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          }
+        } else if (height > maxDim) {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          resolve(dataUrl);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      } catch {
+        resolve(dataUrl);
+      }
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}

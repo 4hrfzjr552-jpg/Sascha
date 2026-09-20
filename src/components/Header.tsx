@@ -14,6 +14,7 @@ import {
   Sparkles,
   Sun,
   Moon,
+  Layers,
 } from "lucide-react";
 
 interface HeaderProps {
@@ -26,6 +27,7 @@ interface HeaderProps {
   onToggleDarkMode: () => void;
   onAddNewPant: () => void;
   onOpenAddMultiple: () => void;
+  onOpenBulkUpload: () => void;
   onStartBatch: (onlyMissing: boolean) => void;
   onStopBatch: () => void;
   onToggleCollapseAll: () => void;
@@ -47,6 +49,7 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleDarkMode,
   onAddNewPant,
   onOpenAddMultiple,
+  onOpenBulkUpload,
   onStartBatch,
   onStopBatch,
   onToggleCollapseAll,
@@ -173,6 +176,18 @@ export const Header: React.FC<HeaderProps> = ({
               <PlusCircle className="h-4 w-4 text-stone-600 dark:text-stone-400" />
               <span className="hidden xs:inline">Mehrere hinzufügen</span>
               <span className="xs:hidden">+ Mehrere</span>
+            </button>
+
+            {/* Sammel-Upload */}
+            <button
+              id="bulk-upload-btn"
+              type="button"
+              onClick={onOpenBulkUpload}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-sm font-semibold text-stone-800 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-700 transition-colors shadow-xs min-h-[44px]"
+              title="Viele Bilder auf einmal hochladen und zu Hosen gruppieren"
+            >
+              <Layers className="h-4 w-4 text-stone-600 dark:text-stone-400" />
+              <span>Sammel-Upload</span>
             </button>
 
             {/* Alle Anzeigen erstellen */}
