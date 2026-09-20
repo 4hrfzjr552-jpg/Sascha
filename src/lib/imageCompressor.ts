@@ -1,7 +1,7 @@
 import { PantImage } from "../types";
 
-const MAX_IMAGE_DIMENSION = 1400;
-const JPEG_COMPRESSION_QUALITY = 0.8;
+const MAX_IMAGE_DIMENSION = 1100;
+const JPEG_COMPRESSION_QUALITY = 0.65;
 
 /**
  * Checks if a file is HEIC or HEIF format
