@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { PantItem, PantImage, FilterType, SaleStatus } from "./types";
+import { PantItem, PantImage, FilterType, AnalysisFilterType, SaleStatus } from "./types";
 import { DEFAULT_VINTED_PROMPT, LEGACY_DEFAULT_PROMPTS } from "./lib/defaultPrompt";
 import {
   getAllPants,
@@ -22,6 +22,7 @@ import {
 import { Header } from "./components/Header";
 import { FilterBar } from "./components/FilterBar";
 import { SaleStatusBar } from "./components/SaleStatusBar";
+import { AnalysisStatusBar } from "./components/AnalysisStatusBar";
 import { PantCard } from "./components/PantCard";
 import { SettingsModal } from "./components/SettingsModal";
 import { AddMultipleModal } from "./components/AddMultipleModal";
@@ -41,6 +42,7 @@ export default function App() {
 
   // Filters & Search
   const [filter, setFilter] = useState<FilterType>("all");
+  const [analysisFilter, setAnalysisFilter] = useState<AnalysisFilterType>("all");
   const [searchQuery, setSearchQuery] = useState("");
 
   // Modals
@@ -623,9 +625,36 @@ export default function App() {
     [pants]
   );
 
+  // Technical analysis status counts (independent from sale status).
+  // "analyzing" pants are counted as still waiting to finish.
+  const analysisCounts = useMemo(() => {
+    const result: Record<AnalysisFilterType, number> = {
+      all: pants.length,
+      waiting: 0,
+      done: 0,
+      error: 0,
+    };
+    pants.forEach((pant) => {
+      if (pant.status === "done") result.done += 1;
+      else if (pant.status === "error") result.error += 1;
+      else result.waiting += 1; // waiting + analyzing
+    });
+    return result;
+  }, [pants]);
+
   // Filtered & Searched List
   const filteredPants = useMemo(() => {
     let result = pants;
+
+    // Technical analysis status filter (independent from sale status).
+    if (analysisFilter !== "all") {
+      result = result.filter((p) => {
+        if (analysisFilter === "done") return p.status === "done";
+        if (analysisFilter === "error") return p.status === "error";
+        // "waiting" bucket also includes pants currently being analyzed.
+        return p.status === "waiting" || p.status === "analyzing";
+      });
+    }
 
     // Sale status filter. The AI analysis status remains independent.
     if (filter !== "all") {
@@ -646,7 +675,7 @@ export default function App() {
     }
 
     return result;
-  }, [pants, filter, searchQuery]);
+  }, [pants, filter, analysisFilter, searchQuery]);
 
   if (!isLoaded) {
     return (
@@ -691,11 +720,26 @@ export default function App() {
         {/* Filter & Search Bar */}
         {pants.length > 0 && (
           <div className="space-y-3">
-            <SaleStatusBar
-              currentFilter={filter}
-              onFilterChange={setFilter}
-              counts={counts}
-            />
+            <div className="space-y-1.5">
+              <span className="block px-1 text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">
+                Analyse-Status
+              </span>
+              <AnalysisStatusBar
+                currentFilter={analysisFilter}
+                onFilterChange={setAnalysisFilter}
+                counts={analysisCounts}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <span className="block px-1 text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">
+                Verkaufsstatus
+              </span>
+              <SaleStatusBar
+                currentFilter={filter}
+                onFilterChange={setFilter}
+                counts={counts}
+              />
+            </div>
             <FilterBar
               searchQuery={searchQuery}
               onSearchChange={setSearchQuery}
@@ -750,13 +794,14 @@ export default function App() {
               Keine Hosen gefunden
             </p>
             <p className="text-xs text-stone-700 dark:text-stone-400 mt-1">
-              Keine Einträge für den Filter „{filter}“{" "}
+              Keine Einträge für die aktiven Filter{" "}
               {searchQuery && `oder die Suche „${searchQuery}“`}.
             </p>
             <button
               type="button"
               onClick={() => {
                 setFilter("all");
+                setAnalysisFilter("all");
                 setSearchQuery("");
               }}
               className="mt-4 px-4 py-2 rounded-xl bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-xs font-semibold text-stone-800 dark:text-stone-200 transition-colors"
