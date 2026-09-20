@@ -15,6 +15,7 @@ import {
   Sun,
   Moon,
   Layers,
+  BarChart3,
 } from "lucide-react";
 
 interface HeaderProps {
@@ -25,6 +26,7 @@ interface HeaderProps {
   batchActiveCount: number;
   isDarkMode: boolean;
   onToggleDarkMode: () => void;
+  onOpenStatistics: () => void;
   onAddNewPant: () => void;
   onOpenAddMultiple: () => void;
   onOpenBulkUpload: () => void;
@@ -47,6 +49,7 @@ export const Header: React.FC<HeaderProps> = ({
   batchActiveCount,
   isDarkMode,
   onToggleDarkMode,
+  onOpenStatistics,
   onAddNewPant,
   onOpenAddMultiple,
   onOpenBulkUpload,
@@ -123,6 +126,18 @@ export const Header: React.FC<HeaderProps> = ({
               ) : (
                 <Moon className="h-5 w-5" />
               )}
+            </button>
+
+            {/* Statistics Trigger */}
+            <button
+              id="open-statistics-btn"
+              type="button"
+              onClick={onOpenStatistics}
+              className="flex h-10 w-10 items-center justify-center rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-700 hover:text-stone-900 dark:hover:text-white transition-colors shadow-xs"
+              title="Statistiken"
+              aria-label="Statistiken öffnen"
+            >
+              <BarChart3 className="h-5 w-5" />
             </button>
 
             {/* Settings Trigger */}
