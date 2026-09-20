@@ -1,0 +1,6 @@
+{
+  "name": "Sascha Ai",
+  "description": "Vollständiger Vinted-Anzeigen-Generator für bis zu 100 Hosen mit KI-Multimodal-Bildanalyse, Stapelverarbeitung und Offline-Speicher.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
