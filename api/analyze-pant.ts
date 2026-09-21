@@ -70,16 +70,9 @@ export default async function handler(req: any, res: any) {
           ? img
           : img?.dataUrl || "";
 
-      if (!dataUrl || !dataUrl.includes(",")) {
+      if (!dataUrl) {
         continue;
       }
-
-      const commaIndex = dataUrl.indexOf(",");
-      const header = dataUrl.slice(0, commaIndex);
-      const base64Data = dataUrl.slice(commaIndex + 1);
-
-      const mimeMatch = header.match(/:(.*?);/);
-      const mimeType = mimeMatch?.[1] || "image/jpeg";
 
       const allowedMimes = [
         "image/jpeg",
@@ -89,6 +82,42 @@ export default async function handler(req: any, res: any) {
         "image/heic",
         "image/heif",
       ];
+
+      // Handle HTTP/HTTPS URLs (e.g. Supabase Storage signed URLs) by fetching image buffer server-side
+      if (dataUrl.startsWith("http://") || dataUrl.startsWith("https://")) {
+        try {
+          const fetchRes = await fetch(dataUrl);
+          if (fetchRes.ok) {
+            const arrayBuffer = await fetchRes.arrayBuffer();
+            const buffer = Buffer.from(arrayBuffer);
+            const base64Data = buffer.toString("base64");
+            const contentType = fetchRes.headers.get("content-type") || "image/jpeg";
+            const mimeType = contentType.split(";")[0].trim().toLowerCase();
+            const validMime = allowedMimes.includes(mimeType) ? mimeType : "image/jpeg";
+
+            imageParts.push({
+              inlineData: {
+                mimeType: validMime,
+                data: base64Data,
+              },
+            });
+            continue;
+          }
+        } catch (fetchErr) {
+          console.error("Server-side image fetch failed for URL:", dataUrl, fetchErr);
+        }
+      }
+
+      if (!dataUrl.includes(",")) {
+        continue;
+      }
+
+      const commaIndex = dataUrl.indexOf(",");
+      const header = dataUrl.slice(0, commaIndex);
+      const base64Data = dataUrl.slice(commaIndex + 1);
+
+      const mimeMatch = header.match(/:(.*?);/);
+      const mimeType = mimeMatch?.[1] || "image/jpeg";
 
       const validMime = allowedMimes.includes(mimeType.toLowerCase())
         ? mimeType

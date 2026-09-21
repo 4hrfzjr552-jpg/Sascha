@@ -134,6 +134,37 @@ const THUMBNAIL_QUALITY = 0.5;
  * Used by the bulk uploader so the gallery can render hundreds of previews
  * cheaply while the full-size images stay in IndexedDB.
  */
+/**
+ * Converts a URL (e.g. Supabase Storage signed URL or blob/http URL) to a base64 Data URL
+ */
+export async function imageUrlToBase64DataUrl(url: string): Promise<string> {
+  if (!url) return '';
+  if (url.startsWith('data:')) return url;
+
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP error ${response.status} fetching image`);
+    }
+    const blob = await response.blob();
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+          resolve(reader.result);
+        } else {
+          reject(new Error('FileReader did not return a string'));
+        }
+      };
+      reader.onerror = () => reject(new Error('FileReader failed to convert image blob'));
+      reader.readAsDataURL(blob);
+    });
+  } catch (err) {
+    console.error('imageUrlToBase64DataUrl failed for:', url, err);
+    throw err;
+  }
+}
+
 export function createThumbnail(
   dataUrl: string,
   maxDim: number = THUMBNAIL_MAX_DIMENSION,

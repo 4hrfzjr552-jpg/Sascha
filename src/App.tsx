@@ -21,6 +21,7 @@ import {
   formatTitleWithArticleNumber,
   appendKeywordsToDescription,
 } from "./lib/titleUtils";
+import { imageUrlToBase64DataUrl } from "./lib/imageCompressor";
 import { Header } from "./components/Header";
 import { FilterBar } from "./components/FilterBar";
 import { SaleStatusBar } from "./components/SaleStatusBar";
@@ -555,6 +556,24 @@ export default function App() {
     await handleUpdatePant(analyzingPant);
 
     try {
+      // Prepare images: Convert any signed/storage URLs to base64 Data URLs so API gets full image payload
+      const preparedImages = await Promise.all(
+        targetPant.images.map(async (img) => {
+          let base64 = img.dataUrl;
+          if (base64 && !base64.startsWith("data:")) {
+            try {
+              base64 = await imageUrlToBase64DataUrl(base64);
+            } catch (err) {
+              console.warn(`Failed to convert image ${img.id} URL to base64:`, err);
+            }
+          }
+          return {
+            dataUrl: base64,
+            name: img.name,
+          };
+        })
+      );
+
       const response = await fetch("/api/analyze-pant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -562,10 +581,7 @@ export default function App() {
           pantId: targetPant.id,
           number: targetPant.number,
           artikelnummer: targetPant.artikelnummer,
-          images: targetPant.images.map((img) => ({
-            dataUrl: img.dataUrl,
-            name: img.name,
-          })),
+          images: preparedImages,
           measurements: targetPant.measurements,
           customNotes: targetPant.customNotes,
           customPrompt: promptToUse,
