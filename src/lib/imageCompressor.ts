@@ -134,6 +134,42 @@ const THUMBNAIL_QUALITY = 0.5;
  * Used by the bulk uploader so the gallery can render hundreds of previews
  * cheaply while the full-size images stay in IndexedDB.
  */
+/**
+ * Ensures an image reference (Data URL, Storage HTTP/HTTPS URL, Blob URL)
+ * is converted to a valid Base64 Data URL string for API payloads.
+ */
+export async function ensureDataUrl(urlOrDataUrl: string): Promise<string> {
+  if (!urlOrDataUrl) return "";
+  if (urlOrDataUrl.startsWith("data:") && urlOrDataUrl.includes(",")) {
+    return urlOrDataUrl;
+  }
+
+  try {
+    const response = await fetch(urlOrDataUrl);
+    if (!response.ok) {
+      console.warn("Failed to fetch image URL:", urlOrDataUrl, response.statusText);
+      return "";
+    }
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = reader.result;
+        if (typeof result === "string" && result.startsWith("data:") && result.includes(",")) {
+          resolve(result);
+        } else {
+          resolve("");
+        }
+      };
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
+  } catch (err) {
+    console.error("Error converting URL to data URL:", err);
+    return "";
+  }
+}
+
 export function createThumbnail(
   dataUrl: string,
   maxDim: number = THUMBNAIL_MAX_DIMENSION,

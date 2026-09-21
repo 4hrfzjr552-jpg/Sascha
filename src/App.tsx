@@ -15,6 +15,7 @@ import {
   exportPantsAsJson,
   parseImportedJson,
 } from "./lib/exportUtils";
+import { ensureDataUrl } from "./lib/imageCompressor";
 import {
   formatTitleWithArticleNumber,
   appendKeywordsToDescription,
@@ -434,6 +435,30 @@ export default function App() {
     await handleUpdatePant(analyzingPant);
 
     try {
+      const processedImages = await Promise.all(
+        targetPant.images.map(async (img) => {
+          const rawUrl = typeof img === "string" ? img : img?.dataUrl || "";
+          const resolvedDataUrl = await ensureDataUrl(rawUrl);
+          return {
+            dataUrl: resolvedDataUrl,
+            name: img?.name || "image.jpg",
+          };
+        })
+      );
+
+      const validPayloadImages = processedImages.filter((img) => Boolean(img.dataUrl));
+
+      if (validPayloadImages.length === 0) {
+        const failedPant: PantItem = {
+          ...targetPant,
+          status: "error",
+          errorMessage: "Fotos konnten nicht geladen werden.",
+          updatedAt: Date.now(),
+        };
+        await handleUpdatePant(failedPant);
+        return false;
+      }
+
       const response = await fetch("/api/analyze-pant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -441,10 +466,7 @@ export default function App() {
           pantId: targetPant.id,
           number: targetPant.number,
           artikelnummer: targetPant.artikelnummer,
-          images: targetPant.images.map((img) => ({
-            dataUrl: img.dataUrl,
-            name: img.name,
-          })),
+          images: validPayloadImages,
           measurements: targetPant.measurements,
           customNotes: targetPant.customNotes,
           customPrompt: promptToUse,
