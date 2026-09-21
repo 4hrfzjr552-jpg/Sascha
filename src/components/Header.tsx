@@ -18,10 +18,12 @@ import {
   BarChart2,
   MoreHorizontal,
   X,
+  Receipt,
 } from "lucide-react";
 
 interface HeaderProps {
   onOpenStats: () => void;
+  onOpenExpenses: () => void;
   totalCount: number;
   maxLimit: number;
   doneCount: number;
@@ -64,6 +66,7 @@ export const Header: React.FC<HeaderProps> = ({
   onExportCsv,
   onOpenDeleteProject,
   onOpenStats,
+  onOpenExpenses,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isMoreOpen, setIsMoreOpen] = useState(false);
@@ -264,6 +267,20 @@ export const Header: React.FC<HeaderProps> = ({
                   <X className="h-4 w-4" />
                 </button>
               </div>
+
+              {/* Ausgaben erfassen */}
+              <button
+                id="open-expenses-btn"
+                type="button"
+                onClick={() => {
+                  setIsMoreOpen(false);
+                  onOpenExpenses();
+                }}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold text-stone-800 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors min-h-[44px]"
+              >
+                <Receipt className="h-4 w-4 text-stone-500 dark:text-stone-400" />
+                <span>Ausgaben erfassen</span>
+              </button>
 
               {/* + Mehrere Hosen */}
               <button

@@ -1,10 +1,11 @@
-import { PantItem } from "../types";
+import { PantItem, ExpenseItem } from "../types";
 
 const DB_NAME = "vinted_ai_db";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_PANTS = "pants";
 const STORE_SETTINGS = "settings";
 const STORE_BULK = "bulk_images";
+const STORE_EXPENSES = "expenses";
 
 /**
  * A staged bulk-upload image. The full compressed `dataUrl` lives ONLY in
@@ -57,6 +58,9 @@ function openDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORE_BULK)) {
         db.createObjectStore(STORE_BULK, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(STORE_EXPENSES)) {
+        db.createObjectStore(STORE_EXPENSES, { keyPath: "id" });
       }
     };
 
@@ -164,6 +168,71 @@ export async function clearAllPantsFromDB(): Promise<void> {
   }
 }
 
+/* ------------------------------------------------------------------ *
+ * Expenses Store
+ * ------------------------------------------------------------------ */
+
+export async function getAllExpenses(): Promise<ExpenseItem[]> {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_EXPENSES, "readonly");
+      const store = transaction.objectStore(STORE_EXPENSES);
+      const request = store.getAll();
+
+      request.onsuccess = () => {
+        const list = (request.result || []) as ExpenseItem[];
+        // Sort by createdAt descending
+        list.sort((a, b) => b.createdAt - a.createdAt);
+        resolve(list);
+      };
+
+      request.onerror = () => {
+        reject(request.error);
+      };
+    });
+  } catch (err) {
+    console.error("Failed to load expenses from IndexedDB:", err);
+    return [];
+  }
+}
+
+export async function saveExpenseToDB(expense: ExpenseItem): Promise<void> {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_EXPENSES, "readwrite");
+      const store = transaction.objectStore(STORE_EXPENSES);
+      const request = store.put(expense);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  } catch (err) {
+    console.error("Failed to save expense to IndexedDB:", err);
+  }
+}
+
+export async function deleteExpenseFromDB(id: string): Promise<void> {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_EXPENSES, "readwrite");
+      const store = transaction.objectStore(STORE_EXPENSES);
+      const request = store.delete(id);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  } catch (err) {
+    console.error("Failed to delete expense from IndexedDB:", err);
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Settings Store
+ * ------------------------------------------------------------------ */
+
 export async function getSetting<T>(key: string, defaultValue: T): Promise<T> {
   try {
     const db = await openDB();
@@ -176,7 +245,6 @@ export async function getSetting<T>(key: string, defaultValue: T): Promise<T> {
         if (request.result && request.result.value !== undefined) {
           resolve(request.result.value as T);
         } else {
-          // Check localStorage as fallback
           const localVal = localStorage.getItem(`vinted_ai_${key}`);
           if (localVal !== null) {
             try {
@@ -218,7 +286,6 @@ export async function getSetting<T>(key: string, defaultValue: T): Promise<T> {
 }
 
 export async function setSetting<T>(key: string, value: T): Promise<void> {
-  // Save to localStorage as quick sync backup
   try {
     localStorage.setItem(`vinted_ai_${key}`, typeof value === "string" ? value : JSON.stringify(value));
   } catch (e) {

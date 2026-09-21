@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { PantItem, PantImage, FilterType, AnalysisFilterType, SaleStatus } from "./types";
+import { PantItem, PantImage, FilterType, AnalysisFilterType, SaleStatus, ExpenseItem } from "./types";
 import { DEFAULT_VINTED_PROMPT, LEGACY_DEFAULT_PROMPTS } from "./lib/defaultPrompt";
 import {
   getAllPants,
@@ -7,6 +7,9 @@ import {
   saveMultiplePantsToDB,
   deletePantFromDB,
   clearAllPantsFromDB,
+  getAllExpenses,
+  saveExpenseToDB,
+  deleteExpenseFromDB,
   getSetting,
   setSetting,
 } from "./lib/indexedDb";
@@ -29,6 +32,7 @@ import { AddMultipleModal } from "./components/AddMultipleModal";
 import { BulkUploadModal } from "./components/BulkUploadModal";
 import { SoldModal } from "./components/SoldModal";
 import { StatsModal } from "./components/StatsModal";
+import { ExpenseModal } from "./components/ExpenseModal";
 import { ConfirmModal } from "./components/ConfirmModal";
 import { Plus, Sparkles, AlertCircle } from "lucide-react";
 import { normalizePantSaleStatus } from "./lib/saleStatus";
@@ -38,6 +42,7 @@ const MAX_CONCURRENT_ANALYSES = 3;
 
 export default function App() {
   const [pants, setPants] = useState<PantItem[]>([]);
+  const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const [customPrompt, setCustomPrompt] = useState<string>(DEFAULT_VINTED_PROMPT);
 
@@ -49,6 +54,7 @@ export default function App() {
   // Modals
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isStatsOpen, setIsStatsOpen] = useState(false);
+  const [isExpensesOpen, setIsExpensesOpen] = useState(false);
   const [isAddMultipleOpen, setIsAddMultipleOpen] = useState(false);
   const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
   const [isDeleteProjectOpen, setIsDeleteProjectOpen] = useState(false);
@@ -111,6 +117,9 @@ export default function App() {
         ) {
           await saveMultiplePantsToDB(normalizedPants);
         }
+
+        const storedExpenses = await getAllExpenses();
+        setExpenses(storedExpenses);
 
         const storedPrompt = await getSetting<string | null>(
           "custom_vinted_prompt",
@@ -327,6 +336,30 @@ export default function App() {
     });
     setPantForSaleModalId(null);
     showToast(`Verkauf für Hose #${pant.number} gespeichert.`, "success");
+  };
+
+  // Save or Update Expense
+  const handleSaveExpense = async (expense: ExpenseItem) => {
+    const existingIndex = expenses.findIndex((e) => e.id === expense.id);
+    let updated: ExpenseItem[];
+    if (existingIndex >= 0) {
+      updated = expenses.map((e) => (e.id === expense.id ? expense : e));
+    } else {
+      updated = [expense, ...expenses];
+    }
+    // Keep sorted newest first
+    updated.sort((a, b) => b.createdAt - a.createdAt);
+    setExpenses(updated);
+    await saveExpenseToDB(expense);
+    showToast("Ausgabe gespeichert.", "success");
+  };
+
+  // Delete Expense
+  const handleDeleteExpense = async (id: string) => {
+    const updated = expenses.filter((e) => e.id !== id);
+    setExpenses(updated);
+    await deleteExpenseFromDB(id);
+    showToast("Ausgabe gelöscht.", "info");
   };
 
   // Delete single Pant
@@ -676,6 +709,31 @@ export default function App() {
       });
     }
 
+    // Special numerical sorting when sale filter is "uploaded"
+    if (filter === "uploaded") {
+      result = [...result].sort((a, b) => {
+        const parseArtNr = (artNr?: string): number | null => {
+          if (!artNr) return null;
+          const trimmed = artNr.trim();
+          if (!trimmed) return null;
+          const num = Number(trimmed);
+          return !isNaN(num) && Number.isFinite(num) ? num : null;
+        };
+
+        const numA = parseArtNr(a.artikelnummer);
+        const numB = parseArtNr(b.artikelnummer);
+
+        if (numA !== null && numB !== null) {
+          if (numA !== numB) return numA - numB;
+          return a.number - b.number;
+        }
+        if (numA !== null && numB === null) return -1;
+        if (numA === null && numB !== null) return 1;
+
+        return a.number - b.number;
+      });
+    }
+
     return result;
   }, [pants, filter, analysisFilter, searchQuery]);
 
@@ -712,6 +770,7 @@ export default function App() {
         areAllCollapsed={areAllCollapsed}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenStats={() => setIsStatsOpen(true)}
+        onOpenExpenses={() => setIsExpensesOpen(true)}
         onExportJson={handleExportJson}
         onImportJson={handleImportJson}
         onExportCsv={handleExportCsv}
@@ -860,7 +919,17 @@ export default function App() {
       <StatsModal
         isOpen={isStatsOpen}
         pants={pants}
+        expenses={expenses}
         onClose={() => setIsStatsOpen(false)}
+      />
+
+      {/* Expense Modal */}
+      <ExpenseModal
+        isOpen={isExpensesOpen}
+        expenses={expenses}
+        onClose={() => setIsExpensesOpen(false)}
+        onSaveExpense={handleSaveExpense}
+        onDeleteExpense={handleDeleteExpense}
       />
 
       {/* Add Multiple Modal */}

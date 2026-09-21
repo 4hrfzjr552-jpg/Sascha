@@ -56,3 +56,29 @@ export interface PantItem {
 
 export type FilterType = "all" | SaleStatus;
 export type AnalysisFilterType = "all" | "waiting" | "done" | "error";
+
+export type ExpenseCategory =
+  | "Einkauf"
+  | "Versandmaterial"
+  | "Verpackung"
+  | "Fahrtkosten"
+  | "Gebühren"
+  | "Sonstiges";
+
+export const EXPENSE_CATEGORIES: ExpenseCategory[] = [
+  "Einkauf",
+  "Versandmaterial",
+  "Verpackung",
+  "Fahrtkosten",
+  "Gebühren",
+  "Sonstiges",
+];
+
+export interface ExpenseItem {
+  id: string;
+  amount: number;
+  date: string; // YYYY-MM-DD
+  category: ExpenseCategory;
+  notes?: string;
+  createdAt: number;
+}

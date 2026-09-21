@@ -1,5 +1,5 @@
 import React from "react";
-import { PantItem } from "../types";
+import { PantItem, ExpenseItem } from "../types";
 import {
   calculateStats,
   formatCurrency,
@@ -19,22 +19,26 @@ import {
   Clock,
   Tag,
   Receipt,
+  PiggyBank,
+  ArrowDownCircle,
 } from "lucide-react";
 
 interface StatsModalProps {
   isOpen: boolean;
   pants: PantItem[];
+  expenses?: ExpenseItem[];
   onClose: () => void;
 }
 
 export const StatsModal: React.FC<StatsModalProps> = ({
   isOpen,
   pants,
+  expenses = [],
   onClose,
 }) => {
   if (!isOpen) return null;
 
-  const stats = calculateStats(pants);
+  const stats = calculateStats(pants, expenses);
 
   return (
     <div
@@ -58,7 +62,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                 Statistiken
               </h2>
               <p className="text-xs text-stone-500 dark:text-stone-400 font-medium">
-                Übersicht deiner Verkäufe & Kennzahlen
+                Verkäufe, Ausgaben & Nettogewinn
               </p>
             </div>
           </div>
@@ -74,10 +78,97 @@ export const StatsModal: React.FC<StatsModalProps> = ({
 
         {/* Modal Content - Scrollable */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 scrollbar-thin">
-          {/* Section 1: Overview Grid (9 Key Metrics) */}
+          {/* Section 1: Financial Summary (Gewinn, Umsatz, Ausgaben) */}
           <div className="space-y-3">
             <h3 className="text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400 px-1">
-              Kennzahlen
+              Finanz-Übersicht
+            </h3>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {/* Gewinn gesamt */}
+              <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 flex flex-col justify-between">
+                <div className="flex items-center justify-between gap-1 text-emerald-700 dark:text-emerald-400">
+                  <span className="text-xs font-bold leading-snug">
+                    Gewinn gesamt
+                  </span>
+                  <PiggyBank className="h-4 w-4 shrink-0" />
+                </div>
+                <div className={`mt-2 text-xl sm:text-2xl font-black tracking-tight ${stats.totalProfit >= 0 ? "text-emerald-900 dark:text-emerald-200" : "text-rose-600 dark:text-rose-400"}`}>
+                  {formatCurrency(stats.totalProfit)}
+                </div>
+              </div>
+
+              {/* Gewinn diesen Monat */}
+              <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 flex flex-col justify-between">
+                <div className="flex items-center justify-between gap-1 text-emerald-700 dark:text-emerald-400">
+                  <span className="text-xs font-bold leading-snug">
+                    Gewinn diesen Monat
+                  </span>
+                  <TrendingUp className="h-4 w-4 shrink-0" />
+                </div>
+                <div className={`mt-2 text-xl sm:text-2xl font-black tracking-tight ${stats.profitThisMonth >= 0 ? "text-emerald-900 dark:text-emerald-200" : "text-rose-600 dark:text-rose-400"}`}>
+                  {formatCurrency(stats.profitThisMonth)}
+                </div>
+              </div>
+
+              {/* Ausgaben gesamt */}
+              <div className="p-3.5 rounded-2xl bg-rose-50/80 dark:bg-rose-950/30 border border-rose-200/80 dark:border-rose-800/50 flex flex-col justify-between col-span-2 sm:col-span-1">
+                <div className="flex items-center justify-between gap-1 text-rose-700 dark:text-rose-400">
+                  <span className="text-xs font-bold leading-snug">
+                    Ausgaben gesamt
+                  </span>
+                  <ArrowDownCircle className="h-4 w-4 shrink-0" />
+                </div>
+                <div className="mt-2 text-xl sm:text-2xl font-black text-rose-900 dark:text-rose-200 tracking-tight">
+                  {formatCurrency(stats.totalExpenses)}
+                </div>
+              </div>
+
+              {/* Einnahmen/Umsatz gesamt */}
+              <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200/80 dark:border-stone-800 flex flex-col justify-between">
+                <div className="flex items-center justify-between gap-1 text-stone-500 dark:text-stone-400">
+                  <span className="text-xs font-semibold leading-snug">
+                    Einnahmen gesamt
+                  </span>
+                  <DollarSign className="h-4 w-4 shrink-0 text-emerald-500" />
+                </div>
+                <div className="mt-2 text-lg sm:text-xl font-bold text-stone-900 dark:text-stone-100 tracking-tight">
+                  {formatCurrency(stats.totalRevenue)}
+                </div>
+              </div>
+
+              {/* Umsatz diesen Monat */}
+              <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200/80 dark:border-stone-800 flex flex-col justify-between">
+                <div className="flex items-center justify-between gap-1 text-stone-500 dark:text-stone-400">
+                  <span className="text-xs font-semibold leading-snug">
+                    Umsatz diesen Monat
+                  </span>
+                  <CalendarDays className="h-4 w-4 shrink-0 text-indigo-400" />
+                </div>
+                <div className="mt-2 text-lg sm:text-xl font-bold text-stone-900 dark:text-stone-100 tracking-tight">
+                  {formatCurrency(stats.revenueThisMonth)}
+                </div>
+              </div>
+
+              {/* Ausgaben diesen Monat */}
+              <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200/80 dark:border-stone-800 flex flex-col justify-between">
+                <div className="flex items-center justify-between gap-1 text-stone-500 dark:text-stone-400">
+                  <span className="text-xs font-semibold leading-snug">
+                    Ausgaben diesen Monat
+                  </span>
+                  <Receipt className="h-4 w-4 shrink-0 text-rose-400" />
+                </div>
+                <div className="mt-2 text-lg sm:text-xl font-bold text-stone-900 dark:text-stone-100 tracking-tight">
+                  {formatCurrency(stats.expensesThisMonth)}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 2: Operational Key Metrics */}
+          <div className="space-y-3">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400 px-1">
+              Inventar & Performance
             </h3>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -133,46 +224,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                 </div>
               </div>
 
-              {/* 5. Verkäufe diesen Monat */}
-              <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200/80 dark:border-stone-800 flex flex-col justify-between">
-                <div className="flex items-center justify-between gap-1 text-stone-500 dark:text-stone-400">
-                  <span className="text-xs font-semibold leading-snug">
-                    Verkäufe diesen Monat
-                  </span>
-                  <CalendarDays className="h-4 w-4 shrink-0 text-indigo-500 dark:text-indigo-400" />
-                </div>
-                <div className="mt-2 text-xl sm:text-2xl font-black text-stone-900 dark:text-stone-100 tracking-tight">
-                  {stats.salesThisMonth}
-                </div>
-              </div>
-
-              {/* 6. Umsatz insgesamt */}
-              <div className="p-3.5 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/50 flex flex-col justify-between">
-                <div className="flex items-center justify-between gap-1 text-emerald-700 dark:text-emerald-400">
-                  <span className="text-xs font-semibold leading-snug">
-                    Umsatz insgesamt
-                  </span>
-                  <DollarSign className="h-4 w-4 shrink-0" />
-                </div>
-                <div className="mt-2 text-xl sm:text-2xl font-black text-emerald-900 dark:text-emerald-200 tracking-tight">
-                  {formatCurrency(stats.totalRevenue)}
-                </div>
-              </div>
-
-              {/* 7. Umsatz diesen Monat */}
-              <div className="p-3.5 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/50 flex flex-col justify-between">
-                <div className="flex items-center justify-between gap-1 text-emerald-700 dark:text-emerald-400">
-                  <span className="text-xs font-semibold leading-snug">
-                    Umsatz diesen Monat
-                  </span>
-                  <TrendingUp className="h-4 w-4 shrink-0" />
-                </div>
-                <div className="mt-2 text-xl sm:text-2xl font-black text-emerald-900 dark:text-emerald-200 tracking-tight">
-                  {formatCurrency(stats.revenueThisMonth)}
-                </div>
-              </div>
-
-              {/* 8. durchschnittlicher Verkaufspreis */}
+              {/* 5. durchschnittlicher Verkaufspreis */}
               <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200/80 dark:border-stone-800 flex flex-col justify-between">
                 <div className="flex items-center justify-between gap-1 text-stone-500 dark:text-stone-400">
                   <span className="text-xs font-semibold leading-snug">
@@ -185,7 +237,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                 </div>
               </div>
 
-              {/* 9. durchschnittliche Verkaufsdauer in Tagen */}
+              {/* 6. durchschnittliche Verkaufsdauer in Tagen */}
               <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200/80 dark:border-stone-800 flex flex-col justify-between col-span-2 sm:col-span-1">
                 <div className="flex items-center justify-between gap-1 text-stone-500 dark:text-stone-400">
                   <span className="text-xs font-semibold leading-snug">
@@ -200,7 +252,61 @@ export const StatsModal: React.FC<StatsModalProps> = ({
             </div>
           </div>
 
-          {/* Section 2: Letzte Verkäufe */}
+          {/* Section 3: Letzte Ausgaben */}
+          <div className="space-y-3 pt-2">
+            <div className="flex items-center justify-between px-1">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">
+                Letzte Ausgaben
+              </h3>
+              {stats.recentExpenses.length > 0 && (
+                <span className="text-xs font-medium text-stone-400 dark:text-stone-500">
+                  Max. 10 Einträge
+                </span>
+              )}
+            </div>
+
+            {stats.recentExpenses.length === 0 ? (
+              <div className="p-5 rounded-2xl bg-stone-50 dark:bg-stone-800/40 border border-stone-200/80 dark:border-stone-800 text-center">
+                <Receipt className="h-7 w-7 mx-auto text-stone-400 dark:text-stone-500 mb-1.5" />
+                <p className="text-xs sm:text-sm font-semibold text-stone-700 dark:text-stone-300">
+                  Noch keine Ausgaben erfasst
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {stats.recentExpenses.map((exp) => (
+                  <div
+                    key={exp.id}
+                    className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200/80 dark:border-stone-800 flex items-center justify-between gap-2.5"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded-md bg-stone-200 dark:bg-stone-700 text-stone-800 dark:text-stone-200 text-xs font-bold">
+                          {exp.category}
+                        </span>
+                        <span className="text-xs text-stone-500 dark:text-stone-400 font-medium">
+                          {formatDateDE(exp.date)}
+                        </span>
+                      </div>
+                      {exp.notes && (
+                        <p className="text-xs text-stone-600 dark:text-stone-300 font-medium truncate mt-0.5">
+                          {exp.notes}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="text-right shrink-0">
+                      <span className="inline-block px-3 py-1 rounded-xl bg-rose-100 dark:bg-rose-950/80 border border-rose-200 dark:border-rose-800 text-rose-900 dark:text-rose-200 text-sm font-black">
+                        -{formatCurrency(exp.amount)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Section 4: Letzte Verkäufe */}
           <div className="space-y-3 pt-2">
             <div className="flex items-center justify-between px-1">
               <h3 className="text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">

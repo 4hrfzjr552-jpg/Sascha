@@ -1,4 +1,4 @@
-import { PantItem } from "../types";
+import { PantItem, ExpenseItem, ExpenseCategory } from "../types";
 
 export interface RecentSaleItem {
   pantNumber: number;
@@ -7,6 +7,14 @@ export interface RecentSaleItem {
   salePrice: number;
   saleDate: Date | null;
   saleDurationText: string | null;
+}
+
+export interface RecentExpenseItem {
+  id: string;
+  date: Date | null;
+  category: ExpenseCategory;
+  notes?: string;
+  amount: number;
 }
 
 export interface StatsData {
@@ -20,6 +28,12 @@ export interface StatsData {
   avgSalePrice: number;
   avgSaleDurationDays: number;
   recentSales: RecentSaleItem[];
+  // Expenses & Profit
+  totalExpenses: number;
+  expensesThisMonth: number;
+  totalProfit: number;
+  profitThisMonth: number;
+  recentExpenses: RecentExpenseItem[];
 }
 
 /**
@@ -47,6 +61,16 @@ export function getPantSaleDate(pant: PantItem): Date | null {
     }
   }
 
+  return null;
+}
+
+export function parseDateString(dateStr?: string): Date | null {
+  if (!dateStr) return null;
+  const parts = dateStr.split("-").map(Number);
+  if (parts.length === 3 && parts[0] && parts[1] && parts[2]) {
+    const d = new Date(parts[0], parts[1] - 1, parts[2]);
+    return !isNaN(d.getTime()) ? d : null;
+  }
   return null;
 }
 
@@ -125,7 +149,10 @@ export function formatAvgDuration(days: number): string {
   return `${formatted} ${days === 1 ? "Tag" : "Tage"}`;
 }
 
-export function calculateStats(pants: PantItem[]): StatsData {
+export function calculateStats(
+  pants: PantItem[],
+  expenses: ExpenseItem[] = []
+): StatsData {
   const today = new Date();
 
   const totalPants = pants.length;
@@ -232,6 +259,41 @@ export function calculateStats(pants: PantItem[]): StatsData {
       };
     });
 
+  // Calculate Expenses & Profit
+  let totalExpenses = 0;
+  let expensesThisMonth = 0;
+
+  for (const exp of expenses) {
+    if (typeof exp.amount === "number" && Number.isFinite(exp.amount) && exp.amount > 0) {
+      totalExpenses += exp.amount;
+
+      const expDate = parseDateString(exp.date) || new Date(exp.createdAt);
+      if (isSameMonth(expDate, today)) {
+        expensesThisMonth += exp.amount;
+      }
+    }
+  }
+
+  const totalProfit = totalRevenue - totalExpenses;
+  const profitThisMonth = revenueThisMonth - expensesThisMonth;
+
+  // Recent Expenses (max 10, newest first)
+  const sortedExpenses = [...expenses].sort((a, b) => {
+    const dateA = parseDateString(a.date) || new Date(a.createdAt);
+    const dateB = parseDateString(b.date) || new Date(b.createdAt);
+    return dateB.getTime() - dateA.getTime();
+  });
+
+  const recentExpenses: RecentExpenseItem[] = sortedExpenses
+    .slice(0, 10)
+    .map((exp) => ({
+      id: exp.id,
+      date: parseDateString(exp.date) || new Date(exp.createdAt),
+      category: exp.category,
+      notes: exp.notes,
+      amount: typeof exp.amount === "number" && Number.isFinite(exp.amount) ? exp.amount : 0,
+    }));
+
   return {
     totalPants,
     currentlyUploaded,
@@ -243,5 +305,10 @@ export function calculateStats(pants: PantItem[]): StatsData {
     avgSalePrice,
     avgSaleDurationDays,
     recentSales,
+    totalExpenses,
+    expensesThisMonth,
+    totalProfit,
+    profitThisMonth,
+    recentExpenses,
   };
 }
