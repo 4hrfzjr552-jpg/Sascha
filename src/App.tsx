@@ -47,7 +47,7 @@ import {
   Loader2,
 } from "lucide-react";
 
-const MAX_PANTS_LIMIT = 500;
+const MAX_PANTS_LIMIT = 100;
 const PROMPT_STORAGE_KEY = "sascha_vinted_custom_prompt";
 const DARK_MODE_STORAGE_KEY = "sascha_vinted_dark_mode";
 

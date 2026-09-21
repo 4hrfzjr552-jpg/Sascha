@@ -272,26 +272,22 @@ export async function fetchExpensesFromSupabase(userId: string): Promise<Expense
     }
     return {
       id: row.id,
-      amount: Number(row.amount || 0),
-      date: row.date || new Date().toISOString().split('T')[0],
-      category: row.category || 'Sonstiges',
-      notes: row.notes || '',
+      amount: 0,
+      date: new Date().toISOString().split('T')[0],
+      category: 'Sonstiges',
+      notes: '',
       createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
     } as ExpenseItem;
   });
 }
 
 /**
- * Save an expense to public.expenses
+ * Save an expense to public.expenses (only using columns id, user_id, data, updated_at)
  */
 export async function saveExpenseToSupabase(userId: string, expense: ExpenseItem): Promise<void> {
   const payload = {
     id: expense.id,
     user_id: userId,
-    amount: expense.amount,
-    date: expense.date,
-    category: expense.category,
-    notes: expense.notes || '',
     data: expense,
     updated_at: new Date().toISOString(),
   };
