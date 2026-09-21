@@ -1,5 +1,12 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { PantItem, PantImage, FilterType, AnalysisFilterType, SaleStatus } from "./types";
+import {
+  PantItem,
+  PantImage,
+  FilterType,
+  AnalysisFilterType,
+  GenerationFilterType,
+  SaleStatus,
+} from "./types";
 import { DEFAULT_VINTED_PROMPT, LEGACY_DEFAULT_PROMPTS } from "./lib/defaultPrompt";
 import {
   getAllPants,
@@ -20,10 +27,12 @@ import {
   formatTitleWithArticleNumber,
   appendKeywordsToDescription,
 } from "./lib/titleUtils";
+import { sortPantsByArticleNumber } from "./lib/articleNumberUtils";
 import { Header } from "./components/Header";
 import { FilterBar } from "./components/FilterBar";
 import { SaleStatusBar } from "./components/SaleStatusBar";
 import { AnalysisStatusBar } from "./components/AnalysisStatusBar";
+import { GenerationStatusBar } from "./components/GenerationStatusBar";
 import { PantCard } from "./components/PantCard";
 import { SettingsModal } from "./components/SettingsModal";
 import { AddMultipleModal } from "./components/AddMultipleModal";
@@ -45,6 +54,7 @@ export default function App() {
   // Filters & Search
   const [filter, setFilter] = useState<FilterType>("all");
   const [analysisFilter, setAnalysisFilter] = useState<AnalysisFilterType>("all");
+  const [generationFilter, setGenerationFilter] = useState<GenerationFilterType>("all");
   const [searchQuery, setSearchQuery] = useState("");
 
   // Modals
@@ -413,6 +423,12 @@ export default function App() {
     targetPant: PantItem,
     promptToUse: string
   ): Promise<boolean> => {
+    // Check article number requirement
+    if (!targetPant.artikelnummer?.trim()) {
+      showToast("Bitte zuerst eine Artikelnummer eintragen.", "error");
+      return false;
+    }
+
     // Check photos
     if (targetPant.images.length === 0) {
       const updatedWithError: PantItem = {
@@ -539,22 +555,30 @@ export default function App() {
 
   // Batch analysis engine with Concurrency Pool (max 3 simultaneously)
   const handleStartBatch = async (onlyMissing: boolean) => {
-    // Select candidates
+    // Select candidates that have photos and an article number
     const candidates = pants.filter((p) => {
       if (p.images.length === 0) return false;
+      if (!p.artikelnummer?.trim()) return false;
       if (onlyMissing) {
-        return p.status !== "done";
+        return p.status !== "done" || !p.result;
       }
       return true;
     });
 
     if (candidates.length === 0) {
-      showToast(
-        onlyMissing
-          ? "Keine Hosen mit Fotos gefunden, die noch analysiert werden müssen."
-          : "Keine Hosen mit Fotos vorhanden.",
-        "info"
-      );
+      const missingArtNrCount = pants.filter(
+        (p) => p.images.length > 0 && !p.artikelnummer?.trim()
+      ).length;
+      if (missingArtNrCount > 0) {
+        showToast("Bitte zuerst eine Artikelnummer eintragen.", "error");
+      } else {
+        showToast(
+          onlyMissing
+            ? "Keine Hosen mit Fotos gefunden, die noch analysiert werden müssen."
+            : "Keine Hosen mit Fotos vorhanden.",
+          "info"
+        );
+      }
       return;
     }
 
@@ -666,9 +690,34 @@ export default function App() {
     return result;
   }, [pants]);
 
+  // Generation status counts (automatically calculated).
+  const generationCounts = useMemo(() => {
+    const result: Record<GenerationFilterType, number> = {
+      all: pants.length,
+      generated: 0,
+      not_generated: 0,
+    };
+    pants.forEach((pant) => {
+      if (pant.status === "done" && Boolean(pant.result)) {
+        result.generated += 1;
+      } else {
+        result.not_generated += 1;
+      }
+    });
+    return result;
+  }, [pants]);
+
   // Filtered & Searched List
   const filteredPants = useMemo(() => {
     let result = pants;
+
+    // Generation status filter (Generiert / Nicht generiert)
+    if (generationFilter !== "all") {
+      result = result.filter((p) => {
+        const isGen = p.status === "done" && Boolean(p.result);
+        return generationFilter === "generated" ? isGen : !isGen;
+      });
+    }
 
     // Technical analysis status filter (independent from sale status).
     if (analysisFilter !== "all") {
@@ -698,8 +747,13 @@ export default function App() {
       });
     }
 
+    // Preserve natural numeric sorting when viewing uploaded pants
+    if (filter === "uploaded") {
+      result = sortPantsByArticleNumber(result);
+    }
+
     return result;
-  }, [pants, filter, analysisFilter, searchQuery]);
+  }, [pants, filter, analysisFilter, generationFilter, searchQuery]);
 
   if (!isLoaded) {
     return (
@@ -745,6 +799,16 @@ export default function App() {
         {/* Filter & Search Bar */}
         {pants.length > 0 && (
           <div className="space-y-2">
+            <div>
+              <span className="block px-0.5 mb-1 text-[10px] font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">
+                Generierung
+              </span>
+              <GenerationStatusBar
+                currentFilter={generationFilter}
+                onFilterChange={setGenerationFilter}
+                counts={generationCounts}
+              />
+            </div>
             <div>
               <span className="block px-0.5 mb-1 text-[10px] font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">
                 Analyse-Status
@@ -827,6 +891,7 @@ export default function App() {
               onClick={() => {
                 setFilter("all");
                 setAnalysisFilter("all");
+                setGenerationFilter("all");
                 setSearchQuery("");
               }}
               className="mt-3 px-3.5 py-1.5 rounded-xl bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-xs font-semibold text-stone-800 dark:text-stone-200 transition-colors min-h-[40px]"
@@ -842,6 +907,7 @@ export default function App() {
             <PantCard
               key={pant.id}
               pant={pant}
+              allPants={pants}
               onUpdate={handleUpdatePant}
               onDelete={(id) => setPantToDeleteId(id)}
               onDuplicate={handleDuplicatePant}
