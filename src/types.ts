@@ -3,6 +3,7 @@ export interface PantImage {
   dataUrl: string;
   name: string;
   size: number;
+  storagePath?: string;
 }
 
 export interface PantMeasurements {
@@ -43,6 +44,8 @@ export interface PantItem {
   status: PantStatus;
   saleStatus: SaleStatus;
   uploadedAt?: number;
+  purchasePrice?: number;
+  purchaseDate?: string;
   salePrice?: number;
   saleDate?: string;
   soldAt?: number;
@@ -57,3 +60,29 @@ export interface PantItem {
 export type FilterType = "all" | SaleStatus;
 export type AnalysisFilterType = "all" | "waiting" | "done" | "error";
 export type GenerationFilterType = "all" | "generated" | "not_generated";
+
+export type ExpenseCategory =
+  | "Einkauf"
+  | "Versandmaterial"
+  | "Verpackung"
+  | "Fahrtkosten"
+  | "Gebühren"
+  | "Sonstiges";
+
+export const EXPENSE_CATEGORIES: ExpenseCategory[] = [
+  "Einkauf",
+  "Versandmaterial",
+  "Verpackung",
+  "Fahrtkosten",
+  "Gebühren",
+  "Sonstiges",
+];
+
+export interface ExpenseItem {
+  id: string;
+  amount: number;
+  date: string; // YYYY-MM-DD
+  category: ExpenseCategory;
+  notes?: string;
+  createdAt: number;
+}
