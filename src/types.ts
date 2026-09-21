@@ -3,6 +3,7 @@ export interface PantImage {
   dataUrl: string;
   name: string;
   size: number;
+  storagePath?: string;
 }
 
 export interface PantMeasurements {

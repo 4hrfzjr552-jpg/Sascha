@@ -2,17 +2,16 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { PantItem, PantImage, FilterType, AnalysisFilterType, SaleStatus, ExpenseItem } from "./types";
 import { DEFAULT_VINTED_PROMPT, LEGACY_DEFAULT_PROMPTS } from "./lib/defaultPrompt";
 import {
-  getAllPants,
-  savePantToDB,
-  saveMultiplePantsToDB,
-  deletePantFromDB,
-  clearAllPantsFromDB,
-  getAllExpenses,
-  saveExpenseToDB,
-  deleteExpenseFromDB,
-  getSetting,
-  setSetting,
-} from "./lib/indexedDb";
+  supabase,
+  fetchPantsFromSupabase,
+  savePantToSupabase,
+  deletePantFromSupabase,
+  fetchExpensesFromSupabase,
+  saveExpenseToSupabase,
+  deleteExpenseFromSupabase,
+} from "./lib/supabase";
+import { Auth } from "./components/Auth";
+import { Session } from "@supabase/supabase-js";
 import {
   exportPantsAsCsv,
   exportPantsAsJson,
@@ -34,16 +33,20 @@ import { SoldModal } from "./components/SoldModal";
 import { StatsModal } from "./components/StatsModal";
 import { ExpenseModal } from "./components/ExpenseModal";
 import { ConfirmModal } from "./components/ConfirmModal";
-import { Plus, Sparkles, AlertCircle } from "lucide-react";
+import { Plus, Sparkles, AlertCircle, RefreshCw } from "lucide-react";
 import { normalizePantSaleStatus } from "./lib/saleStatus";
 
 const MAX_PANTS_LIMIT = 100;
 const MAX_CONCURRENT_ANALYSES = 3;
 
 export default function App() {
+  const [session, setSession] = useState<Session | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
   const [pants, setPants] = useState<PantItem[]>([]);
   const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [customPrompt, setCustomPrompt] = useState<string>(DEFAULT_VINTED_PROMPT);
 
   // Filters & Search
@@ -65,6 +68,19 @@ export default function App() {
   const [isBatchRunning, setIsBatchRunning] = useState(false);
   const [batchActiveCount, setBatchActiveCount] = useState(0);
   const stopBatchRef = useRef(false);
+
+  // Notification message toast
+  const [toastMessage, setToastMessage] = useState<{
+    text: string;
+    type: "info" | "success" | "error";
+  } | null>(null);
+
+  const showToast = (text: string, type: "info" | "success" | "error" = "info") => {
+    setToastMessage({ text, type });
+    setTimeout(() => {
+      setToastMessage(null);
+    }, 4000);
+  };
 
   // Dark Mode State
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
@@ -90,60 +106,73 @@ export default function App() {
     setIsDarkMode((prev) => !prev);
   };
 
-  // Notification message toast
-  const [toastMessage, setToastMessage] = useState<{
-    text: string;
-    type: "info" | "success" | "error";
-  } | null>(null);
-
-  const showToast = (text: string, type: "info" | "success" | "error" = "info") => {
-    setToastMessage({ text, type });
-    setTimeout(() => {
-      setToastMessage(null);
-    }, 4000);
-  };
-
-  // 1. Initial Load from IndexedDB
+  // Auth Listener
   useEffect(() => {
-    async function loadData() {
-      try {
-        const storedPants = await getAllPants();
-        const normalizedPants = storedPants.map(normalizePantSaleStatus);
-        setPants(normalizedPants);
-        if (
-          normalizedPants.some(
-            (pant, index) => pant.saleStatus !== storedPants[index]?.saleStatus
-          )
-        ) {
-          await saveMultiplePantsToDB(normalizedPants);
-        }
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setAuthLoading(false);
+    });
 
-        const storedExpenses = await getAllExpenses();
-        setExpenses(storedExpenses);
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setAuthLoading(false);
+    });
 
-        const storedPrompt = await getSetting<string | null>(
-          "custom_vinted_prompt",
-          null
-        );
-        if (!storedPrompt) {
-          setCustomPrompt(DEFAULT_VINTED_PROMPT);
-        } else if (LEGACY_DEFAULT_PROMPTS.some((lp) => lp.trim() === storedPrompt.trim())) {
-          // Unedited legacy default: migrate to new standard prompt
-          setCustomPrompt(DEFAULT_VINTED_PROMPT);
-        } else {
-          // User edited the prompt themselves: preserve their custom version
-          setCustomPrompt(storedPrompt);
-        }
-      } catch (err) {
-        console.error("Failed to initialize database:", err);
-      } finally {
-        setIsLoaded(true);
-      }
-    }
-    loadData();
+    return () => subscription.unsubscribe();
   }, []);
 
-  // Recalculate and re-index pant numbers cleanly when list changes or on demand
+  // Load Data from Supabase when Session is active
+  const userId = session?.user?.id;
+
+  const loadData = async (uid: string) => {
+    setIsSyncing(true);
+    try {
+      const fetchedPants = await fetchPantsFromSupabase(uid);
+      const normalizedPants = fetchedPants.map(normalizePantSaleStatus);
+      setPants(normalizedPants);
+
+      const fetchedExpenses = await fetchExpensesFromSupabase(uid);
+      setExpenses(fetchedExpenses);
+
+      // Prompt setting per user
+      const storedPrompt = localStorage.getItem(`custom_vinted_prompt_${uid}`);
+      if (!storedPrompt) {
+        setCustomPrompt(DEFAULT_VINTED_PROMPT);
+      } else if (LEGACY_DEFAULT_PROMPTS.some((lp) => lp.trim() === storedPrompt.trim())) {
+        setCustomPrompt(DEFAULT_VINTED_PROMPT);
+      } else {
+        setCustomPrompt(storedPrompt);
+      }
+    } catch (err: any) {
+      console.error("Failed to fetch data from Supabase:", err);
+      showToast("Fehler beim Laden der Daten von Supabase.", "error");
+    } finally {
+      setIsLoaded(true);
+      setIsSyncing(false);
+    }
+  };
+
+  useEffect(() => {
+    if (userId) {
+      loadData(userId);
+    } else {
+      setPants([]);
+      setExpenses([]);
+      setIsLoaded(false);
+    }
+  }, [userId]);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setSession(null);
+    setPants([]);
+    setExpenses([]);
+    showToast("Erfolgreich abgemeldet.", "info");
+  };
+
+  // Helper for max number
   const getNextNumber = (list: PantItem[]) => {
     if (list.length === 0) return 1;
     const maxNum = Math.max(...list.map((p) => p.number || 0));
@@ -152,6 +181,7 @@ export default function App() {
 
   // Add 1 New Pant
   const handleAddNewPant = async () => {
+    if (!userId) return;
     if (pants.length >= MAX_PANTS_LIMIT) {
       showToast("Das Maximum von 100 Hosen ist erreicht.", "error");
       return;
@@ -180,12 +210,18 @@ export default function App() {
 
     const updatedList = [...pants, newPant];
     setPants(updatedList);
-    await savePantToDB(newPant);
-    showToast(`Hose #${newPant.number} hinzugefügt.`, "success");
+    try {
+      const saved = await savePantToSupabase(userId, newPant);
+      setPants((prev) => prev.map((p) => (p.id === saved.id ? saved : p)));
+      showToast(`Hose #${newPant.number} hinzugefügt.`, "success");
+    } catch (err) {
+      showToast("Fehler beim Speichern der Hose.", "error");
+    }
   };
 
   // Add Multiple Pants
   const handleAddMultiple = async (count: number) => {
+    if (!userId) return;
     const remaining = Math.max(0, MAX_PANTS_LIMIT - pants.length);
     const toAdd = Math.min(count, remaining);
     if (toAdd <= 0) return;
@@ -219,14 +255,20 @@ export default function App() {
 
     const updatedList = [...pants, ...newItems];
     setPants(updatedList);
-    await saveMultiplePantsToDB(newItems);
-    showToast(`${toAdd} neue Hosen angelegt.`, "success");
+
+    try {
+      await Promise.all(newItems.map((item) => savePantToSupabase(userId, item)));
+      showToast(`${toAdd} neue Hosen angelegt.`, "success");
+    } catch (err) {
+      showToast("Fehler beim Speichern der Hosen in Supabase.", "error");
+    }
   };
 
-  // Create pants from bulk-upload groups (each group => one new pant)
+  // Bulk Upload Groups
   const handleCreatePantsFromGroups = async (
     groups: PantImage[][]
   ): Promise<{ added: number; skipped: number }> => {
+    if (!userId) return { added: 0, skipped: groups.length };
     const remaining = Math.max(0, MAX_PANTS_LIMIT - pants.length);
     const groupsToAdd = groups.slice(0, remaining);
     const skipped = groups.length - groupsToAdd.length;
@@ -263,12 +305,24 @@ export default function App() {
     });
 
     setPants((prev) => [...prev, ...newItems]);
-    await saveMultiplePantsToDB(newItems);
-    return { added: newItems.length, skipped };
+
+    try {
+      const savedItems = await Promise.all(
+        newItems.map((item) => savePantToSupabase(userId, item))
+      );
+      setPants((prev) =>
+        prev.map((p) => savedItems.find((s) => s.id === p.id) || p)
+      );
+      return { added: newItems.length, skipped };
+    } catch (err) {
+      showToast("Fehler beim Speichern der Sammel-Upload Hosen.", "error");
+      return { added: 0, skipped: groups.length };
+    }
   };
 
-  // Duplicate Pant (Only measurements & structure, NO photos or KI results)
+  // Duplicate Pant
   const handleDuplicatePant = async (pant: PantItem) => {
+    if (!userId) return;
     if (pants.length >= MAX_PANTS_LIMIT) {
       showToast("Das Maximum von 100 Hosen ist erreicht.", "error");
       return;
@@ -278,12 +332,12 @@ export default function App() {
       id: `pant_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       number: getNextNumber(pants),
       artikelnummer: "",
-      images: [], // Explicitly no photos
-      measurements: { ...pant.measurements }, // Copy measurements
-      customNotes: pant.customNotes || "", // Copy notes
-      status: "waiting", // Reset status
+      images: [],
+      measurements: { ...pant.measurements },
+      customNotes: pant.customNotes || "",
+      status: "waiting",
       saleStatus: "draft",
-      result: undefined, // Explicitly no KI result
+      result: undefined,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       isCollapsed: false,
@@ -292,14 +346,26 @@ export default function App() {
 
     const updatedList = [...pants, duplicatedPant];
     setPants(updatedList);
-    await savePantToDB(duplicatedPant);
-    showToast(`Hose #${pant.number} als #${duplicatedPant.number} dupliziert (ohne Fotos).`, "success");
+    try {
+      const saved = await savePantToSupabase(userId, duplicatedPant);
+      setPants((prev) => prev.map((p) => (p.id === saved.id ? saved : p)));
+      showToast(`Hose #${pant.number} als #${duplicatedPant.number} dupliziert (ohne Fotos).`, "success");
+    } catch (err) {
+      showToast("Fehler beim Speichern der duplizierten Hose.", "error");
+    }
   };
 
-  // Update Pant State & IndexedDB
+  // Update Pant
   const handleUpdatePant = async (updated: PantItem) => {
+    if (!userId) return;
     setPants((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-    await savePantToDB(updated);
+    try {
+      const saved = await savePantToSupabase(userId, updated);
+      setPants((prev) => prev.map((p) => (p.id === saved.id ? saved : p)));
+    } catch (err) {
+      console.error("Failed to update pant in Supabase:", err);
+      showToast("Fehler beim Aktualisieren in Supabase.", "error");
+    }
   };
 
   const handleSaleStatusChange = (pant: PantItem, saleStatus: SaleStatus) => {
@@ -338,8 +404,9 @@ export default function App() {
     showToast(`Verkauf für Hose #${pant.number} gespeichert.`, "success");
   };
 
-  // Save or Update Expense
+  // Expenses
   const handleSaveExpense = async (expense: ExpenseItem) => {
+    if (!userId) return;
     const existingIndex = expenses.findIndex((e) => e.id === expense.id);
     let updated: ExpenseItem[];
     if (existingIndex >= 0) {
@@ -347,37 +414,58 @@ export default function App() {
     } else {
       updated = [expense, ...expenses];
     }
-    // Keep sorted newest first
     updated.sort((a, b) => b.createdAt - a.createdAt);
     setExpenses(updated);
-    await saveExpenseToDB(expense);
-    showToast("Ausgabe gespeichert.", "success");
+    try {
+      await saveExpenseToSupabase(userId, expense);
+      showToast("Ausgabe gespeichert.", "success");
+    } catch (err) {
+      showToast("Fehler beim Speichern der Ausgabe.", "error");
+    }
   };
 
-  // Delete Expense
   const handleDeleteExpense = async (id: string) => {
+    if (!userId) return;
     const updated = expenses.filter((e) => e.id !== id);
     setExpenses(updated);
-    await deleteExpenseFromDB(id);
-    showToast("Ausgabe gelöscht.", "info");
+    try {
+      await deleteExpenseFromSupabase(userId, id);
+      showToast("Ausgabe gelöscht.", "info");
+    } catch (err) {
+      showToast("Fehler beim Löschen der Ausgabe.", "error");
+    }
   };
 
-  // Delete single Pant
+  // Delete Single Pant
   const handleDeletePant = async (id: string) => {
+    if (!userId) return;
+    const targetPant = pants.find((p) => p.id === id);
     const updatedList = pants.filter((p) => p.id !== id);
     setPants(updatedList);
-    await deletePantFromDB(id);
-    showToast("Hose gelöscht.", "info");
+    try {
+      await deletePantFromSupabase(userId, id, targetPant?.images);
+      showToast("Hose gelöscht.", "info");
+    } catch (err) {
+      showToast("Fehler beim Löschen der Hose in Supabase.", "error");
+    }
   };
 
-  // Delete all pants (Projekt löschen)
+  // Delete Project
   const handleConfirmDeleteProject = async () => {
+    if (!userId) return;
+    const currentPants = [...pants];
     setPants([]);
-    await clearAllPantsFromDB();
-    showToast("Projekt und alle Hosen wurden gelöscht.", "info");
+    try {
+      await Promise.all(
+        currentPants.map((p) => deletePantFromSupabase(userId, p.id, p.images))
+      );
+      showToast("Projekt und alle Hosen wurden gelöscht.", "info");
+    } catch (err) {
+      showToast("Fehler beim Löschen des Projekts.", "error");
+    }
   };
 
-  // Toggle Collapse on All Finished Pants
+  // Toggle Collapse
   const areAllCollapsed = useMemo(() => {
     const donePants = pants.filter((p) => p.status === "done");
     if (donePants.length === 0) return false;
@@ -385,6 +473,7 @@ export default function App() {
   }, [pants]);
 
   const handleToggleCollapseAll = async () => {
+    if (!userId) return;
     const targetState = !areAllCollapsed;
     const updated = pants.map((p) => {
       if (p.status === "done") {
@@ -393,28 +482,30 @@ export default function App() {
       return p;
     });
     setPants(updated);
-    await saveMultiplePantsToDB(updated);
+    await Promise.all(updated.map((p) => savePantToSupabase(userId, p)));
     showToast(
       targetState ? "Alle fertigen Hosen eingeklappt." : "Alle fertigen Hosen ausgeklappt.",
       "info"
     );
   };
 
-  // Save Custom Prompt
+  // Prompt Setting
   const handleSavePrompt = async (newPrompt: string) => {
     setCustomPrompt(newPrompt);
-    await setSetting("custom_vinted_prompt", newPrompt);
+    if (userId) {
+      localStorage.setItem(`custom_vinted_prompt_${userId}`, newPrompt);
+    }
     showToast("Vinted-Prompt dauerhaft gespeichert.", "success");
   };
 
-  // Export JSON
+  // Exports
   const handleExportJson = () => {
     exportPantsAsJson(pants);
     showToast("Projekt erfolgreich als JSON exportiert.", "success");
   };
 
-  // Import JSON
   const handleImportJson = async (file: File) => {
+    if (!userId) return;
     try {
       const text = await file.text();
       const importedPants = parseImportedJson(text);
@@ -426,7 +517,7 @@ export default function App() {
 
       const mergedList = [...pants, ...importedPants].slice(0, MAX_PANTS_LIMIT);
       setPants(mergedList);
-      await saveMultiplePantsToDB(mergedList);
+      await Promise.all(importedPants.map((p) => savePantToSupabase(userId, p)));
       showToast(`${importedPants.length} Hosen erfolgreich importiert.`, "success");
     } catch (err: any) {
       console.error("Import error:", err);
@@ -434,18 +525,16 @@ export default function App() {
     }
   };
 
-  // Export CSV
   const handleExportCsv = () => {
     exportPantsAsCsv(pants);
     showToast("CSV erfolgreich exportiert.", "success");
   };
 
-  // Perform single pant AI analysis
+  // AI Analysis
   const analyzeSinglePant = async (
     targetPant: PantItem,
     promptToUse: string
   ): Promise<boolean> => {
-    // Check photos
     if (targetPant.images.length === 0) {
       const updatedWithError: PantItem = {
         ...targetPant,
@@ -457,7 +546,6 @@ export default function App() {
       return false;
     }
 
-    // Set analyzing status
     const analyzingPant: PantItem = {
       ...targetPant,
       status: "analyzing",
@@ -504,7 +592,6 @@ export default function App() {
         return false;
       }
 
-      // Success - format title with artikelnummer and description with keywords
       const rawResult = data.data;
       const formattedTitle = formatTitleWithArticleNumber(
         rawResult.title || "",
@@ -543,14 +630,12 @@ export default function App() {
     }
   };
 
-  // Trigger single analysis from card
   const handleAnalyzeFromCard = (pant: PantItem) => {
     analyzeSinglePant(pant, customPrompt);
   };
 
-  // Batch analysis engine with Concurrency Pool (max 3 simultaneously)
+  // Batch Processing
   const handleStartBatch = async (onlyMissing: boolean) => {
-    // Select candidates
     const candidates = pants.filter((p) => {
       if (p.images.length === 0) return false;
       if (onlyMissing) {
@@ -598,14 +683,12 @@ export default function App() {
         setBatchActiveCount(activeRunning);
 
         if (!stopBatchRef.current && index < queue.length) {
-          // Brief pause between requests to prevent API rate bursts
           await new Promise((r) => setTimeout(r, 400));
           await runNext();
         }
       }
     };
 
-    // Spawn up to MAX_CONCURRENT_ANALYSES workers with staggered start
     const workers = [];
     const concurrency = Math.min(MAX_CONCURRENT_ANALYSES, queue.length);
     for (let i = 0; i < concurrency; i++) {
@@ -639,7 +722,6 @@ export default function App() {
 
   const pantForSaleModal = pants.find((pant) => pant.id === pantForSaleModalId);
 
-  // Sale status counts and technical analysis count stay separate.
   const counts = useMemo(() => {
     const saleCounts = {
       all: pants.length,
@@ -655,13 +737,12 @@ export default function App() {
     });
     return saleCounts;
   }, [pants]);
+
   const analysisDoneCount = useMemo(
     () => pants.filter((pant) => pant.status === "done").length,
     [pants]
   );
 
-  // Technical analysis status counts (independent from sale status).
-  // "analyzing" pants are counted as still waiting to finish.
   const analysisCounts = useMemo(() => {
     const result: Record<AnalysisFilterType, number> = {
       all: pants.length,
@@ -672,31 +753,26 @@ export default function App() {
     pants.forEach((pant) => {
       if (pant.status === "done") result.done += 1;
       else if (pant.status === "error") result.error += 1;
-      else result.waiting += 1; // waiting + analyzing
+      else result.waiting += 1;
     });
     return result;
   }, [pants]);
 
-  // Filtered & Searched List
   const filteredPants = useMemo(() => {
     let result = pants;
 
-    // Technical analysis status filter (independent from sale status).
     if (analysisFilter !== "all") {
       result = result.filter((p) => {
         if (analysisFilter === "done") return p.status === "done";
         if (analysisFilter === "error") return p.status === "error";
-        // "waiting" bucket also includes pants currently being analyzed.
         return p.status === "waiting" || p.status === "analyzing";
       });
     }
 
-    // Sale status filter. The AI analysis status remains independent.
     if (filter !== "all") {
       result = result.filter((p) => p.saleStatus === filter);
     }
 
-    // Search Query (Titel oder Marke)
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
       result = result.filter((p) => {
@@ -709,7 +785,6 @@ export default function App() {
       });
     }
 
-    // Special numerical sorting when sale filter is "uploaded"
     if (filter === "uploaded") {
       result = [...result].sort((a, b) => {
         const parseArtNr = (artNr?: string): number | null => {
@@ -737,6 +812,23 @@ export default function App() {
     return result;
   }, [pants, filter, analysisFilter, searchQuery]);
 
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-stone-50 dark:bg-stone-950 text-stone-700 dark:text-stone-300 transition-colors">
+        <div className="text-center space-y-3">
+          <div className="flex h-12 w-12 mx-auto items-center justify-center rounded-2xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 font-black text-xl animate-pulse">
+            S
+          </div>
+          <p className="text-sm font-semibold">Anmeldung wird geprüft...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!session) {
+    return <Auth />;
+  }
+
   if (!isLoaded) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-stone-50 dark:bg-stone-950 text-stone-700 dark:text-stone-300 transition-colors">
@@ -744,7 +836,7 @@ export default function App() {
           <div className="flex h-12 w-12 mx-auto items-center justify-center rounded-2xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 font-black text-xl animate-pulse">
             S
           </div>
-          <p className="text-sm font-semibold">Sascha Ai wird geladen...</p>
+          <p className="text-sm font-semibold">Daten von Supabase werden geladen...</p>
         </div>
       </div>
     );
@@ -754,6 +846,8 @@ export default function App() {
     <div className="min-h-screen bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 flex flex-col font-sans selection:bg-stone-900 selection:text-white dark:selection:bg-stone-100 dark:selection:text-stone-900 transition-colors">
       {/* Sticky Header */}
       <Header
+        userEmail={session.user.email}
+        onLogout={handleLogout}
         totalCount={pants.length}
         maxLimit={MAX_PANTS_LIMIT}
         doneCount={analysisDoneCount}
@@ -776,6 +870,14 @@ export default function App() {
         onExportCsv={handleExportCsv}
         onOpenDeleteProject={() => setIsDeleteProjectOpen(true)}
       />
+
+      {/* Sync indicator */}
+      {isSyncing && (
+        <div className="bg-indigo-600 text-white text-[11px] py-1 px-3 text-center font-medium flex items-center justify-center gap-1.5 animate-pulse">
+          <RefreshCw className="w-3 h-3 animate-spin" />
+          <span>Synchronisiere mit Supabase...</span>
+        </div>
+      )}
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-5xl w-full mx-auto px-3 py-3 sm:px-6 space-y-3 sm:space-y-4">
@@ -979,7 +1081,7 @@ export default function App() {
       <ConfirmModal
         isOpen={isDeleteProjectOpen}
         title="Gesamtes Projekt löschen?"
-        message="Möchtest du wirklich alle Hosen, Maße, Fotos und generierten Anzeigen unwiderruflich aus dem Browser löschen?"
+        message="Möchtest du wirklich alle Hosen, Maße, Fotos und generierten Anzeigen unwiderruflich löschen?"
         confirmLabel="Alles löschen"
         isDestructive={true}
         onConfirm={handleConfirmDeleteProject}

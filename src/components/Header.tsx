@@ -19,9 +19,13 @@ import {
   MoreHorizontal,
   X,
   Receipt,
+  LogOut,
+  User,
 } from "lucide-react";
 
 interface HeaderProps {
+  userEmail?: string;
+  onLogout?: () => void;
   onOpenStats: () => void;
   onOpenExpenses: () => void;
   totalCount: number;
@@ -46,6 +50,8 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({
+  userEmail,
+  onLogout,
   totalCount,
   maxLimit,
   doneCount,
@@ -397,6 +403,28 @@ export const Header: React.FC<HeaderProps> = ({
                 <Trash2 className="h-4 w-4 text-rose-600" />
                 <span>Gesamtes Projekt löschen</span>
               </button>
+
+              {onLogout && (
+                <>
+                  <div className="border-t border-stone-100 dark:border-stone-800 my-1" />
+                  <div className="px-3 py-1 text-[10px] font-medium text-stone-500 dark:text-stone-400 flex items-center gap-1 truncate">
+                    <User className="w-3 h-3 shrink-0" />
+                    <span className="truncate">{userEmail}</span>
+                  </div>
+                  <button
+                    id="logout-btn"
+                    type="button"
+                    onClick={() => {
+                      setIsMoreOpen(false);
+                      onLogout();
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors min-h-[44px]"
+                  >
+                    <LogOut className="h-4 w-4 text-stone-500" />
+                    <span>Abmelden</span>
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>
