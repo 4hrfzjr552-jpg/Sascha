@@ -64,38 +64,62 @@ app.post("/api/analyze-pant", async (req, res) => {
     }
 
     // Prepare image inline parts
+    const allowedMimes = [
+      "image/jpeg",
+      "image/jpg",
+      "image/png",
+      "image/webp",
+      "image/heic",
+      "image/heif",
+    ];
+
     const imageParts = [];
     for (let i = 0; i < images.length; i++) {
       const img = images[i];
-      let dataUrl: string = typeof img === "string" ? img : img?.dataUrl || "";
+      let rawUrl: string = typeof img === "string" ? img : img?.dataUrl || "";
 
-      if (!dataUrl || !dataUrl.includes(",")) {
-        continue;
+      if (!rawUrl) continue;
+
+      if (rawUrl.startsWith("data:") && rawUrl.includes(",")) {
+        const commaIndex = rawUrl.indexOf(",");
+        const header = rawUrl.slice(0, commaIndex);
+        const base64Data = rawUrl.slice(commaIndex + 1);
+
+        const mimeMatch = header.match(/:(.*?);/);
+        const mimeType = (mimeMatch ? mimeMatch[1] : "image/jpeg").toLowerCase();
+        const validMime = allowedMimes.includes(mimeType) ? mimeType : "image/jpeg";
+
+        imageParts.push({
+          inlineData: {
+            mimeType: validMime,
+            data: base64Data,
+          },
+        });
+      } else if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://")) {
+        try {
+          const resp = await fetch(rawUrl);
+          if (!resp.ok) {
+            console.warn(`Server fetch image failed (${resp.status}):`, rawUrl);
+            continue;
+          }
+
+          const contentType = resp.headers.get("content-type") || "";
+          const mimeType = contentType.split(";")[0].trim().toLowerCase();
+          const validMime = allowedMimes.includes(mimeType) ? mimeType : "image/jpeg";
+
+          const arrayBuffer = await resp.arrayBuffer();
+          const base64Data = Buffer.from(arrayBuffer).toString("base64");
+
+          imageParts.push({
+            inlineData: {
+              mimeType: validMime,
+              data: base64Data,
+            },
+          });
+        } catch (err) {
+          console.error("Error fetching image URL on server:", rawUrl, err);
+        }
       }
-
-      const [header, base64Data] = dataUrl.split(",");
-      const mimeMatch = header.match(/:(.*?);/);
-      const mimeType = mimeMatch ? mimeMatch[1] : "image/jpeg";
-
-      // Ensure mime type is supported image format
-      const allowedMimes = [
-        "image/jpeg",
-        "image/jpg",
-        "image/png",
-        "image/webp",
-        "image/heic",
-        "image/heif",
-      ];
-      const validMime = allowedMimes.includes(mimeType.toLowerCase())
-        ? mimeType
-        : "image/jpeg";
-
-      imageParts.push({
-        inlineData: {
-          mimeType: validMime,
-          data: base64Data,
-        },
-      });
     }
 
     if (imageParts.length === 0) {
