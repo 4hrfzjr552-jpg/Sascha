@@ -162,7 +162,7 @@ export default function App() {
       },
       customNotes: "",
       status: "waiting",
-        saleStatus: "draft",
+      saleStatus: "draft",
       createdAt: Date.now(),
       updatedAt: Date.now(),
       isCollapsed: false,
@@ -719,12 +719,12 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-6 sm:px-6 space-y-6">
+      <main className="flex-1 max-w-5xl w-full mx-auto px-3 py-3 sm:px-6 space-y-3 sm:space-y-4">
         {/* Filter & Search Bar */}
         {pants.length > 0 && (
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <span className="block px-1 text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">
+          <div className="space-y-2">
+            <div>
+              <span className="block px-0.5 mb-1 text-[10px] font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">
                 Analyse-Status
               </span>
               <AnalysisStatusBar
@@ -733,8 +733,8 @@ export default function App() {
                 counts={analysisCounts}
               />
             </div>
-            <div className="space-y-1.5">
-              <span className="block px-1 text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">
+            <div>
+              <span className="block px-0.5 mb-1 text-[10px] font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">
                 Verkaufsstatus
               </span>
               <SaleStatusBar
@@ -754,24 +754,24 @@ export default function App() {
         {pants.length === 0 && (
           <div
             id="empty-state"
-            className="text-center py-16 px-6 bg-white dark:bg-stone-900 rounded-3xl border border-stone-200 dark:border-stone-800 shadow-xs max-w-xl mx-auto my-8"
+            className="text-center py-12 px-5 bg-white dark:bg-stone-900 rounded-3xl border border-stone-200 dark:border-stone-800 shadow-xs max-w-xl mx-auto my-6"
           >
-            <div className="flex h-14 w-14 mx-auto items-center justify-center rounded-2xl bg-stone-100 dark:bg-stone-800 text-stone-800 dark:text-stone-200 mb-4">
-              <Sparkles className="h-7 w-7" />
+            <div className="flex h-12 w-12 mx-auto items-center justify-center rounded-2xl bg-stone-100 dark:bg-stone-800 text-stone-800 dark:text-stone-200 mb-3">
+              <Sparkles className="h-6 w-6" />
             </div>
-            <h2 className="text-xl font-bold text-stone-900 dark:text-stone-100">
+            <h2 className="text-lg font-bold text-stone-900 dark:text-stone-100">
               Noch keine Hosen angelegt
             </h2>
-            <p className="mt-2 text-sm text-stone-700 dark:text-stone-400 leading-relaxed max-w-md mx-auto">
-              Lege deine erste Hose an, lade 1 bis 5 Fotos hoch und lasse dir per Sascha Ai eine fertige Vinted-Anzeige mit suchoptimiertem Titel, Beschreibung und 25 Keywords erstellen.
+            <p className="mt-1.5 text-xs sm:text-sm text-stone-700 dark:text-stone-400 leading-relaxed max-w-md mx-auto">
+              Lege deine erste Hose an, lade 1 bis 5 Fotos hoch und lasse dir per Sascha AI eine fertige Vinted-Anzeige mit suchoptimiertem Titel, Beschreibung und Keywords erstellen.
             </p>
 
-            <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+            <div className="mt-5 flex flex-wrap items-center justify-center gap-2.5">
               <button
                 id="empty-state-add-first-btn"
                 type="button"
                 onClick={handleAddNewPant}
-                className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-stone-900 dark:bg-stone-100 text-sm font-semibold text-white dark:text-stone-900 hover:bg-stone-800 dark:hover:bg-stone-200 transition-colors shadow-xs min-h-[44px]"
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-stone-900 dark:bg-stone-100 text-xs sm:text-sm font-semibold text-white dark:text-stone-900 hover:bg-stone-800 dark:hover:bg-stone-200 transition-colors shadow-xs min-h-[44px]"
               >
                 <Plus className="h-4 w-4" />
                 <span>+ Erste Hose anlegen</span>
@@ -781,7 +781,7 @@ export default function App() {
                 id="empty-state-add-five-btn"
                 type="button"
                 onClick={() => handleAddMultiple(5)}
-                className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-sm font-semibold text-stone-800 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-700 transition-colors min-h-[44px]"
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs sm:text-sm font-semibold text-stone-800 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-700 transition-colors min-h-[44px]"
               >
                 <span>5 Hosen auf einmal anlegen</span>
               </button>
@@ -791,9 +791,9 @@ export default function App() {
 
         {/* No Search Results */}
         {pants.length > 0 && filteredPants.length === 0 && (
-          <div className="text-center py-12 px-6 bg-white dark:bg-stone-900 rounded-2xl border border-stone-200 dark:border-stone-800">
-            <AlertCircle className="h-8 w-8 mx-auto text-stone-600 dark:text-stone-400 mb-2" />
-            <p className="text-base font-semibold text-stone-900 dark:text-stone-100">
+          <div className="text-center py-10 px-4 bg-white dark:bg-stone-900 rounded-2xl border border-stone-200 dark:border-stone-800">
+            <AlertCircle className="h-7 w-7 mx-auto text-stone-600 dark:text-stone-400 mb-2" />
+            <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
               Keine Hosen gefunden
             </p>
             <p className="text-xs text-stone-700 dark:text-stone-400 mt-1">
@@ -807,7 +807,7 @@ export default function App() {
                 setAnalysisFilter("all");
                 setSearchQuery("");
               }}
-              className="mt-4 px-4 py-2 rounded-xl bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-xs font-semibold text-stone-800 dark:text-stone-200 transition-colors"
+              className="mt-3 px-3.5 py-1.5 rounded-xl bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-xs font-semibold text-stone-800 dark:text-stone-200 transition-colors min-h-[40px]"
             >
               Filter zurücksetzen
             </button>
@@ -815,7 +815,7 @@ export default function App() {
         )}
 
         {/* List of Pant Cards */}
-        <div id="pants-list" className="space-y-4 sm:space-y-6">
+        <div id="pants-list" className="space-y-2 sm:space-y-3">
           {filteredPants.map((pant) => (
             <PantCard
               key={pant.id}

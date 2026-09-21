@@ -20,10 +20,11 @@ import {
   CopyPlus,
   Info,
   Loader2,
+  ImageIcon,
 } from "lucide-react";
 import { compressImageFile } from "../lib/imageCompressor";
 import { formatTitleWithArticleNumber } from "../lib/titleUtils";
-import { SALE_STATUS_OPTIONS } from "../lib/saleStatus";
+import { SALE_STATUS_OPTIONS, getSaleStatusLabel } from "../lib/saleStatus";
 
 interface PantCardProps {
   pant: PantItem;
@@ -57,7 +58,6 @@ export const PantCard: React.FC<PantCardProps> = ({
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(text);
       } else {
-        // Fallback for older browsers or restricted iframe
         const textarea = document.createElement("textarea");
         textarea.value = text;
         textarea.style.position = "fixed";
@@ -228,6 +228,7 @@ export const PantCard: React.FC<PantCardProps> = ({
 
   const isCollapsed = Boolean(pant.isCollapsed);
   const isAnalyzing = pant.status === "analyzing";
+  const firstPhoto = pant.images.length > 0 ? pant.images[0].dataUrl : null;
 
   return (
     <div
@@ -240,138 +241,172 @@ export const PantCard: React.FC<PantCardProps> = ({
           : "border-stone-200 dark:border-stone-800"
       }`}
     >
-      {/* Card Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3.5 sm:px-6 sm:py-4 border-b border-stone-100 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-800/40">
-        <div className="flex items-center gap-2.5">
-          <span className="text-base sm:text-lg font-bold text-stone-900 dark:text-stone-100 tracking-tight">
-            Hose #{pant.number}
-          </span>
-
-          {/* Status Badge */}
-          {pant.status === "waiting" && (
-            <span
-              id={`status-badge-waiting-${pant.id}`}
-              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300"
-            >
-              Analyse offen
-            </span>
-          )}
-          {pant.status === "analyzing" && (
-            <span
-              id={`status-badge-analyzing-${pant.id}`}
-              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300"
-            >
-              <Loader2 className="h-3 w-3 animate-spin" />
-              Wird analysiert
-            </span>
-          )}
-          {pant.status === "done" && (
-            <span
-              id={`status-badge-done-${pant.id}`}
-              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300"
-            >
-              <Check className="h-3 w-3" />
-              Analyse fertig
-            </span>
-          )}
-          {pant.status === "error" && (
-            <span
-              id={`status-badge-error-${pant.id}`}
-              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300"
-            >
-              <AlertCircle className="h-3 w-3" />
-              Fehler
-            </span>
+      {/* COLLAPSED HEADER / COMPACT SUMMARY ROW */}
+      <div
+        className="flex items-center justify-between gap-2 px-3 py-2.5 sm:px-4 sm:py-3 cursor-pointer hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors"
+        onClick={() => onUpdate({ ...pant, isCollapsed: !isCollapsed })}
+      >
+        {/* Left Side: Thumbnail + Hose #Nummer + Analyse-Status */}
+        <div className="flex items-center gap-2.5 min-w-0">
+          {/* Kleines Vorschaubild des ersten Fotos */}
+          {firstPhoto ? (
+            <img
+              src={firstPhoto}
+              alt={`Vorschau Hose #${pant.number}`}
+              className="w-10 h-10 object-cover rounded-lg border border-stone-200 dark:border-stone-700 shrink-0 bg-stone-100 dark:bg-stone-800"
+            />
+          ) : (
+            <div className="w-10 h-10 rounded-lg border border-dashed border-stone-300 dark:border-stone-700 bg-stone-100 dark:bg-stone-800 flex items-center justify-center shrink-0 text-stone-400">
+              <ImageIcon className="h-4 w-4" />
+            </div>
           )}
 
-          <label className="sr-only" htmlFor={`sale-status-${pant.id}`}>
-            Verkaufsstatus für Hose #{pant.number}
-          </label>
-          <select
-            id={`sale-status-${pant.id}`}
-            value={pant.saleStatus || "draft"}
-            onChange={(event) =>
-              onSaleStatusChange(pant, event.target.value as SaleStatus)
-            }
-            className="min-h-[36px] max-w-[145px] rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 px-2.5 text-xs font-semibold text-stone-800 dark:text-stone-200 focus:border-stone-900 dark:focus:border-stone-300 focus:outline-none focus:ring-2 focus:ring-stone-200 dark:focus:ring-stone-700"
-            aria-label={`Verkaufsstatus Hose ${pant.number}`}
-          >
-            {SALE_STATUS_OPTIONS.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+          <div className="flex flex-col min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-sm sm:text-base font-bold text-stone-900 dark:text-stone-100 tracking-tight whitespace-nowrap">
+                Hose #{pant.number}
+              </span>
+
+              {/* Analyse-Status klein */}
+              {pant.status === "waiting" && (
+                <span
+                  id={`status-badge-waiting-${pant.id}`}
+                  className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] sm:text-xs font-semibold bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 border border-stone-200 dark:border-stone-700"
+                >
+                  Offen
+                </span>
+              )}
+              {pant.status === "analyzing" && (
+                <span
+                  id={`status-badge-analyzing-${pant.id}`}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] sm:text-xs font-semibold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300"
+                >
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span className="hidden xs:inline">Analysiert...</span>
+                </span>
+              )}
+              {pant.status === "done" && (
+                <span
+                  id={`status-badge-done-${pant.id}`}
+                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] sm:text-xs font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300"
+                >
+                  <Check className="h-3 w-3" />
+                  Fertig
+                </span>
+              )}
+              {pant.status === "error" && (
+                <span
+                  id={`status-badge-error-${pant.id}`}
+                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] sm:text-xs font-semibold bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300"
+                >
+                  <AlertCircle className="h-3 w-3" />
+                  Fehler
+                </span>
+              )}
+            </div>
+            {pant.artikelnummer && (
+              <span className="text-[10px] text-stone-500 dark:text-stone-400 truncate">
+                Art.-Nr.: {pant.artikelnummer}
+              </span>
+            )}
+          </div>
         </div>
 
-        {/* Header Action Buttons */}
-        <div className="flex items-center gap-1.5 sm:gap-2">
+        {/* Right Side: Verkaufsstatus + Verkaufspreis + Aufklapp-Pfeil */}
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {/* Verkaufsstatus Badge / Selector */}
+          <div onClick={(e) => e.stopPropagation()}>
+            <select
+              id={`sale-status-${pant.id}`}
+              value={pant.saleStatus || "draft"}
+              onChange={(event) =>
+                onSaleStatusChange(pant, event.target.value as SaleStatus)
+              }
+              className="h-8 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 px-2 text-xs font-semibold text-stone-800 dark:text-stone-200 focus:border-stone-900 dark:focus:border-stone-300 focus:outline-none min-h-[36px]"
+              aria-label={`Verkaufsstatus Hose ${pant.number}`}
+            >
+              {SALE_STATUS_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Verkaufspreis, wenn verkauft */}
           {pant.saleStatus === "sold" && (
             <button
               id={`edit-sale-btn-${pant.id}`}
               type="button"
-              onClick={() => onEditSale(pant)}
-              className="inline-flex min-h-[36px] items-center gap-1 rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50"
+              onClick={(e) => {
+                e.stopPropagation();
+                onEditSale(pant);
+              }}
+              className="inline-flex h-8 items-center px-2 rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/50 text-xs font-bold text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 transition-colors min-h-[36px]"
               title="Verkaufsdaten bearbeiten"
             >
               {pant.salePrice !== undefined
                 ? `${pant.salePrice.toFixed(2).replace(".", ",")} €`
-                : "Verkauf bearbeiten"}
+                : "Verkauf"}
             </button>
           )}
-          {/* Duplicate */}
-          <button
-            id={`duplicate-pant-btn-${pant.id}`}
-            type="button"
-            onClick={() => onDuplicate(pant)}
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-stone-200 dark:border-stone-700 text-xs font-medium text-stone-700 dark:text-stone-300 bg-white dark:bg-stone-800 hover:bg-stone-100 dark:hover:bg-stone-700 transition-colors min-h-[36px]"
-            title="Hose duplizieren (übernimmt Maße & Hinweise ohne Bilder)"
-          >
-            <CopyPlus className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Hose duplizieren</span>
-          </button>
 
-          {/* Collapse Toggle */}
+          {/* Aufklapp-Pfeil */}
           <button
             id={`toggle-collapse-btn-${pant.id}`}
             type="button"
-            onClick={() =>
+            onClick={(e) => {
+              e.stopPropagation();
               onUpdate({
                 ...pant,
                 isCollapsed: !isCollapsed,
-              })
-            }
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-400 bg-white dark:bg-stone-800 hover:bg-stone-100 dark:hover:bg-stone-700 transition-colors"
+              });
+            }}
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-stone-500 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors min-h-[44px] min-w-[44px]"
             title={isCollapsed ? "Details anzeigen" : "Einklappen"}
           >
             {isCollapsed ? (
-              <ChevronDown className="h-4 w-4" />
+              <ChevronDown className="h-5 w-5" />
             ) : (
-              <ChevronUp className="h-4 w-4" />
+              <ChevronUp className="h-5 w-5" />
             )}
-          </button>
-
-          {/* Delete */}
-          <button
-            id={`delete-pant-btn-${pant.id}`}
-            type="button"
-            onClick={() => onDelete(pant.id)}
-            disabled={isAnalyzing}
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-400 hover:text-rose-600 dark:hover:text-rose-400 hover:border-rose-200 dark:hover:border-rose-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors disabled:opacity-40"
-            title="Hose löschen"
-          >
-            <Trash2 className="h-4 w-4" />
           </button>
         </div>
       </div>
 
-      {/* Card Content - can be collapsed */}
+      {/* EXPANDED CONTENT AREA */}
       {!isCollapsed && (
-        <div className="p-4 sm:p-6 space-y-6">
+        <div className="p-3.5 sm:p-5 border-t border-stone-100 dark:border-stone-800 space-y-5">
+          {/* Action Row inside expanded state: Duplicate & Delete */}
+          <div className="flex items-center justify-between gap-2 pb-3 border-b border-stone-100 dark:border-stone-800">
+            <button
+              id={`duplicate-pant-btn-${pant.id}`}
+              type="button"
+              onClick={() => onDuplicate(pant)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-stone-200 dark:border-stone-700 text-xs font-semibold text-stone-700 dark:text-stone-300 bg-white dark:bg-stone-800 hover:bg-stone-100 dark:hover:bg-stone-700 transition-colors min-h-[40px]"
+              title="Hose duplizieren (übernimmt Maße & Hinweise ohne Bilder)"
+            >
+              <CopyPlus className="h-4 w-4" />
+              <span>Hose duplizieren</span>
+            </button>
+
+            <button
+              id={`delete-pant-btn-${pant.id}`}
+              type="button"
+              onClick={() => onDelete(pant.id)}
+              disabled={isAnalyzing}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 bg-white dark:bg-stone-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors text-xs font-semibold disabled:opacity-40 min-h-[40px]"
+              title="Hose löschen"
+            >
+              <Trash2 className="h-4 w-4" />
+              <span>Hose löschen</span>
+            </button>
+          </div>
+
           {/* Section 1: Photos */}
           <div>
             <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-              <span className="text-sm font-semibold text-stone-900 dark:text-stone-100">
+              <span className="text-xs sm:text-sm font-bold text-stone-900 dark:text-stone-100">
                 Fotos ({pant.images.length} / 5)
               </span>
               <span className="text-xs text-stone-600 dark:text-stone-400 font-medium">
@@ -401,7 +436,7 @@ export const PantCard: React.FC<PantCardProps> = ({
             )}
 
             {/* Photo Preview Strip & Upload Button */}
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
               {pant.images.map((img, index) => (
                 <div
                   key={img.id}
@@ -422,7 +457,7 @@ export const PantCard: React.FC<PantCardProps> = ({
                   <button
                     type="button"
                     onClick={() => handleDeleteImage(img.id)}
-                    className="absolute top-1.5 right-1.5 flex h-7 w-7 items-center justify-center rounded-lg bg-stone-900/80 text-white hover:bg-rose-600 transition-colors backdrop-blur-xs"
+                    className="absolute top-1.5 right-1.5 flex h-7 w-7 items-center justify-center rounded-lg bg-stone-900/80 text-white hover:bg-rose-600 transition-colors backdrop-blur-xs min-h-[36px] min-w-[36px]"
                     title="Foto löschen"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -434,7 +469,7 @@ export const PantCard: React.FC<PantCardProps> = ({
                       type="button"
                       disabled={index === 0}
                       onClick={() => handleMoveImage(index, "left")}
-                      className="p-1 hover:bg-white/20 rounded disabled:opacity-30"
+                      className="p-1 hover:bg-white/20 rounded disabled:opacity-30 min-h-[36px]"
                       title="Nach links verschieben"
                     >
                       <ArrowLeft className="h-3.5 w-3.5" />
@@ -446,7 +481,7 @@ export const PantCard: React.FC<PantCardProps> = ({
                       type="button"
                       disabled={index === pant.images.length - 1}
                       onClick={() => handleMoveImage(index, "right")}
-                      className="p-1 hover:bg-white/20 rounded disabled:opacity-30"
+                      className="p-1 hover:bg-white/20 rounded disabled:opacity-30 min-h-[36px]"
                       title="Nach rechts verschieben"
                     >
                       <ArrowRight className="h-3.5 w-3.5" />
@@ -462,20 +497,20 @@ export const PantCard: React.FC<PantCardProps> = ({
                   type="button"
                   disabled={isCompressing || isAnalyzing}
                   onClick={() => fileInputRef.current?.click()}
-                  className="rounded-xl border-2 border-dashed border-stone-300 dark:border-stone-700 hover:border-stone-900 dark:hover:border-stone-300 bg-stone-50 dark:bg-stone-800/40 hover:bg-stone-100 dark:hover:bg-stone-800 aspect-square flex flex-col items-center justify-center gap-2 p-2 text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100 transition-colors min-h-[110px]"
+                  className="rounded-xl border-2 border-dashed border-stone-300 dark:border-stone-700 hover:border-stone-900 dark:hover:border-stone-300 bg-stone-50 dark:bg-stone-800/40 hover:bg-stone-100 dark:hover:bg-stone-800 aspect-square flex flex-col items-center justify-center gap-1.5 p-2 text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100 transition-colors min-h-[100px]"
                 >
                   {isCompressing ? (
                     <>
-                      <Loader2 className="h-6 w-6 animate-spin text-stone-600 dark:text-stone-400" />
+                      <Loader2 className="h-5 w-5 animate-spin text-stone-600 dark:text-stone-400" />
                       <span className="text-xs font-medium">Verarbeite...</span>
                     </>
                   ) : (
                     <>
-                      <ImagePlus className="h-6 w-6 text-stone-600 dark:text-stone-400" />
+                      <ImagePlus className="h-5 w-5 text-stone-600 dark:text-stone-400" />
                       <span className="text-xs font-semibold text-center leading-tight">
-                        Fotos auswählen / Kamera
+                        Fotos hinzufügen
                       </span>
-                      <span className="text-[10px] text-stone-600 dark:text-stone-400">
+                      <span className="text-[10px] text-stone-500 dark:text-stone-400">
                         ({5 - pant.images.length} frei)
                       </span>
                     </>
@@ -496,7 +531,7 @@ export const PantCard: React.FC<PantCardProps> = ({
           </div>
 
           {/* Section 2: Artikelnummer & Optionale Maße */}
-          <div className="space-y-4">
+          <div className="space-y-3">
             {/* Artikelnummer Input */}
             <div className="max-w-xs">
               <label
@@ -511,125 +546,122 @@ export const PantCard: React.FC<PantCardProps> = ({
                 placeholder="z.B. 123, A45, J-009"
                 value={pant.artikelnummer || ""}
                 onChange={(e) => handleArtikelnummerChange(e.target.value)}
-                className="w-full rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800/90 px-3.5 py-2 text-sm font-semibold text-stone-900 dark:text-stone-100 placeholder:text-stone-500 dark:placeholder:text-stone-400 focus:border-stone-900 dark:focus:border-stone-400 focus:outline-none min-h-[40px] transition-colors"
+                className="w-full rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800/90 px-3 py-2 text-sm font-semibold text-stone-900 dark:text-stone-100 placeholder:text-stone-500 dark:placeholder:text-stone-400 focus:border-stone-900 dark:focus:border-stone-400 focus:outline-none min-h-[40px] transition-colors"
               />
-              <p className="text-[11px] text-stone-600 dark:text-stone-400 mt-1">
-                Erscheint am Ende des Titels (z.B. 123)
-              </p>
             </div>
 
             {/* Optionale Maße */}
             <div>
-              <span className="text-xs font-bold uppercase tracking-wider text-stone-600 dark:text-stone-400 block mb-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-stone-600 dark:text-stone-400 block mb-1.5">
                 Optionale Maße (in cm)
               </span>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
-              <div>
-                <label className="block text-xs font-medium text-stone-700 dark:text-stone-300 mb-1">
-                  Bundweite
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    step="0.5"
-                    placeholder="z.B. 40"
-                    value={pant.measurements.waist}
-                    onChange={(e) =>
-                      handleMeasurementChange("waist", e.target.value)
-                    }
-                    className="w-full rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800/90 px-3 py-2 pr-7 text-sm text-stone-900 dark:text-stone-100 focus:border-stone-900 dark:focus:border-stone-400 focus:outline-none min-h-[40px] transition-colors"
-                  />
-                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-stone-500 dark:text-stone-400 pointer-events-none">
-                    cm
-                  </span>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                <div>
+                  <label className="block text-[11px] font-medium text-stone-700 dark:text-stone-300 mb-1">
+                    Bundweite
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.5"
+                      placeholder="z.B. 40"
+                      value={pant.measurements.waist}
+                      onChange={(e) =>
+                        handleMeasurementChange("waist", e.target.value)
+                      }
+                      className="w-full rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800/90 px-2.5 py-1.5 pr-7 text-xs sm:text-sm text-stone-900 dark:text-stone-100 focus:border-stone-900 dark:focus:border-stone-400 focus:outline-none min-h-[40px] transition-colors"
+                    />
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-stone-500 dark:text-stone-400 pointer-events-none">
+                      cm
+                    </span>
+                  </div>
                 </div>
-              </div>
 
-              <div>
-                <label className="block text-xs font-medium text-stone-700 dark:text-stone-300 mb-1">
-                  Gesamtlänge
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    step="0.5"
-                    placeholder="z.B. 104"
-                    value={pant.measurements.totalLength}
-                    onChange={(e) =>
-                      handleMeasurementChange("totalLength", e.target.value)
-                    }
-                    className="w-full rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800/90 px-3 py-2 pr-7 text-sm text-stone-900 dark:text-stone-100 focus:border-stone-900 dark:focus:border-stone-400 focus:outline-none min-h-[40px] transition-colors"
-                  />
-                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-stone-500 dark:text-stone-400 pointer-events-none">
-                    cm
-                  </span>
+                <div>
+                  <label className="block text-[11px] font-medium text-stone-700 dark:text-stone-300 mb-1">
+                    Gesamtlänge
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.5"
+                      placeholder="z.B. 104"
+                      value={pant.measurements.totalLength}
+                      onChange={(e) =>
+                        handleMeasurementChange("totalLength", e.target.value)
+                      }
+                      className="w-full rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800/90 px-2.5 py-1.5 pr-7 text-xs sm:text-sm text-stone-900 dark:text-stone-100 focus:border-stone-900 dark:focus:border-stone-400 focus:outline-none min-h-[40px] transition-colors"
+                    />
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-stone-500 dark:text-stone-400 pointer-events-none">
+                      cm
+                    </span>
+                  </div>
                 </div>
-              </div>
 
-              <div>
-                <label className="block text-xs font-medium text-stone-700 dark:text-stone-300 mb-1">
-                  Innenbeinlänge
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    step="0.5"
-                    placeholder="z.B. 78"
-                    value={pant.measurements.inseam}
-                    onChange={(e) =>
-                      handleMeasurementChange("inseam", e.target.value)
-                    }
-                    className="w-full rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800/90 px-3 py-2 pr-7 text-sm text-stone-900 dark:text-stone-100 focus:border-stone-900 dark:focus:border-stone-400 focus:outline-none min-h-[40px] transition-colors"
-                  />
-                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-stone-500 dark:text-stone-400 pointer-events-none">
-                    cm
-                  </span>
+                <div>
+                  <label className="block text-[11px] font-medium text-stone-700 dark:text-stone-300 mb-1">
+                    Innenbeinlänge
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.5"
+                      placeholder="z.B. 78"
+                      value={pant.measurements.inseam}
+                      onChange={(e) =>
+                        handleMeasurementChange("inseam", e.target.value)
+                      }
+                      className="w-full rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800/90 px-2.5 py-1.5 pr-7 text-xs sm:text-sm text-stone-900 dark:text-stone-100 focus:border-stone-900 dark:focus:border-stone-400 focus:outline-none min-h-[40px] transition-colors"
+                    />
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-stone-500 dark:text-stone-400 pointer-events-none">
+                      cm
+                    </span>
+                  </div>
                 </div>
-              </div>
 
-              <div>
-                <label className="block text-xs font-medium text-stone-700 dark:text-stone-300 mb-1">
-                  Beinöffnung
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    step="0.5"
-                    placeholder="z.B. 18"
-                    value={pant.measurements.legOpening}
-                    onChange={(e) =>
-                      handleMeasurementChange("legOpening", e.target.value)
-                    }
-                    className="w-full rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800/90 px-3 py-2 pr-7 text-sm text-stone-900 dark:text-stone-100 focus:border-stone-900 dark:focus:border-stone-400 focus:outline-none min-h-[40px] transition-colors"
-                  />
-                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-stone-500 dark:text-stone-400 pointer-events-none">
-                    cm
-                  </span>
+                <div>
+                  <label className="block text-[11px] font-medium text-stone-700 dark:text-stone-300 mb-1">
+                    Beinöffnung
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.5"
+                      placeholder="z.B. 18"
+                      value={pant.measurements.legOpening}
+                      onChange={(e) =>
+                        handleMeasurementChange("legOpening", e.target.value)
+                      }
+                      className="w-full rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800/90 px-2.5 py-1.5 pr-7 text-xs sm:text-sm text-stone-900 dark:text-stone-100 focus:border-stone-900 dark:focus:border-stone-400 focus:outline-none min-h-[40px] transition-colors"
+                    />
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-stone-500 dark:text-stone-400 pointer-events-none">
+                      cm
+                    </span>
+                  </div>
                 </div>
-              </div>
 
-              <div className="col-span-2 sm:col-span-1">
-                <label className="block text-xs font-medium text-stone-700 dark:text-stone-300 mb-1">
-                  Oberschenkelbreite
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    step="0.5"
-                    placeholder="z.B. 29"
-                    value={pant.measurements.thighWidth}
-                    onChange={(e) =>
-                      handleMeasurementChange("thighWidth", e.target.value)
-                    }
-                    className="w-full rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800/90 px-3 py-2 pr-7 text-sm text-stone-900 dark:text-stone-100 focus:border-stone-900 dark:focus:border-stone-400 focus:outline-none min-h-[40px] transition-colors"
-                  />
-                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-stone-500 dark:text-stone-400 pointer-events-none">
-                    cm
-                  </span>
+                <div className="col-span-2 sm:col-span-1">
+                  <label className="block text-[11px] font-medium text-stone-700 dark:text-stone-300 mb-1">
+                    Oberschenkelbreite
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.5"
+                      placeholder="z.B. 29"
+                      value={pant.measurements.thighWidth}
+                      onChange={(e) =>
+                        handleMeasurementChange("thighWidth", e.target.value)
+                      }
+                      className="w-full rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800/90 px-2.5 py-1.5 pr-7 text-xs sm:text-sm text-stone-900 dark:text-stone-100 focus:border-stone-900 dark:focus:border-stone-400 focus:outline-none min-h-[40px] transition-colors"
+                    />
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-stone-500 dark:text-stone-400 pointer-events-none">
+                      cm
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
           </div>
 
           {/* Section 3: Eigene Hinweise */}
@@ -645,60 +677,46 @@ export const PantCard: React.FC<PantCardProps> = ({
               type="text"
               value={pant.customNotes}
               onChange={(e) => handleNotesChange(e.target.value)}
-              placeholder="Beispiele: „kleiner Fleck hinten“, „Herren“, „ungetragen“, „Bundweite 38 cm“"
-              className="w-full rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800/90 px-3.5 py-2.5 text-sm text-stone-900 dark:text-stone-100 placeholder:text-stone-500 dark:placeholder:text-stone-400 focus:border-stone-900 dark:focus:border-stone-400 focus:outline-none min-h-[42px] transition-colors"
+              placeholder="Beispiele: „kleiner Fleck hinten“, „Herren“, „ungetragen“"
+              className="w-full rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800/90 px-3 py-2 text-xs sm:text-sm text-stone-900 dark:text-stone-100 placeholder:text-stone-500 dark:placeholder:text-stone-400 focus:border-stone-900 dark:focus:border-stone-400 focus:outline-none min-h-[42px] transition-colors"
             />
           </div>
 
-          {/* Section 4: Action Buttons (Anzeige erstellen / Erneut versuchen) */}
-          <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-            <div className="flex items-center gap-3">
-              <button
-                id={`analyze-pant-btn-${pant.id}`}
-                type="button"
-                disabled={pant.images.length === 0 || isAnalyzing}
-                onClick={() => onAnalyze(pant)}
-                className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm transition-all min-h-[44px] ${
-                  pant.status === "error"
-                    ? "bg-rose-600 hover:bg-rose-700 text-white"
-                    : pant.status === "done"
-                    ? "bg-stone-900 dark:bg-stone-100 hover:bg-stone-800 dark:hover:bg-stone-200 text-white dark:text-stone-900 shadow-xs"
-                    : "bg-stone-900 dark:bg-stone-100 hover:bg-stone-800 dark:hover:bg-stone-200 text-white dark:text-stone-900 shadow-xs"
-                } disabled:opacity-40 disabled:pointer-events-none`}
-              >
-                {isAnalyzing ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Wird analysiert...
-                  </>
-                ) : pant.status === "error" ? (
-                  <>
-                    <RefreshCw className="h-4 w-4" />
-                    Erneut versuchen
-                  </>
-                ) : pant.status === "done" ? (
-                  <>
-                    <RefreshCw className="h-4 w-4" />
-                    Neu generieren
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="h-4 w-4" />
-                    Anzeige erstellen
-                  </>
-                )}
-              </button>
-
-              <button
-                id={`delete-bottom-btn-${pant.id}`}
-                type="button"
-                disabled={isAnalyzing}
-                onClick={() => onDelete(pant.id)}
-                className="px-4 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-sm font-medium text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-700 hover:text-rose-600 dark:hover:text-rose-400 transition-colors min-h-[44px]"
-              >
-                Hose löschen
-              </button>
-            </div>
+          {/* Section 4: Action Buttons (Anzeige erstellen) */}
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+            <button
+              id={`analyze-pant-btn-${pant.id}`}
+              type="button"
+              disabled={pant.images.length === 0 || isAnalyzing}
+              onClick={() => onAnalyze(pant)}
+              className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm transition-all min-h-[44px] ${
+                pant.status === "error"
+                  ? "bg-rose-600 hover:bg-rose-700 text-white"
+                  : "bg-stone-900 dark:bg-stone-100 hover:bg-stone-800 dark:hover:bg-stone-200 text-white dark:text-stone-900 shadow-xs"
+              } disabled:opacity-40 disabled:pointer-events-none`}
+            >
+              {isAnalyzing ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Wird analysiert...
+                </>
+              ) : pant.status === "error" ? (
+                <>
+                  <RefreshCw className="h-4 w-4" />
+                  Erneut versuchen
+                </>
+              ) : pant.status === "done" ? (
+                <>
+                  <RefreshCw className="h-4 w-4" />
+                  Neu generieren
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4" />
+                  Anzeige erstellen
+                </>
+              )}
+            </button>
 
             {copyFeedback && (
               <div
@@ -715,13 +733,13 @@ export const PantCard: React.FC<PantCardProps> = ({
           {pant.status === "error" && pant.errorMessage && (
             <div
               id={`error-message-box-${pant.id}`}
-              className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-300 text-sm flex items-start gap-2.5"
+              className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-300 text-xs sm:text-sm flex items-start gap-2"
             >
-              <AlertCircle className="h-5 w-5 shrink-0 text-rose-600 dark:text-rose-400 mt-0.5" />
+              <AlertCircle className="h-4 w-4 shrink-0 text-rose-600 dark:text-rose-400 mt-0.5" />
               <div className="flex-1">
                 <p className="font-semibold">{pant.errorMessage}</p>
-                <p className="text-xs text-rose-700 dark:text-rose-400 mt-0.5">
-                  Deine Fotos und Maße sind gespeichert. Klicke einfach auf „Erneut versuchen“.
+                <p className="text-[11px] text-rose-700 dark:text-rose-400 mt-0.5">
+                  Fotos & Maße sind gespeichert. Klicke auf „Erneut versuchen“.
                 </p>
               </div>
             </div>
@@ -731,10 +749,10 @@ export const PantCard: React.FC<PantCardProps> = ({
           {pant.result && (
             <div
               id={`result-container-${pant.id}`}
-              className="mt-6 pt-6 border-t border-stone-200 dark:border-stone-800 space-y-5"
+              className="mt-4 pt-4 border-t border-stone-200 dark:border-stone-800 space-y-4"
             >
               {/* Top Quick Action: Alles Kopieren */}
-              <div className="flex items-center justify-between bg-stone-100/70 dark:bg-stone-800/60 p-3 rounded-xl border border-stone-200 dark:border-stone-700">
+              <div className="flex items-center justify-between bg-stone-100/70 dark:bg-stone-800/60 p-2.5 rounded-xl border border-stone-200 dark:border-stone-700">
                 <span className="text-xs font-bold uppercase tracking-wider text-stone-800 dark:text-stone-200">
                   Fertige Vinted-Anzeige
                 </span>
@@ -742,9 +760,9 @@ export const PantCard: React.FC<PantCardProps> = ({
                   id={`copy-all-btn-${pant.id}`}
                   type="button"
                   onClick={() =>
-                    triggerCopy(getAllContentToCopy(), "Alles (Titel, Text, Tags)")
+                    triggerCopy(getAllContentToCopy(), "Alles")
                   }
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-stone-900 dark:bg-stone-100 text-xs font-semibold text-white dark:text-stone-900 hover:bg-stone-800 dark:hover:bg-stone-200 transition-colors min-h-[38px] shadow-xs"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-stone-900 dark:bg-stone-100 text-xs font-semibold text-white dark:text-stone-900 hover:bg-stone-800 dark:hover:bg-stone-200 transition-colors min-h-[38px] shadow-xs"
                 >
                   <Copy className="h-3.5 w-3.5" />
                   Alles kopieren
@@ -753,7 +771,7 @@ export const PantCard: React.FC<PantCardProps> = ({
 
               {/* TITEL */}
               <div>
-                <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center justify-between mb-1">
                   <label className="text-xs font-bold uppercase tracking-wider text-stone-600 dark:text-stone-400">
                     Titel ({pant.result.title.length}/100)
                   </label>
@@ -761,25 +779,25 @@ export const PantCard: React.FC<PantCardProps> = ({
                     id={`copy-title-btn-${pant.id}`}
                     type="button"
                     onClick={() => triggerCopy(pant.result!.title, "Titel")}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs font-medium text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-700 transition-colors min-h-[32px]"
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs font-medium text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-700 transition-colors min-h-[32px]"
                   >
                     <Copy className="h-3 w-3" />
-                    Titel kopieren
+                    Kopieren
                   </button>
                 </div>
                 <input
                   type="text"
                   value={pant.result.title}
                   onChange={(e) => handleTitleChange(e.target.value)}
-                  className="w-full rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800/90 p-3 text-sm font-semibold text-stone-900 dark:text-stone-100 focus:border-stone-900 dark:focus:border-stone-400 focus:outline-none transition-colors"
+                  className="w-full rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800/90 p-2.5 text-xs sm:text-sm font-semibold text-stone-900 dark:text-stone-100 focus:border-stone-900 dark:focus:border-stone-400 focus:outline-none transition-colors"
                 />
               </div>
 
               {/* BESCHREIBUNG */}
               <div>
-                <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center justify-between mb-1">
                   <label className="text-xs font-bold uppercase tracking-wider text-stone-600 dark:text-stone-400">
-                    Beschreibung inkl. Keywords (manuell editierbar)
+                    Beschreibung
                   </label>
                   <button
                     id={`copy-desc-btn-${pant.id}`}
@@ -787,17 +805,17 @@ export const PantCard: React.FC<PantCardProps> = ({
                     onClick={() =>
                       triggerCopy(pant.result!.description, "Beschreibung")
                     }
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs font-medium text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-700 transition-colors min-h-[32px]"
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs font-medium text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-700 transition-colors min-h-[32px]"
                   >
                     <Copy className="h-3 w-3" />
-                    Beschreibung kopieren
+                    Kopieren
                   </button>
                 </div>
                 <textarea
-                  rows={12}
+                  rows={10}
                   value={pant.result.description}
                   onChange={(e) => handleDescriptionChange(e.target.value)}
-                  className="w-full rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800/90 p-3 text-sm text-stone-900 dark:text-stone-100 leading-relaxed font-sans focus:border-stone-900 dark:focus:border-stone-400 focus:outline-none transition-colors"
+                  className="w-full rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800/90 p-2.5 text-xs sm:text-sm text-stone-900 dark:text-stone-100 leading-relaxed font-sans focus:border-stone-900 dark:focus:border-stone-400 focus:outline-none transition-colors"
                 />
               </div>
 
@@ -812,12 +830,12 @@ export const PantCard: React.FC<PantCardProps> = ({
                       isDetectedOpen: !pant.isDetectedOpen,
                     })
                   }
-                  className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-stone-100/70 dark:hover:bg-stone-800/70 transition-colors"
+                  className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-stone-100/70 dark:hover:bg-stone-800/70 transition-colors"
                 >
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="h-4 w-4 text-stone-600 dark:text-stone-400" />
+                  <div className="flex items-center gap-1.5">
+                    <Sparkles className="h-3.5 w-3.5 text-stone-600 dark:text-stone-400" />
                     <span className="text-xs font-bold uppercase tracking-wider text-stone-700 dark:text-stone-300">
-                      Von KI erkannt (zur Kontrolle)
+                      Von KI erkannt
                     </span>
                   </div>
                   {pant.isDetectedOpen ? (
@@ -828,45 +846,45 @@ export const PantCard: React.FC<PantCardProps> = ({
                 </button>
 
                 {pant.isDetectedOpen && (
-                  <div className="p-4 border-t border-stone-200 dark:border-stone-700 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs bg-white dark:bg-stone-900/90">
+                  <div className="p-3 border-t border-stone-200 dark:border-stone-700 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs bg-white dark:bg-stone-900/90">
                     <div>
-                      <span className="text-stone-500 dark:text-stone-400 block">Marke:</span>
+                      <span className="text-stone-500 dark:text-stone-400 block text-[10px]">Marke:</span>
                       <span className="font-semibold text-stone-900 dark:text-stone-100">
                         {pant.result.detected.brand || "—"}
                       </span>
                     </div>
                     <div>
-                      <span className="text-stone-500 dark:text-stone-400 block">Modell:</span>
+                      <span className="text-stone-500 dark:text-stone-400 block text-[10px]">Modell:</span>
                       <span className="font-semibold text-stone-900 dark:text-stone-100">
                         {pant.result.detected.model || "—"}
                       </span>
                     </div>
                     <div>
-                      <span className="text-stone-500 dark:text-stone-400 block">Größe:</span>
+                      <span className="text-stone-500 dark:text-stone-400 block text-[10px]">Größe:</span>
                       <span className="font-semibold text-stone-900 dark:text-stone-100">
                         {pant.result.detected.size || "—"}
                       </span>
                     </div>
                     <div>
-                      <span className="text-stone-500 dark:text-stone-400 block">Damen/Herren:</span>
+                      <span className="text-stone-500 dark:text-stone-400 block text-[10px]">Damen/Herren:</span>
                       <span className="font-semibold text-stone-900 dark:text-stone-100">
                         {pant.result.detected.gender || "—"}
                       </span>
                     </div>
                     <div>
-                      <span className="text-stone-500 dark:text-stone-400 block">Farbe:</span>
+                      <span className="text-stone-500 dark:text-stone-400 block text-[10px]">Farbe:</span>
                       <span className="font-semibold text-stone-900 dark:text-stone-100">
                         {pant.result.detected.color || "—"}
                       </span>
                     </div>
                     <div>
-                      <span className="text-stone-500 dark:text-stone-400 block">Schnitt:</span>
+                      <span className="text-stone-500 dark:text-stone-400 block text-[10px]">Schnitt:</span>
                       <span className="font-semibold text-stone-900 dark:text-stone-100">
                         {pant.result.detected.fit || "—"}
                       </span>
                     </div>
                     <div className="col-span-2">
-                      <span className="text-stone-500 dark:text-stone-400 block">Material:</span>
+                      <span className="text-stone-500 dark:text-stone-400 block text-[10px]">Material:</span>
                       <span className="font-semibold text-stone-900 dark:text-stone-100">
                         {pant.result.detected.material || "—"}
                       </span>

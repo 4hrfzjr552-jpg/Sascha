@@ -1,4 +1,4 @@
-import React, { useRef } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import {
   Plus,
   PlusCircle,
@@ -16,6 +16,8 @@ import {
   Moon,
   Layers,
   BarChart2,
+  MoreHorizontal,
+  X,
 } from "lucide-react";
 
 interface HeaderProps {
@@ -64,6 +66,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenStats,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isMoreOpen, setIsMoreOpen] = useState(false);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
 
   const percentDone =
     totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
@@ -78,50 +82,62 @@ export const Header: React.FC<HeaderProps> = ({
     }
   };
 
+  // Close menu on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        moreMenuRef.current &&
+        !moreMenuRef.current.contains(event.target as Node)
+      ) {
+        setIsMoreOpen(false);
+      }
+    };
+    if (isMoreOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isMoreOpen]);
+
   return (
     <header
       id="app-header"
       className="sticky top-0 z-30 bg-white/95 dark:bg-stone-900/95 backdrop-blur-md border-b border-stone-200 dark:border-stone-800 shadow-xs transition-colors duration-200"
     >
-      <div className="max-w-5xl mx-auto px-4 py-3 sm:px-6">
-        {/* Top bar: Brand + Counts + Dark Mode + Settings */}
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 font-black text-base shadow-xs transition-colors">
+      <div className="max-w-5xl mx-auto px-3 sm:px-6 py-2.5">
+        {/* Top bar: Brand + Counts + Stats + Dark Mode + Settings */}
+        <div className="flex items-center justify-between gap-2">
+          {/* Brand & Count */}
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 font-black text-sm sm:text-base shadow-xs transition-colors">
               S
             </div>
-            <div>
-              <h1 className="text-xl sm:text-2xl font-black text-stone-900 dark:text-stone-100 tracking-tight leading-none">
-                Sascha Ai
+            <div className="min-w-0">
+              <h1 className="text-base sm:text-xl font-black text-stone-900 dark:text-stone-100 tracking-tight leading-none truncate">
+                Sascha AI
               </h1>
-              <p className="text-[11px] text-stone-600 dark:text-stone-400 font-medium mt-0.5 hidden sm:block">
-                Massen-Generator für Vinted Hosen-Anzeigen
+              <p className="text-[11px] sm:text-xs text-stone-600 dark:text-stone-400 font-medium leading-tight mt-0.5 truncate">
+                {totalCount} Hosen <span className="text-stone-400">•</span>{" "}
+                <span className="text-emerald-700 dark:text-emerald-400 font-semibold">
+                  {doneCount} fertig
+                </span>
               </p>
             </div>
           </div>
 
-          {/* Counts and Progress Badge & Controls */}
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-stone-100 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-xs sm:text-sm font-semibold text-stone-900 dark:text-stone-100 transition-colors">
-              <span id="pant-counter">
-                {totalCount} / {maxLimit} Hosen
-              </span>
-              <span className="text-stone-400 dark:text-stone-500">•</span>
-              <span id="done-counter" className="text-emerald-700 dark:text-emerald-400 font-bold">
-                {doneCount} / {totalCount} fertig
-              </span>
-            </div>
-
-            {/* Statistiken Button */}
+          {/* Right side icons & Stats button */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Button Statistiken */}
             <button
               id="open-stats-btn"
               type="button"
               onClick={onOpenStats}
-              className="flex h-10 items-center justify-center gap-1.5 px-3 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-700 hover:text-stone-900 dark:hover:text-white transition-colors shadow-xs font-semibold text-xs sm:text-sm"
+              className="inline-flex h-9 sm:h-10 items-center justify-center gap-1.5 px-2.5 sm:px-3 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-700 transition-colors shadow-xs font-semibold text-xs min-h-[44px]"
               title="Statistiken anzeigen"
               aria-label="Statistiken anzeigen"
             >
-              <BarChart2 className="h-4 w-4 sm:h-5 sm:w-5 text-stone-700 dark:text-stone-200" />
+              <BarChart2 className="h-4 w-4 text-stone-700 dark:text-stone-200" />
               <span>Statistiken</span>
             </button>
 
@@ -130,14 +146,14 @@ export const Header: React.FC<HeaderProps> = ({
               id="dark-mode-toggle-btn"
               type="button"
               onClick={onToggleDarkMode}
-              className="flex h-10 w-10 items-center justify-center rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-700 hover:text-stone-900 dark:hover:text-white transition-colors shadow-xs"
+              className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-700 transition-colors shadow-xs min-h-[44px] min-w-[44px]"
               title={isDarkMode ? "Hellmodus aktivieren" : "Dunkelmodus aktivieren"}
               aria-label={isDarkMode ? "Hellmodus aktivieren" : "Dunkelmodus aktivieren"}
             >
               {isDarkMode ? (
-                <Sun className="h-5 w-5 text-amber-400" />
+                <Sun className="h-4 w-4 sm:h-5 sm:w-5 text-amber-400" />
               ) : (
-                <Moon className="h-5 w-5" />
+                <Moon className="h-4 w-4 sm:h-5 sm:w-5" />
               )}
             </button>
 
@@ -146,20 +162,21 @@ export const Header: React.FC<HeaderProps> = ({
               id="open-settings-btn"
               type="button"
               onClick={onOpenSettings}
-              className="flex h-10 w-10 items-center justify-center rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-700 hover:text-stone-900 dark:hover:text-white transition-colors shadow-xs"
+              className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-700 transition-colors shadow-xs min-h-[44px] min-w-[44px]"
               title="Einstellungen (Mein Vinted-Prompt)"
+              aria-label="Einstellungen"
             >
-              <Settings className="h-5 w-5" />
+              <Settings className="h-4 w-4 sm:h-5 sm:w-5" />
             </button>
           </div>
         </div>
 
         {/* Progress Bar */}
         {totalCount > 0 && (
-          <div className="mt-2.5">
-            <div className="w-full bg-stone-100 dark:bg-stone-800 rounded-full h-2 overflow-hidden border border-stone-200 dark:border-stone-700">
+          <div className="mt-2">
+            <div className="w-full bg-stone-100 dark:bg-stone-800 rounded-full h-1.5 overflow-hidden border border-stone-200/60 dark:border-stone-700/60">
               <div
-                className="bg-emerald-600 dark:bg-emerald-500 h-2 transition-all duration-300 rounded-full"
+                className="bg-emerald-600 dark:bg-emerald-500 h-1.5 transition-all duration-300 rounded-full"
                 style={{ width: `${percentDone}%` }}
               />
             </div>
@@ -167,31 +184,18 @@ export const Header: React.FC<HeaderProps> = ({
         )}
 
         {/* Primary Action Buttons */}
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-stone-100 dark:border-stone-800">
-          <div className="flex flex-wrap items-center gap-2">
-            {/* + Neue Hose */}
+        <div className="mt-2 flex items-center justify-between gap-1.5 pt-1.5 border-t border-stone-100 dark:border-stone-800 relative" ref={moreMenuRef}>
+          <div className="flex items-center gap-1.5 flex-wrap sm:flex-nowrap w-full">
+            {/* Neue Hose */}
             <button
               id="add-new-pant-btn"
               type="button"
               disabled={totalCount >= maxLimit}
               onClick={onAddNewPant}
-              className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-stone-900 dark:bg-stone-100 text-sm font-semibold text-white dark:text-stone-900 hover:bg-stone-800 dark:hover:bg-stone-200 disabled:opacity-40 transition-colors shadow-xs min-h-[44px]"
+              className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl bg-stone-900 dark:bg-stone-100 text-xs sm:text-sm font-semibold text-white dark:text-stone-900 hover:bg-stone-800 dark:hover:bg-stone-200 disabled:opacity-40 transition-colors shadow-xs min-h-[44px] shrink-0"
             >
               <Plus className="h-4 w-4" />
-              <span>+ Neue Hose</span>
-            </button>
-
-            {/* Mehrere Hosen hinzufügen */}
-            <button
-              id="add-multiple-pants-btn"
-              type="button"
-              disabled={totalCount >= maxLimit}
-              onClick={onOpenAddMultiple}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-sm font-semibold text-stone-800 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-700 disabled:opacity-40 transition-colors shadow-xs min-h-[44px]"
-            >
-              <PlusCircle className="h-4 w-4 text-stone-600 dark:text-stone-400" />
-              <span className="hidden xs:inline">Mehrere hinzufügen</span>
-              <span className="xs:hidden">+ Mehrere</span>
+              <span>Neue Hose</span>
             </button>
 
             {/* Sammel-Upload */}
@@ -199,8 +203,8 @@ export const Header: React.FC<HeaderProps> = ({
               id="bulk-upload-btn"
               type="button"
               onClick={onOpenBulkUpload}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-sm font-semibold text-stone-800 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-700 transition-colors shadow-xs min-h-[44px]"
-              title="Viele Bilder auf einmal hochladen und zu Hosen gruppieren"
+              className="inline-flex items-center justify-center gap-1 px-2.5 sm:px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs sm:text-sm font-semibold text-stone-800 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-700 transition-colors shadow-xs min-h-[44px] shrink-0"
+              title="Viele Bilder auf einmal hochladen"
             >
               <Layers className="h-4 w-4 text-stone-600 dark:text-stone-400" />
               <span>Sammel-Upload</span>
@@ -212,124 +216,182 @@ export const Header: React.FC<HeaderProps> = ({
                 id="stop-batch-btn"
                 type="button"
                 onClick={onStopBatch}
-                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-amber-600 text-sm font-semibold text-white hover:bg-amber-700 transition-colors shadow-xs min-h-[44px]"
+                className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl bg-amber-600 text-xs sm:text-sm font-semibold text-white hover:bg-amber-700 transition-colors shadow-xs min-h-[44px] shrink-0"
               >
                 <StopCircle className="h-4 w-4 animate-pulse" />
-                <span>Stoppen ({batchActiveCount} aktiv)</span>
+                <span>Stoppen ({batchActiveCount})</span>
               </button>
             ) : (
-              <div className="flex items-center gap-1.5">
-                <button
-                  id="create-all-ads-btn"
-                  type="button"
-                  disabled={totalCount === 0}
-                  onClick={() => onStartBatch(false)}
-                  className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-700 dark:bg-emerald-600 text-sm font-semibold text-white hover:bg-emerald-800 dark:hover:bg-emerald-500 disabled:opacity-40 transition-colors shadow-xs min-h-[44px]"
-                  title="Alle Hosen nacheinander (max. 3 gleichzeitig) analysieren"
-                >
-                  <Play className="h-4 w-4 fill-white" />
-                  <span>Alle Anzeigen erstellen</span>
-                </button>
+              <button
+                id="create-all-ads-btn"
+                type="button"
+                disabled={totalCount === 0}
+                onClick={() => onStartBatch(false)}
+                className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl bg-emerald-700 dark:bg-emerald-600 text-xs sm:text-sm font-semibold text-white hover:bg-emerald-800 dark:hover:bg-emerald-500 disabled:opacity-40 transition-colors shadow-xs min-h-[44px] shrink-0"
+                title="Alle Hosen nacheinander analysieren"
+              >
+                <Play className="h-3.5 w-3.5 fill-white" />
+                <span>Alle Anzeigen</span>
+              </button>
+            )}
 
+            {/* Button Mehr */}
+            <button
+              id="more-actions-btn"
+              type="button"
+              onClick={() => setIsMoreOpen(!isMoreOpen)}
+              className="inline-flex items-center justify-center gap-1 px-2.5 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs sm:text-sm font-semibold text-stone-800 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-700 transition-colors shadow-xs min-h-[44px] shrink-0 ml-auto"
+              title="Weitere Aktionen"
+              aria-label="Weitere Aktionen"
+            >
+              <MoreHorizontal className="h-4 w-4" />
+              <span>Mehr</span>
+            </button>
+          </div>
+
+          {/* More Menu Dropdown / Bottom-Sheet */}
+          {isMoreOpen && (
+            <div className="absolute right-0 top-full mt-2 w-64 rounded-2xl border border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 p-2 shadow-xl z-50 space-y-1 animate-in fade-in zoom-in-95 duration-100">
+              <div className="flex items-center justify-between px-3 py-1.5 border-b border-stone-100 dark:border-stone-800">
+                <span className="text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">
+                  Weitere Aktionen
+                </span>
                 <button
-                  id="create-missing-ads-btn"
                   type="button"
-                  disabled={totalCount === 0 || doneCount === totalCount}
-                  onClick={() => onStartBatch(true)}
-                  className="hidden md:inline-flex items-center gap-1 px-3 py-2.5 rounded-xl border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/50 text-xs font-semibold text-emerald-900 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 disabled:opacity-40 transition-colors min-h-[44px]"
-                  title="Nur fehlende Anzeigen erstellen"
+                  onClick={() => setIsMoreOpen(false)}
+                  className="text-stone-400 hover:text-stone-600 dark:hover:text-stone-200"
                 >
-                  <Sparkles className="h-3.5 w-3.5" />
-                  <span>Nur fehlende</span>
+                  <X className="h-4 w-4" />
                 </button>
               </div>
-            )}
-          </div>
 
-          {/* Secondary Actions & Menus */}
-          <div className="flex items-center gap-1.5 overflow-x-auto py-1">
-            {/* Collapse all */}
-            <button
-              id="collapse-all-btn"
-              type="button"
-              onClick={onToggleCollapseAll}
-              className="flex h-10 px-2.5 items-center justify-center gap-1 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs font-medium text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-700 transition-colors"
-              title={areAllCollapsed ? "Alle ausklappen" : "Alle fertigen einklappen"}
-            >
-              {areAllCollapsed ? (
-                <>
-                  <Maximize2 className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Alle ausklappen</span>
-                </>
-              ) : (
-                <>
-                  <Minimize2 className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Alle fertigen einklappen</span>
-                </>
-              )}
-            </button>
+              {/* + Mehrere Hosen */}
+              <button
+                id="add-multiple-pants-btn"
+                type="button"
+                disabled={totalCount >= maxLimit}
+                onClick={() => {
+                  setIsMoreOpen(false);
+                  onOpenAddMultiple();
+                }}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold text-stone-800 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 disabled:opacity-40 transition-colors min-h-[44px]"
+              >
+                <PlusCircle className="h-4 w-4 text-stone-500 dark:text-stone-400" />
+                <span>+ Mehrere Hosen anlegen</span>
+              </button>
 
-            {/* CSV Export */}
-            <button
-              id="export-csv-btn"
-              type="button"
-              onClick={onExportCsv}
-              disabled={totalCount === 0}
-              className="flex h-10 px-2.5 items-center justify-center gap-1 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs font-medium text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-700 disabled:opacity-40 transition-colors"
-              title="CSV exportieren"
-            >
-              <FileSpreadsheet className="h-3.5 w-3.5 text-stone-600 dark:text-stone-400" />
-              <span className="hidden lg:inline">CSV</span>
-            </button>
+              {/* Nur fehlende Anzeigen erstellen */}
+              <button
+                id="create-missing-ads-btn"
+                type="button"
+                disabled={totalCount === 0 || doneCount === totalCount || isBatchRunning}
+                onClick={() => {
+                  setIsMoreOpen(false);
+                  onStartBatch(true);
+                }}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold text-emerald-800 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 disabled:opacity-40 transition-colors min-h-[44px]"
+              >
+                <Sparkles className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                <span>Nur fehlende Anzeigen erstellen</span>
+              </button>
 
-            {/* JSON Export */}
-            <button
-              id="export-project-btn"
-              type="button"
-              onClick={onExportJson}
-              disabled={totalCount === 0}
-              className="flex h-10 px-2.5 items-center justify-center gap-1 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs font-medium text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-700 disabled:opacity-40 transition-colors"
-              title="Projekt exportieren (JSON)"
-            >
-              <Download className="h-3.5 w-3.5 text-stone-600 dark:text-stone-400" />
-              <span className="hidden lg:inline">Export</span>
-            </button>
+              {/* Einklappen / Ausklappen */}
+              <button
+                id="collapse-all-btn"
+                type="button"
+                onClick={() => {
+                  setIsMoreOpen(false);
+                  onToggleCollapseAll();
+                }}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold text-stone-800 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors min-h-[44px]"
+              >
+                {areAllCollapsed ? (
+                  <>
+                    <Maximize2 className="h-4 w-4 text-stone-500 dark:text-stone-400" />
+                    <span>Alle Ausklappen</span>
+                  </>
+                ) : (
+                  <>
+                    <Minimize2 className="h-4 w-4 text-stone-500 dark:text-stone-400" />
+                    <span>Alle fertigen einklappen</span>
+                  </>
+                )}
+              </button>
 
-            {/* JSON Import */}
-            <button
-              id="import-project-btn"
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="flex h-10 px-2.5 items-center justify-center gap-1 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs font-medium text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-700 transition-colors"
-              title="Projekt importieren (JSON)"
-            >
-              <Upload className="h-3.5 w-3.5 text-stone-600 dark:text-stone-400" />
-              <span className="hidden lg:inline">Import</span>
-            </button>
+              <div className="border-t border-stone-100 dark:border-stone-800 my-1" />
 
-            {/* Hidden JSON file input */}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".json,application/json"
-              onChange={handleFileChange}
-              className="hidden"
-            />
+              {/* CSV Export */}
+              <button
+                id="export-csv-btn"
+                type="button"
+                disabled={totalCount === 0}
+                onClick={() => {
+                  setIsMoreOpen(false);
+                  onExportCsv();
+                }}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold text-stone-800 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 disabled:opacity-40 transition-colors min-h-[44px]"
+              >
+                <FileSpreadsheet className="h-4 w-4 text-stone-500 dark:text-stone-400" />
+                <span>CSV exportieren</span>
+              </button>
 
-            {/* Projekt löschen */}
-            <button
-              id="delete-project-btn"
-              type="button"
-              onClick={onOpenDeleteProject}
-              disabled={totalCount === 0}
-              className="flex h-10 px-2.5 items-center justify-center gap-1 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs font-medium text-stone-600 dark:text-stone-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:border-rose-200 dark:hover:border-rose-800 disabled:opacity-40 transition-colors"
-              title="Projekt löschen"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Projekt löschen</span>
-            </button>
-          </div>
+              {/* JSON Export */}
+              <button
+                id="export-project-btn"
+                type="button"
+                disabled={totalCount === 0}
+                onClick={() => {
+                  setIsMoreOpen(false);
+                  onExportJson();
+                }}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold text-stone-800 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 disabled:opacity-40 transition-colors min-h-[44px]"
+              >
+                <Download className="h-4 w-4 text-stone-500 dark:text-stone-400" />
+                <span>Projekt exportieren (JSON)</span>
+              </button>
+
+              {/* JSON Import */}
+              <button
+                id="import-project-btn"
+                type="button"
+                onClick={() => {
+                  setIsMoreOpen(false);
+                  fileInputRef.current?.click();
+                }}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold text-stone-800 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors min-h-[44px]"
+              >
+                <Upload className="h-4 w-4 text-stone-500 dark:text-stone-400" />
+                <span>Projekt importieren (JSON)</span>
+              </button>
+
+              <div className="border-t border-stone-100 dark:border-stone-800 my-1" />
+
+              {/* Projekt löschen */}
+              <button
+                id="delete-project-btn"
+                type="button"
+                disabled={totalCount === 0}
+                onClick={() => {
+                  setIsMoreOpen(false);
+                  onOpenDeleteProject();
+                }}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 disabled:opacity-40 transition-colors min-h-[44px]"
+              >
+                <Trash2 className="h-4 w-4 text-rose-600" />
+                <span>Gesamtes Projekt löschen</span>
+              </button>
+            </div>
+          )}
         </div>
+
+        {/* Hidden JSON file input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".json,application/json"
+          onChange={handleFileChange}
+          className="hidden"
+        />
       </div>
     </header>
   );
