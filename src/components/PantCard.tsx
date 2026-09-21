@@ -21,10 +21,12 @@ import {
   Info,
   Loader2,
   ImageIcon,
+  PiggyBank,
 } from "lucide-react";
 import { compressImageFile } from "../lib/imageCompressor";
 import { formatTitleWithArticleNumber } from "../lib/titleUtils";
-import { SALE_STATUS_OPTIONS, getSaleStatusLabel } from "../lib/saleStatus";
+import { SALE_STATUS_OPTIONS } from "../lib/saleStatus";
+import { formatCurrency } from "../lib/statsUtils";
 
 interface PantCardProps {
   pant: PantItem;
@@ -230,6 +232,15 @@ export const PantCard: React.FC<PantCardProps> = ({
   const isAnalyzing = pant.status === "analyzing";
   const firstPhoto = pant.images.length > 0 ? pant.images[0].dataUrl : null;
 
+  // Profit calculation for sold pant
+  const hasValidProfit =
+    pant.saleStatus === "sold" &&
+    typeof pant.salePrice === "number" &&
+    Number.isFinite(pant.salePrice) &&
+    typeof pant.purchasePrice === "number" &&
+    Number.isFinite(pant.purchasePrice);
+  const itemProfit = hasValidProfit ? pant.salePrice! - pant.purchasePrice! : null;
+
   return (
     <div
       id={`pant-card-${pant.id}`}
@@ -312,9 +323,9 @@ export const PantCard: React.FC<PantCardProps> = ({
           </div>
         </div>
 
-        {/* Right Side: Verkaufsstatus + Verkaufspreis + Aufklapp-Pfeil */}
+        {/* Right Side: Verkaufsstatus + Verkaufspreis + Gewinn + Aufklapp-Pfeil */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          {/* Verkaufsstatus Badge / Selector */}
+          {/* Verkaufsstatus Selector */}
           <div onClick={(e) => e.stopPropagation()}>
             <select
               id={`sale-status-${pant.id}`}
@@ -335,20 +346,37 @@ export const PantCard: React.FC<PantCardProps> = ({
 
           {/* Verkaufspreis, wenn verkauft */}
           {pant.saleStatus === "sold" && (
-            <button
-              id={`edit-sale-btn-${pant.id}`}
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onEditSale(pant);
-              }}
-              className="inline-flex h-8 items-center px-2 rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/50 text-xs font-bold text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 transition-colors min-h-[36px]"
-              title="Verkaufsdaten bearbeiten"
-            >
-              {pant.salePrice !== undefined
-                ? `${pant.salePrice.toFixed(2).replace(".", ",")} €`
-                : "Verkauf"}
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                id={`edit-sale-btn-${pant.id}`}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEditSale(pant);
+                }}
+                className="inline-flex h-8 items-center px-2 rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/50 text-xs font-bold text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 transition-colors min-h-[36px]"
+                title="Verkaufsdaten bearbeiten"
+              >
+                {pant.salePrice !== undefined
+                  ? `${pant.salePrice.toFixed(2).replace(".", ",")} €`
+                  : "Verkauf"}
+              </button>
+
+              {/* Gewinn Badge */}
+              {hasValidProfit && (
+                <span
+                  className={`hidden sm:inline-flex h-8 items-center px-2 rounded-lg text-xs font-bold border ${
+                    itemProfit! >= 0
+                      ? "bg-emerald-100 dark:bg-emerald-950/80 text-emerald-900 dark:text-emerald-200 border-emerald-300 dark:border-emerald-800"
+                      : "bg-rose-100 dark:bg-rose-950/80 text-rose-900 dark:text-rose-200 border-rose-300 dark:border-rose-800"
+                  }`}
+                  title={`Gewinn = ${formatCurrency(pant.salePrice!)} - ${formatCurrency(pant.purchasePrice!)}`}
+                >
+                  <PiggyBank className="h-3 w-3 mr-1 shrink-0" />
+                  {itemProfit! >= 0 ? "+" : ""}{formatCurrency(itemProfit!)}
+                </span>
+              )}
+            </div>
           )}
 
           {/* Aufklapp-Pfeil */}
@@ -530,25 +558,91 @@ export const PantCard: React.FC<PantCardProps> = ({
             />
           </div>
 
-          {/* Section 2: Artikelnummer & Optionale Maße */}
+          {/* Section: Artikelnummer & Einkauf */}
           <div className="space-y-3">
-            {/* Artikelnummer Input */}
-            <div className="max-w-xs">
-              <label
-                htmlFor={`artnr-${pant.id}`}
-                className="block text-xs font-bold uppercase tracking-wider text-stone-700 dark:text-stone-300 mb-1"
-              >
-                Artikelnummer
-              </label>
-              <input
-                id={`artnr-${pant.id}`}
-                type="text"
-                placeholder="z.B. 123, A45, J-009"
-                value={pant.artikelnummer || ""}
-                onChange={(e) => handleArtikelnummerChange(e.target.value)}
-                className="w-full rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800/90 px-3 py-2 text-sm font-semibold text-stone-900 dark:text-stone-100 placeholder:text-stone-500 dark:placeholder:text-stone-400 focus:border-stone-900 dark:focus:border-stone-400 focus:outline-none min-h-[40px] transition-colors"
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Artikelnummer Input */}
+              <div>
+                <label
+                  htmlFor={`artnr-${pant.id}`}
+                  className="block text-xs font-bold uppercase tracking-wider text-stone-700 dark:text-stone-300 mb-1"
+                >
+                  Artikelnummer
+                </label>
+                <input
+                  id={`artnr-${pant.id}`}
+                  type="text"
+                  placeholder="z.B. 123, A45"
+                  value={pant.artikelnummer || ""}
+                  onChange={(e) => handleArtikelnummerChange(e.target.value)}
+                  className="w-full rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800/90 px-3 py-2 text-sm font-semibold text-stone-900 dark:text-stone-100 placeholder:text-stone-500 dark:placeholder:text-stone-400 focus:border-stone-900 dark:focus:border-stone-400 focus:outline-none min-h-[40px] transition-colors"
+                />
+              </div>
+
+              {/* Einkaufspreis (€) */}
+              <div>
+                <label
+                  htmlFor={`purchase-price-${pant.id}`}
+                  className="block text-xs font-bold uppercase tracking-wider text-stone-700 dark:text-stone-300 mb-1"
+                >
+                  Einkaufspreis (€)
+                </label>
+                <input
+                  id={`purchase-price-${pant.id}`}
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="z.B. 10.00"
+                  value={pant.purchasePrice !== undefined ? pant.purchasePrice : ""}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    const parsed = val === "" ? undefined : parseFloat(val.replace(",", "."));
+                    const safe = parsed !== undefined && !isNaN(parsed) && parsed >= 0 ? parsed : undefined;
+                    onUpdate({
+                      ...pant,
+                      purchasePrice: safe,
+                      updatedAt: Date.now(),
+                    });
+                  }}
+                  className="w-full rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800/90 px-3 py-2 text-sm font-semibold text-stone-900 dark:text-stone-100 placeholder:text-stone-500 dark:placeholder:text-stone-400 focus:border-stone-900 dark:focus:border-stone-400 focus:outline-none min-h-[40px] transition-colors"
+                />
+              </div>
+
+              {/* Einkaufsdatum */}
+              <div>
+                <label
+                  htmlFor={`purchase-date-${pant.id}`}
+                  className="block text-xs font-bold uppercase tracking-wider text-stone-700 dark:text-stone-300 mb-1"
+                >
+                  Einkaufsdatum
+                </label>
+                <input
+                  id={`purchase-date-${pant.id}`}
+                  type="date"
+                  value={pant.purchaseDate || ""}
+                  onChange={(e) => {
+                    onUpdate({
+                      ...pant,
+                      purchaseDate: e.target.value || undefined,
+                      updatedAt: Date.now(),
+                    });
+                  }}
+                  className="w-full rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800/90 px-3 py-2 text-xs sm:text-sm font-semibold text-stone-900 dark:text-stone-100 focus:border-stone-900 dark:focus:border-stone-400 focus:outline-none min-h-[40px] transition-colors"
+                />
+              </div>
             </div>
+
+            {/* Compact Profit summary badge if sold and valid prices */}
+            {hasValidProfit && (
+              <div className="p-3 rounded-xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700 flex flex-wrap items-center justify-between gap-2 text-xs font-semibold">
+                <span className="text-stone-700 dark:text-stone-300">
+                  Verkauf: <span className="font-bold">{formatCurrency(pant.salePrice!)}</span> • EK: <span className="font-bold">{formatCurrency(pant.purchasePrice!)}</span>
+                </span>
+                <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-black ${itemProfit! >= 0 ? "bg-emerald-100 dark:bg-emerald-950/80 text-emerald-900 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800" : "bg-rose-100 dark:bg-rose-950/80 text-rose-900 dark:text-rose-200 border border-rose-300 dark:border-rose-800"}`}>
+                  Gewinn: {itemProfit! >= 0 ? "+" : ""}{formatCurrency(itemProfit!)}
+                </span>
+              </div>
+            )}
 
             {/* Optionale Maße */}
             <div>

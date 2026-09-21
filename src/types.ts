@@ -43,6 +43,8 @@ export interface PantItem {
   status: PantStatus;
   saleStatus: SaleStatus;
   uploadedAt?: number;
+  purchasePrice?: number;
+  purchaseDate?: string;
   salePrice?: number;
   saleDate?: string;
   soldAt?: number;

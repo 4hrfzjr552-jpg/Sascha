@@ -28,11 +28,17 @@ export interface StatsData {
   avgSalePrice: number;
   avgSaleDurationDays: number;
   recentSales: RecentSaleItem[];
-  // Expenses & Profit
-  totalExpenses: number;
-  expensesThisMonth: number;
-  totalProfit: number;
-  profitThisMonth: number;
+  // Goods Cost & Profit per Pant
+  totalGoodsCost: number; // Wareneinsatz / Summe Einkaufspreise verkaufter Hosen
+  goodsCostThisMonth: number;
+  grossProfit: number; // Gewinn aus verkauften Hosen (Umsatz - Wareneinsatz)
+  grossProfitThisMonth: number;
+  avgProfitPerSoldPant: number; // Durchschnittlicher Gewinn pro verkaufter Hose
+  // General Expenses & Net Profit
+  totalGeneralExpenses: number; // Allgemeine Ausgaben gesamt
+  generalExpensesThisMonth: number;
+  netProfit: number; // Netto-Ergebnis = Umsatz - Wareneinsatz - allgemeine Ausgaben
+  netProfitThisMonth: number;
   recentExpenses: RecentExpenseItem[];
 }
 
@@ -169,6 +175,11 @@ export function calculateStats(
   let revenueThisMonth = 0;
   let soldPantsWithValidPriceCount = 0;
 
+  let totalGoodsCost = 0;
+  let goodsCostThisMonth = 0;
+  let totalProfitSum = 0;
+  let soldPantsWithPurchasePriceCount = 0;
+
   let totalDurationDaysSum = 0;
   let durationCount = 0;
 
@@ -184,16 +195,36 @@ export function calculateStats(
       }
     }
 
-    if (
+    const hasValidSalePrice =
       typeof pant.salePrice === "number" &&
       Number.isFinite(pant.salePrice) &&
-      pant.salePrice >= 0
-    ) {
-      totalRevenue += pant.salePrice;
+      pant.salePrice >= 0;
+
+    if (hasValidSalePrice) {
+      totalRevenue += pant.salePrice!;
       soldPantsWithValidPriceCount += 1;
 
       if (saleDate && isSameMonth(saleDate, today)) {
-        revenueThisMonth += pant.salePrice;
+        revenueThisMonth += pant.salePrice!;
+      }
+    }
+
+    const hasValidPurchasePrice =
+      typeof pant.purchasePrice === "number" &&
+      Number.isFinite(pant.purchasePrice) &&
+      pant.purchasePrice >= 0;
+
+    if (hasValidPurchasePrice) {
+      totalGoodsCost += pant.purchasePrice!;
+
+      if (saleDate && isSameMonth(saleDate, today)) {
+        goodsCostThisMonth += pant.purchasePrice!;
+      }
+
+      if (hasValidSalePrice) {
+        const pantProfit = pant.salePrice! - pant.purchasePrice!;
+        totalProfitSum += pantProfit;
+        soldPantsWithPurchasePriceCount += 1;
       }
     }
 
@@ -214,6 +245,14 @@ export function calculateStats(
     soldPantsWithValidPriceCount > 0
       ? totalRevenue / soldPantsWithValidPriceCount
       : 0;
+
+  const avgProfitPerSoldPant =
+    soldPantsWithPurchasePriceCount > 0
+      ? totalProfitSum / soldPantsWithPurchasePriceCount
+      : 0;
+
+  const grossProfit = totalRevenue - totalGoodsCost;
+  const grossProfitThisMonth = revenueThisMonth - goodsCostThisMonth;
 
   const avgSaleDurationDays =
     durationCount > 0 ? totalDurationDaysSum / durationCount : 0;
@@ -259,23 +298,23 @@ export function calculateStats(
       };
     });
 
-  // Calculate Expenses & Profit
-  let totalExpenses = 0;
-  let expensesThisMonth = 0;
+  // Calculate General Expenses & Net Profit
+  let totalGeneralExpenses = 0;
+  let generalExpensesThisMonth = 0;
 
   for (const exp of expenses) {
     if (typeof exp.amount === "number" && Number.isFinite(exp.amount) && exp.amount > 0) {
-      totalExpenses += exp.amount;
+      totalGeneralExpenses += exp.amount;
 
       const expDate = parseDateString(exp.date) || new Date(exp.createdAt);
       if (isSameMonth(expDate, today)) {
-        expensesThisMonth += exp.amount;
+        generalExpensesThisMonth += exp.amount;
       }
     }
   }
 
-  const totalProfit = totalRevenue - totalExpenses;
-  const profitThisMonth = revenueThisMonth - expensesThisMonth;
+  const netProfit = grossProfit - totalGeneralExpenses;
+  const netProfitThisMonth = grossProfitThisMonth - generalExpensesThisMonth;
 
   // Recent Expenses (max 10, newest first)
   const sortedExpenses = [...expenses].sort((a, b) => {
@@ -305,10 +344,15 @@ export function calculateStats(
     avgSalePrice,
     avgSaleDurationDays,
     recentSales,
-    totalExpenses,
-    expensesThisMonth,
-    totalProfit,
-    profitThisMonth,
+    totalGoodsCost,
+    goodsCostThisMonth,
+    grossProfit,
+    grossProfitThisMonth,
+    avgProfitPerSoldPant,
+    totalGeneralExpenses,
+    generalExpensesThisMonth,
+    netProfit,
+    netProfitThisMonth,
     recentExpenses,
   };
 }

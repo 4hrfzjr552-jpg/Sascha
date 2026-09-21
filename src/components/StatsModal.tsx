@@ -21,6 +21,8 @@ import {
   Receipt,
   PiggyBank,
   ArrowDownCircle,
+  ShoppingBag,
+  Calculator,
 } from "lucide-react";
 
 interface StatsModalProps {
@@ -62,7 +64,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                 Statistiken
               </h2>
               <p className="text-xs text-stone-500 dark:text-stone-400 font-medium">
-                Verkäufe, Ausgaben & Nettogewinn
+                Gewinn, Wareneinsatz & Ausgaben
               </p>
             </div>
           </div>
@@ -78,94 +80,123 @@ export const StatsModal: React.FC<StatsModalProps> = ({
 
         {/* Modal Content - Scrollable */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 scrollbar-thin">
-          {/* Section 1: Financial Summary (Gewinn, Umsatz, Ausgaben) */}
+          {/* Section 1: Financial Summary (Gewinn, Wareneinsatz, Ausgaben) */}
           <div className="space-y-3">
             <h3 className="text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400 px-1">
-              Finanz-Übersicht
+              Gewinn & Ergebnis
             </h3>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {/* Gewinn gesamt */}
-              <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 flex flex-col justify-between">
+              {/* Netto-Ergebnis gesamt */}
+              <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 flex flex-col justify-between col-span-2 sm:col-span-1">
                 <div className="flex items-center justify-between gap-1 text-emerald-700 dark:text-emerald-400">
                   <span className="text-xs font-bold leading-snug">
-                    Gewinn gesamt
+                    Netto-Ergebnis
                   </span>
                   <PiggyBank className="h-4 w-4 shrink-0" />
                 </div>
-                <div className={`mt-2 text-xl sm:text-2xl font-black tracking-tight ${stats.totalProfit >= 0 ? "text-emerald-900 dark:text-emerald-200" : "text-rose-600 dark:text-rose-400"}`}>
-                  {formatCurrency(stats.totalProfit)}
+                <div className={`mt-2 text-xl sm:text-2xl font-black tracking-tight ${stats.netProfit >= 0 ? "text-emerald-900 dark:text-emerald-200" : "text-rose-600 dark:text-rose-400"}`}>
+                  {formatCurrency(stats.netProfit)}
                 </div>
+                <p className="text-[10px] text-stone-500 dark:text-stone-400 mt-1">
+                  Umsatz − Wareneinsatz − Ausgaben
+                </p>
               </div>
 
-              {/* Gewinn diesen Monat */}
+              {/* Netto-Ergebnis diesen Monat */}
               <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 flex flex-col justify-between">
                 <div className="flex items-center justify-between gap-1 text-emerald-700 dark:text-emerald-400">
                   <span className="text-xs font-bold leading-snug">
-                    Gewinn diesen Monat
+                    Netto diesen Monat
                   </span>
                   <TrendingUp className="h-4 w-4 shrink-0" />
                 </div>
-                <div className={`mt-2 text-xl sm:text-2xl font-black tracking-tight ${stats.profitThisMonth >= 0 ? "text-emerald-900 dark:text-emerald-200" : "text-rose-600 dark:text-rose-400"}`}>
-                  {formatCurrency(stats.profitThisMonth)}
+                <div className={`mt-2 text-xl sm:text-2xl font-black tracking-tight ${stats.netProfitThisMonth >= 0 ? "text-emerald-900 dark:text-emerald-200" : "text-rose-600 dark:text-rose-400"}`}>
+                  {formatCurrency(stats.netProfitThisMonth)}
                 </div>
               </div>
 
-              {/* Ausgaben gesamt */}
-              <div className="p-3.5 rounded-2xl bg-rose-50/80 dark:bg-rose-950/30 border border-rose-200/80 dark:border-rose-800/50 flex flex-col justify-between col-span-2 sm:col-span-1">
-                <div className="flex items-center justify-between gap-1 text-rose-700 dark:text-rose-400">
-                  <span className="text-xs font-bold leading-snug">
-                    Ausgaben gesamt
-                  </span>
-                  <ArrowDownCircle className="h-4 w-4 shrink-0" />
-                </div>
-                <div className="mt-2 text-xl sm:text-2xl font-black text-rose-900 dark:text-rose-200 tracking-tight">
-                  {formatCurrency(stats.totalExpenses)}
-                </div>
-              </div>
-
-              {/* Einnahmen/Umsatz gesamt */}
+              {/* Ø Gewinn pro verkaufter Hose */}
               <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200/80 dark:border-stone-800 flex flex-col justify-between">
                 <div className="flex items-center justify-between gap-1 text-stone-500 dark:text-stone-400">
                   <span className="text-xs font-semibold leading-snug">
-                    Einnahmen gesamt
+                    Ø Gewinn / Hose
+                  </span>
+                  <Calculator className="h-4 w-4 shrink-0 text-emerald-500" />
+                </div>
+                <div className="mt-2 text-xl sm:text-2xl font-black text-stone-900 dark:text-stone-100 tracking-tight">
+                  {formatCurrency(stats.avgProfitPerSoldPant)}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 2: Detailed Breakdown */}
+          <div className="space-y-3">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400 px-1">
+              Detaillierte Aufschlüsselung
+            </h3>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {/* Umsatz (Einnahmen) gesamt */}
+              <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200/80 dark:border-stone-800 flex flex-col justify-between">
+                <div className="flex items-center justify-between gap-1 text-stone-500 dark:text-stone-400">
+                  <span className="text-xs font-semibold leading-snug">
+                    Umsatz gesamt
                   </span>
                   <DollarSign className="h-4 w-4 shrink-0 text-emerald-500" />
                 </div>
                 <div className="mt-2 text-lg sm:text-xl font-bold text-stone-900 dark:text-stone-100 tracking-tight">
                   {formatCurrency(stats.totalRevenue)}
                 </div>
+                <span className="text-[10px] text-stone-400 mt-0.5">Monat: {formatCurrency(stats.revenueThisMonth)}</span>
               </div>
 
-              {/* Umsatz diesen Monat */}
+              {/* Wareneinsatz (Einkaufspreise verkaufter Hosen) */}
               <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200/80 dark:border-stone-800 flex flex-col justify-between">
                 <div className="flex items-center justify-between gap-1 text-stone-500 dark:text-stone-400">
                   <span className="text-xs font-semibold leading-snug">
-                    Umsatz diesen Monat
+                    Wareneinsatz
                   </span>
-                  <CalendarDays className="h-4 w-4 shrink-0 text-indigo-400" />
+                  <ShoppingBag className="h-4 w-4 shrink-0 text-amber-500" />
                 </div>
                 <div className="mt-2 text-lg sm:text-xl font-bold text-stone-900 dark:text-stone-100 tracking-tight">
-                  {formatCurrency(stats.revenueThisMonth)}
+                  {formatCurrency(stats.totalGoodsCost)}
                 </div>
+                <span className="text-[10px] text-stone-400 mt-0.5">Monat: {formatCurrency(stats.goodsCostThisMonth)}</span>
               </div>
 
-              {/* Ausgaben diesen Monat */}
+              {/* Rohgewinn (Umsatz - Wareneinsatz) */}
               <div className="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200/80 dark:border-stone-800 flex flex-col justify-between">
                 <div className="flex items-center justify-between gap-1 text-stone-500 dark:text-stone-400">
                   <span className="text-xs font-semibold leading-snug">
-                    Ausgaben diesen Monat
+                    Rohgewinn
                   </span>
-                  <Receipt className="h-4 w-4 shrink-0 text-rose-400" />
+                  <TrendingUp className="h-4 w-4 shrink-0 text-indigo-500" />
                 </div>
                 <div className="mt-2 text-lg sm:text-xl font-bold text-stone-900 dark:text-stone-100 tracking-tight">
-                  {formatCurrency(stats.expensesThisMonth)}
+                  {formatCurrency(stats.grossProfit)}
                 </div>
+                <span className="text-[10px] text-stone-400 mt-0.5">Monat: {formatCurrency(stats.grossProfitThisMonth)}</span>
+              </div>
+
+              {/* Allgemeine Ausgaben */}
+              <div className="p-3.5 rounded-2xl bg-rose-50/80 dark:bg-rose-950/30 border border-rose-200/80 dark:border-rose-800/50 flex flex-col justify-between col-span-2 sm:col-span-1">
+                <div className="flex items-center justify-between gap-1 text-rose-700 dark:text-rose-400">
+                  <span className="text-xs font-bold leading-snug">
+                    Allgemeine Ausgaben
+                  </span>
+                  <ArrowDownCircle className="h-4 w-4 shrink-0" />
+                </div>
+                <div className="mt-2 text-lg sm:text-xl font-bold text-rose-900 dark:text-rose-200 tracking-tight">
+                  {formatCurrency(stats.totalGeneralExpenses)}
+                </div>
+                <span className="text-[10px] text-rose-700 dark:text-rose-400 mt-0.5">Monat: {formatCurrency(stats.generalExpensesThisMonth)}</span>
               </div>
             </div>
           </div>
 
-          {/* Section 2: Operational Key Metrics */}
+          {/* Section 3: Operational Key Metrics */}
           <div className="space-y-3">
             <h3 className="text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400 px-1">
               Inventar & Performance
@@ -252,11 +283,11 @@ export const StatsModal: React.FC<StatsModalProps> = ({
             </div>
           </div>
 
-          {/* Section 3: Letzte Ausgaben */}
+          {/* Section 4: Letzte Ausgaben */}
           <div className="space-y-3 pt-2">
             <div className="flex items-center justify-between px-1">
               <h3 className="text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">
-                Letzte Ausgaben
+                Letzte Allgemeine Ausgaben
               </h3>
               {stats.recentExpenses.length > 0 && (
                 <span className="text-xs font-medium text-stone-400 dark:text-stone-500">
@@ -269,7 +300,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
               <div className="p-5 rounded-2xl bg-stone-50 dark:bg-stone-800/40 border border-stone-200/80 dark:border-stone-800 text-center">
                 <Receipt className="h-7 w-7 mx-auto text-stone-400 dark:text-stone-500 mb-1.5" />
                 <p className="text-xs sm:text-sm font-semibold text-stone-700 dark:text-stone-300">
-                  Noch keine Ausgaben erfasst
+                  Noch keine allgemeinen Ausgaben erfasst
                 </p>
               </div>
             ) : (
@@ -306,7 +337,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
             )}
           </div>
 
-          {/* Section 4: Letzte Verkäufe */}
+          {/* Section 5: Letzte Verkäufe */}
           <div className="space-y-3 pt-2">
             <div className="flex items-center justify-between px-1">
               <h3 className="text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">
