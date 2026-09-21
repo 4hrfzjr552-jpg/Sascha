@@ -513,6 +513,10 @@ export default function App() {
     const updated: PantItem = {
       ...targetPant,
       saleStatus: newStatus,
+      uploadedAt:
+        newStatus === "uploaded" && !targetPant.uploadedAt
+          ? Date.now()
+          : targetPant.uploadedAt,
       updatedAt: Date.now(),
     };
     await handleUpdatePant(updated);
@@ -528,7 +532,7 @@ export default function App() {
       saleStatus: "sold",
       salePrice: price,
       saleDate: date,
-      soldAt: Date.now(),
+      soldAt: targetPant.soldAt || Date.now(),
       updatedAt: Date.now(),
     };
 
