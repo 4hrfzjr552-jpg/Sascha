@@ -56,3 +56,4 @@ export interface PantItem {
 
 export type FilterType = "all" | SaleStatus;
 export type AnalysisFilterType = "all" | "waiting" | "done" | "error";
+export type GenerationFilterType = "all" | "generated" | "not_generated";

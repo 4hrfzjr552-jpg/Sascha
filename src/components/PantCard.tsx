@@ -25,9 +25,11 @@ import {
 import { compressImageFile } from "../lib/imageCompressor";
 import { formatTitleWithArticleNumber } from "../lib/titleUtils";
 import { SALE_STATUS_OPTIONS, getSaleStatusLabel } from "../lib/saleStatus";
+import { getDuplicatePantNumbers } from "../lib/articleNumberUtils";
 
 interface PantCardProps {
   pant: PantItem;
+  allPants?: PantItem[];
   onUpdate: (updated: PantItem) => void;
   onDelete: (id: string) => void;
   onDuplicate: (pant: PantItem) => void;
@@ -39,6 +41,7 @@ interface PantCardProps {
 
 export const PantCard: React.FC<PantCardProps> = ({
   pant,
+  allPants = [],
   onUpdate,
   onDelete,
   onDuplicate,
@@ -47,6 +50,8 @@ export const PantCard: React.FC<PantCardProps> = ({
   onEditSale,
   isAnalyzingAny,
 }) => {
+  const duplicatePantNumbers = getDuplicatePantNumbers(pant, allPants);
+  const isDuplicateArticleNumber = duplicatePantNumbers.length > 0;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [isCompressing, setIsCompressing] = useState(false);
@@ -303,6 +308,17 @@ export const PantCard: React.FC<PantCardProps> = ({
                   Fehler
                 </span>
               )}
+
+              {isDuplicateArticleNumber && (
+                <span
+                  id={`duplicate-artnr-badge-${pant.id}`}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] sm:text-xs font-semibold bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800"
+                  title={`Artikelnummer wird bereits verwendet bei Hose ${duplicatePantNumbers.map((n) => `#${n}`).join(", ")}`}
+                >
+                  <AlertCircle className="h-3 w-3" />
+                  Doppelte Artikelnummer
+                </span>
+              )}
             </div>
             {pant.artikelnummer && (
               <span className="text-[10px] text-stone-500 dark:text-stone-400 truncate">
@@ -546,8 +562,30 @@ export const PantCard: React.FC<PantCardProps> = ({
                 placeholder="z.B. 123, A45, J-009"
                 value={pant.artikelnummer || ""}
                 onChange={(e) => handleArtikelnummerChange(e.target.value)}
-                className="w-full rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800/90 px-3 py-2 text-sm font-semibold text-stone-900 dark:text-stone-100 placeholder:text-stone-500 dark:placeholder:text-stone-400 focus:border-stone-900 dark:focus:border-stone-400 focus:outline-none min-h-[40px] transition-colors"
+                className={`w-full rounded-xl border ${
+                  isDuplicateArticleNumber
+                    ? "border-rose-400 dark:border-rose-600 bg-rose-50/30 dark:bg-rose-950/20"
+                    : "border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800/90"
+                } px-3 py-2 text-sm font-semibold text-stone-900 dark:text-stone-100 placeholder:text-stone-500 dark:placeholder:text-stone-400 focus:border-stone-900 dark:focus:border-stone-400 focus:outline-none min-h-[40px] transition-colors`}
               />
+              {isDuplicateArticleNumber && (
+                <div
+                  id={`duplicate-artnr-warning-${pant.id}`}
+                  className="mt-1.5 flex items-start gap-1.5 p-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-300 text-xs"
+                >
+                  <AlertCircle className="h-4 w-4 shrink-0 text-rose-600 dark:text-rose-400 mt-0.5" />
+                  <div>
+                    <p className="font-bold">Artikelnummer bereits vergeben</p>
+                    <p className="text-[11px] text-rose-700 dark:text-rose-400 mt-0.5">
+                      {duplicatePantNumbers.length === 1
+                        ? `Diese Artikelnummer wird bereits bei Hose #${duplicatePantNumbers[0]} verwendet.`
+                        : `Diese Artikelnummer wird bereits bei Hosen ${duplicatePantNumbers
+                            .map((n) => `#${n}`)
+                            .join(", ")} verwendet.`}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Optionale Maße */}
