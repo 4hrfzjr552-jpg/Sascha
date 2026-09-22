@@ -873,8 +873,8 @@ export default function App() {
       });
     }
 
-    // 5. Numeric sorting: if filter is "uploaded", sort numerically by artikelnummer
-    if (filter === "uploaded") {
+    // 5. Numeric sorting: if filter is "uploaded" or generationFilter is "generated", sort numerically by artikelnummer
+    if (filter === "uploaded" || generationFilter === "generated") {
       return sortPantsByArticleNumber(result);
     }
 
