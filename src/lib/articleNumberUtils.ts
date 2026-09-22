@@ -49,6 +49,7 @@ export function getDuplicatePantNumbers(
 /**
  * Sorts pants by artikelnummer in natural ascending numeric order (1, 2, 3, 4, 10, 11).
  * Pants without numeric artikelnummer or empty artikelnummer are placed at the end.
+ * Ties (same artikelnummer) are broken by pant.number ascending.
  */
 export function sortPantsByArticleNumber(pants: PantItem[]): PantItem[] {
   return [...pants].sort((a, b) => {
@@ -59,13 +60,17 @@ export function sortPantsByArticleNumber(pants: PantItem[]): PantItem[] {
     const isNumB = /^\d+$/.test(normB);
 
     if (isNumA && isNumB) {
-      return parseInt(normA, 10) - parseInt(normB, 10);
+      const diff = parseInt(normA, 10) - parseInt(normB, 10);
+      if (diff !== 0) return diff;
+      return a.number - b.number;
     }
     if (isNumA && !isNumB) return -1;
     if (!isNumA && isNumB) return 1;
 
     if (normA && normB) {
-      return normA.localeCompare(normB, undefined, { numeric: true, sensitivity: "base" });
+      const comp = normA.localeCompare(normB, undefined, { numeric: true, sensitivity: "base" });
+      if (comp !== 0) return comp;
+      return a.number - b.number;
     }
     if (normA && !normB) return -1;
     if (!normA && normB) return 1;
