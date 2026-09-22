@@ -5,6 +5,7 @@ import {
   FilterType,
   AnalysisFilterType,
   GenerationFilterType,
+  ArticleNumberFilterType,
   ExpenseItem,
   SaleStatus,
   PantImage,
@@ -27,9 +28,6 @@ import {
 import { sortPantsByArticleNumber } from "./lib/articleNumberUtils";
 import { Auth } from "./components/Auth";
 import { Header } from "./components/Header";
-import { AnalysisStatusBar } from "./components/AnalysisStatusBar";
-import { SaleStatusBar } from "./components/SaleStatusBar";
-import { GenerationStatusBar } from "./components/GenerationStatusBar";
 import { FilterBar } from "./components/FilterBar";
 import { PantCard } from "./components/PantCard";
 import { SettingsModal } from "./components/SettingsModal";
@@ -76,6 +74,7 @@ export default function App() {
   const [filter, setFilter] = useState<FilterType>("all");
   const [analysisFilter, setAnalysisFilter] = useState<AnalysisFilterType>("all");
   const [generationFilter, setGenerationFilter] = useState<GenerationFilterType>("all");
+  const [articleNumberFilter, setArticleNumberFilter] = useState<ArticleNumberFilterType>("all");
   const [searchQuery, setSearchQuery] = useState("");
 
   // Modal states
@@ -833,6 +832,19 @@ export default function App() {
     };
   }, [pants]);
 
+  const articleNumberCounts = useMemo(() => {
+    let missing = 0;
+    for (const p of pants) {
+      if (!p.artikelnummer?.trim()) {
+        missing++;
+      }
+    }
+    return {
+      all: pants.length,
+      missing,
+    };
+  }, [pants]);
+
   // Filter & Search pipeline
   const filteredPants = useMemo(() => {
     let result = [...pants];
@@ -860,7 +872,12 @@ export default function App() {
       });
     }
 
-    // 4. Search query filter
+    // 4. Filter by Article Number status
+    if (articleNumberFilter === "missing") {
+      result = result.filter((p) => !p.artikelnummer?.trim());
+    }
+
+    // 5. Search query filter
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
       result = result.filter((p) => {
@@ -873,14 +890,14 @@ export default function App() {
       });
     }
 
-    // 5. Numeric sorting: if filter is "uploaded" or generationFilter is "generated", sort numerically by artikelnummer
+    // 6. Numeric sorting: if filter is "uploaded" or generationFilter is "generated", sort numerically by artikelnummer
     if (filter === "uploaded" || generationFilter === "generated") {
       return sortPantsByArticleNumber(result);
     }
 
     // Default sort: numerical by hose number descending (highest number first)
     return result.sort((a, b) => b.number - a.number);
-  }, [pants, filter, analysisFilter, generationFilter, searchQuery]);
+  }, [pants, filter, analysisFilter, generationFilter, articleNumberFilter, searchQuery]);
 
   const analysisDoneCount = useMemo(() => {
     return pants.filter((p) => p.status === "done" && p.result).length;
@@ -948,42 +965,22 @@ export default function App() {
       <main className="flex-1 max-w-5xl w-full mx-auto px-3 py-3 sm:px-6 space-y-3 sm:space-y-4">
         {/* Filter & Search Bar */}
         {pants.length > 0 && (
-          <div className="space-y-2">
-            <div>
-              <span className="block px-0.5 mb-1 text-[10px] font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">
-                Anzeige-Generierung
-              </span>
-              <GenerationStatusBar
-                currentFilter={generationFilter}
-                onFilterChange={setGenerationFilter}
-                counts={generationCounts}
-              />
-            </div>
-            <div>
-              <span className="block px-0.5 mb-1 text-[10px] font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">
-                Analyse-Status
-              </span>
-              <AnalysisStatusBar
-                currentFilter={analysisFilter}
-                onFilterChange={setAnalysisFilter}
-                counts={analysisCounts}
-              />
-            </div>
-            <div>
-              <span className="block px-0.5 mb-1 text-[10px] font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">
-                Verkaufsstatus
-              </span>
-              <SaleStatusBar
-                currentFilter={filter}
-                onFilterChange={setFilter}
-                counts={counts}
-              />
-            </div>
-            <FilterBar
-              searchQuery={searchQuery}
-              onSearchChange={setSearchQuery}
-            />
-          </div>
+          <FilterBar
+            generationFilter={generationFilter}
+            onGenerationFilterChange={setGenerationFilter}
+            generationCounts={generationCounts}
+            analysisFilter={analysisFilter}
+            onAnalysisFilterChange={setAnalysisFilter}
+            analysisCounts={analysisCounts}
+            saleFilter={filter}
+            onSaleFilterChange={setFilter}
+            saleCounts={counts}
+            articleNumberFilter={articleNumberFilter}
+            onArticleNumberFilterChange={setArticleNumberFilter}
+            articleNumberCounts={articleNumberCounts}
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+          />
         )}
 
         {/* Empty State when no pants exist */}
@@ -1042,6 +1039,7 @@ export default function App() {
                 setFilter("all");
                 setAnalysisFilter("all");
                 setGenerationFilter("all");
+                setArticleNumberFilter("all");
                 setSearchQuery("");
               }}
               className="mt-3 px-3.5 py-1.5 rounded-xl bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-xs font-semibold text-stone-800 dark:text-stone-200 transition-colors min-h-[40px]"
