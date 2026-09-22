@@ -76,6 +76,7 @@ export default function App() {
   const [generationFilter, setGenerationFilter] = useState<GenerationFilterType>("all");
   const [articleNumberFilter, setArticleNumberFilter] = useState<ArticleNumberFilterType>("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [articleNumberSearchQuery, setArticleNumberSearchQuery] = useState("");
 
   // Modal states
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -834,14 +835,30 @@ export default function App() {
 
   const articleNumberCounts = useMemo(() => {
     let missing = 0;
+    let digit1 = 0;
+    let digit2 = 0;
+    let digit3Plus = 0;
     for (const p of pants) {
-      if (!p.artikelnummer?.trim()) {
+      const trimmed = p.artikelnummer?.trim() || "";
+      if (!trimmed) {
         missing++;
+      } else if (/^\d+$/.test(trimmed)) {
+        const val = parseInt(trimmed, 10);
+        if (val >= 0 && val <= 9) {
+          digit1++;
+        } else if (val >= 10 && val <= 99) {
+          digit2++;
+        } else if (val >= 100) {
+          digit3Plus++;
+        }
       }
     }
     return {
       all: pants.length,
       missing,
+      digit_1: digit1,
+      digit_2: digit2,
+      digit_3_plus: digit3Plus,
     };
   }, [pants]);
 
@@ -873,11 +890,39 @@ export default function App() {
     }
 
     // 4. Filter by Article Number status
-    if (articleNumberFilter === "missing") {
-      result = result.filter((p) => !p.artikelnummer?.trim());
+    if (articleNumberFilter !== "all") {
+      result = result.filter((p) => {
+        const trimmed = p.artikelnummer?.trim() || "";
+        if (articleNumberFilter === "missing") {
+          return !trimmed;
+        }
+        if (!/^\d+$/.test(trimmed)) {
+          return false;
+        }
+        const val = parseInt(trimmed, 10);
+        if (articleNumberFilter === "digit_1") {
+          return val >= 0 && val <= 9;
+        }
+        if (articleNumberFilter === "digit_2") {
+          return val >= 10 && val <= 99;
+        }
+        if (articleNumberFilter === "digit_3_plus") {
+          return val >= 100;
+        }
+        return true;
+      });
     }
 
-    // 5. Search query filter
+    // 5. Article number search filter
+    if (articleNumberSearchQuery.trim()) {
+      const q = articleNumberSearchQuery.trim().toLowerCase();
+      result = result.filter((p) => {
+        const art = (p.artikelnummer || "").trim().toLowerCase();
+        return art.includes(q);
+      });
+    }
+
+    // 6. Search query filter
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
       result = result.filter((p) => {
@@ -890,14 +935,14 @@ export default function App() {
       });
     }
 
-    // 6. Numeric sorting: if filter is "uploaded" or generationFilter is "generated", sort numerically by artikelnummer
+    // 7. Numeric sorting: if filter is "uploaded" or generationFilter is "generated", sort numerically by artikelnummer
     if (filter === "uploaded" || generationFilter === "generated") {
       return sortPantsByArticleNumber(result);
     }
 
     // Default sort: numerical by hose number descending (highest number first)
     return result.sort((a, b) => b.number - a.number);
-  }, [pants, filter, analysisFilter, generationFilter, articleNumberFilter, searchQuery]);
+  }, [pants, filter, analysisFilter, generationFilter, articleNumberFilter, searchQuery, articleNumberSearchQuery]);
 
   const analysisDoneCount = useMemo(() => {
     return pants.filter((p) => p.status === "done" && p.result).length;
@@ -980,6 +1025,8 @@ export default function App() {
             articleNumberCounts={articleNumberCounts}
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
+            articleNumberSearchQuery={articleNumberSearchQuery}
+            onArticleNumberSearchChange={setArticleNumberSearchQuery}
           />
         )}
 

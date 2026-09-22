@@ -60,7 +60,12 @@ export interface PantItem {
 export type FilterType = "all" | SaleStatus;
 export type AnalysisFilterType = "all" | "waiting" | "done" | "error";
 export type GenerationFilterType = "all" | "generated" | "not_generated";
-export type ArticleNumberFilterType = "all" | "missing";
+export type ArticleNumberFilterType =
+  | "all"
+  | "missing"
+  | "digit_1"
+  | "digit_2"
+  | "digit_3_plus";
 
 export type ExpenseCategory =
   | "Einkauf"
