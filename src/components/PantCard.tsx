@@ -21,8 +21,10 @@ import {
   Info,
   Loader2,
   ImageIcon,
+  Share2,
 } from "lucide-react";
 import { compressImageFile } from "../lib/imageCompressor";
+import { shareVintedPhotos } from "../lib/vintedShare";
 import { formatTitleWithArticleNumber } from "../lib/titleUtils";
 import { SALE_STATUS_OPTIONS, getSaleStatusLabel } from "../lib/saleStatus";
 import { getDuplicatePantNumbers } from "../lib/articleNumberUtils";
@@ -56,6 +58,24 @@ export const PantCard: React.FC<PantCardProps> = ({
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [isCompressing, setIsCompressing] = useState(false);
   const [showPhotoWarning, setShowPhotoWarning] = useState(false);
+  const [isPreparingPhotos, setIsPreparingPhotos] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
+
+  // Vinted photo sharing handler
+  const handleShareVintedPhotos = async () => {
+    setIsPreparingPhotos(true);
+    setShareError(null);
+    try {
+      const res = await shareVintedPhotos(pant);
+      if (!res.success && res.error) {
+        setShareError(res.error);
+      }
+    } catch (err: any) {
+      setShareError(err?.message || "Fehler beim Vorbereiten der Fotos.");
+    } finally {
+      setIsPreparingPhotos(false);
+    }
+  };
 
   // Copy helper with feedback
   const triggerCopy = async (text: string, label: string) => {
@@ -422,15 +442,59 @@ export const PantCard: React.FC<PantCardProps> = ({
           {/* Section 1: Photos */}
           <div>
             <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-              <span className="text-xs sm:text-sm font-bold text-stone-900 dark:text-stone-100">
-                Fotos ({pant.images.length} / 5)
-              </span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs sm:text-sm font-bold text-stone-900 dark:text-stone-100">
+                  Fotos ({pant.images.length} / 5)
+                </span>
+                {pant.images.length > 0 && (
+                  <button
+                    id={`vinted-share-photos-btn-${pant.id}`}
+                    type="button"
+                    disabled={isPreparingPhotos}
+                    onClick={handleShareVintedPhotos}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-xs font-semibold shadow-xs transition-colors disabled:opacity-50 min-h-[38px]"
+                    title="Alle Fotos dieser Hose gesammelt im iPhone-Teilen-Menü öffnen"
+                  >
+                    {isPreparingPhotos ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <span>Fotos werden vorbereitet…</span>
+                      </>
+                    ) : (
+                      <>
+                        <Share2 className="h-3.5 w-3.5" />
+                        <span>Fotos für Vinted</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
               <span className="text-xs text-stone-600 dark:text-stone-400 font-medium">
                 {pant.images.length === 1
                   ? `1 Foto gehört zu Hose #${pant.number}`
                   : `${pant.images.length} Fotos gehören zu Hose #${pant.number}`}
               </span>
             </div>
+
+            {/* Error message box for photo sharing */}
+            {shareError && (
+              <div
+                id={`share-error-box-${pant.id}`}
+                className="mb-3 flex items-center justify-between gap-2 p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-300 text-xs font-medium"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <AlertCircle className="h-4 w-4 shrink-0 text-rose-600 dark:text-rose-400" />
+                  <span className="truncate">{shareError}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShareError(null)}
+                  className="text-stone-500 hover:text-stone-800 dark:hover:text-stone-200 text-xs font-bold shrink-0 min-h-[32px] px-1"
+                >
+                  ×
+                </button>
+              </div>
+            )}
 
             {/* Warning if 0 photos */}
             {pant.images.length === 0 && (
