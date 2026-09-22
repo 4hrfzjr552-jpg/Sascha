@@ -39,6 +39,8 @@ interface PantCardProps {
   onSaleStatusChange: (pant: PantItem, status: SaleStatus) => void;
   onEditSale: (pant: PantItem) => void;
   isAnalyzingAny: boolean;
+  onArticleNumberFocus?: (id: string) => void;
+  onArticleNumberBlur?: (id: string) => void;
 }
 
 export const PantCard: React.FC<PantCardProps> = ({
@@ -51,6 +53,8 @@ export const PantCard: React.FC<PantCardProps> = ({
   onSaleStatusChange,
   onEditSale,
   isAnalyzingAny,
+  onArticleNumberFocus,
+  onArticleNumberBlur,
 }) => {
   const duplicatePantNumbers = getDuplicatePantNumbers(pant, allPants);
   const isDuplicateArticleNumber = duplicatePantNumbers.length > 0;
@@ -626,6 +630,8 @@ export const PantCard: React.FC<PantCardProps> = ({
                 placeholder="z.B. 123, A45, J-009"
                 value={pant.artikelnummer || ""}
                 onChange={(e) => handleArtikelnummerChange(e.target.value)}
+                onFocus={() => onArticleNumberFocus?.(pant.id)}
+                onBlur={() => onArticleNumberBlur?.(pant.id)}
                 className={`w-full rounded-xl border ${
                   isDuplicateArticleNumber
                     ? "border-rose-400 dark:border-rose-600 bg-rose-50/30 dark:bg-rose-950/20"
