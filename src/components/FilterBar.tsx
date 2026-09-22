@@ -30,11 +30,19 @@ interface FilterBarProps {
   // Article Number
   articleNumberFilter: ArticleNumberFilterType;
   onArticleNumberFilterChange: (filter: ArticleNumberFilterType) => void;
-  articleNumberCounts: { all: number; missing: number };
+  articleNumberCounts: {
+    all: number;
+    missing: number;
+    digit_1: number;
+    digit_2: number;
+    digit_3_plus: number;
+  };
 
   // Search
   searchQuery: string;
   onSearchChange: (query: string) => void;
+  articleNumberSearchQuery: string;
+  onArticleNumberSearchChange: (query: string) => void;
 }
 
 const CATEGORY_TABS: Array<{ id: FilterCategory; label: string }> = [
@@ -72,6 +80,8 @@ export const FilterBar: React.FC<FilterBarProps> = ({
   articleNumberCounts,
   searchQuery,
   onSearchChange,
+  articleNumberSearchQuery,
+  onArticleNumberSearchChange,
 }) => {
   const [activeCategory, setActiveCategory] = useState<FilterCategory>("generation");
 
@@ -86,6 +96,9 @@ export const FilterBar: React.FC<FilterBarProps> = ({
   const articleNumberOptions: Array<{ id: ArticleNumberFilterType; label: string }> = [
     { id: "all", label: "Alle" },
     { id: "missing", label: "Fehlt" },
+    { id: "digit_1", label: "1-stellig" },
+    { id: "digit_2", label: "2-stellig" },
+    { id: "digit_3_plus", label: "3-stellig+" },
   ];
 
   return (
@@ -214,8 +227,16 @@ export const FilterBar: React.FC<FilterBarProps> = ({
         {activeCategory === "articleNumber" &&
           articleNumberOptions.map((opt) => {
             const isActive = articleNumberFilter === opt.id;
-            const count = opt.id === "all" ? articleNumberCounts.all : articleNumberCounts.missing;
-            const labelText = opt.id === "missing" ? "Artikelnummer fehlt" : opt.label;
+            const count =
+              opt.id === "all"
+                ? articleNumberCounts.all
+                : opt.id === "missing"
+                ? articleNumberCounts.missing
+                : opt.id === "digit_1"
+                ? articleNumberCounts.digit_1
+                : opt.id === "digit_2"
+                ? articleNumberCounts.digit_2
+                : articleNumberCounts.digit_3_plus;
             return (
               <button
                 key={opt.id}
@@ -228,7 +249,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
                     : "bg-stone-50 dark:bg-stone-800/50 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700/60 hover:bg-stone-100 dark:hover:bg-stone-800"
                 }`}
               >
-                <span>{labelText}</span>
+                <span>{opt.label}</span>
                 <span
                   className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
                     isActive
@@ -246,24 +267,49 @@ export const FilterBar: React.FC<FilterBarProps> = ({
       {/* 3. Integrated Compact Search Bar */}
       <div className="relative w-full pt-0.5">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-stone-500 dark:text-stone-400 pointer-events-none" />
-        <input
-          id="search-input"
-          type="text"
-          value={searchQuery}
-          onChange={(e) => onSearchChange(e.target.value)}
-          placeholder="Nach Titel, Marke oder #..."
-          className="w-full pl-8 pr-8 py-1.5 rounded-xl border border-stone-200 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-950/50 text-xs sm:text-sm text-stone-900 dark:text-stone-100 placeholder:text-stone-500 dark:placeholder:text-stone-400 focus:border-stone-900 dark:focus:border-stone-400 focus:bg-white dark:focus:bg-stone-900 focus:outline-none min-h-[36px] transition-colors"
-        />
-        {searchQuery && (
-          <button
-            id="clear-search-btn"
-            type="button"
-            onClick={() => onSearchChange("")}
-            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-stone-500 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white"
-            title="Suche zurücksetzen"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
+        {activeCategory === "articleNumber" ? (
+          <input
+            id="article-number-search-input"
+            type="text"
+            value={articleNumberSearchQuery}
+            onChange={(e) => onArticleNumberSearchChange(e.target.value)}
+            placeholder="Artikelnummer suchen…"
+            className="w-full pl-8 pr-8 py-1.5 rounded-xl border border-stone-200 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-950/50 text-xs sm:text-sm text-stone-900 dark:text-stone-100 placeholder:text-stone-500 dark:placeholder:text-stone-400 focus:border-stone-900 dark:focus:border-stone-400 focus:bg-white dark:focus:bg-stone-900 focus:outline-none min-h-[36px] transition-colors"
+          />
+        ) : (
+          <input
+            id="search-input"
+            type="text"
+            value={searchQuery}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder="Nach Titel, Marke oder #..."
+            className="w-full pl-8 pr-8 py-1.5 rounded-xl border border-stone-200 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-950/50 text-xs sm:text-sm text-stone-900 dark:text-stone-100 placeholder:text-stone-500 dark:placeholder:text-stone-400 focus:border-stone-900 dark:focus:border-stone-400 focus:bg-white dark:focus:bg-stone-900 focus:outline-none min-h-[36px] transition-colors"
+          />
+        )}
+        {activeCategory === "articleNumber" ? (
+          articleNumberSearchQuery && (
+            <button
+              id="clear-article-number-search-btn"
+              type="button"
+              onClick={() => onArticleNumberSearchChange("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-stone-500 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white"
+              title="Suche zurücksetzen"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )
+        ) : (
+          searchQuery && (
+            <button
+              id="clear-search-btn"
+              type="button"
+              onClick={() => onSearchChange("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-stone-500 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white"
+              title="Suche zurücksetzen"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )
         )}
       </div>
     </div>
