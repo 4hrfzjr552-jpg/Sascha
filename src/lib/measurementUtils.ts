@@ -9,13 +9,13 @@ const RELEVANT_MEASUREMENT_FIELDS: (keyof PantMeasurements)[] = [
 ];
 
 /**
-  * Returns true if at least one of the relevant measurement fields
-  * (waist, totalLength, inseam, legOpening, thighWidth) is missing or empty/whitespace.
+  * Returns true if all of the relevant measurement fields
+  * (waist, totalLength, inseam, legOpening, thighWidth) are missing or empty/whitespace.
   */
 export function isPantMissingMeasurements(pant: PantItem): boolean {
   const m = pant.measurements;
   if (!m) return true;
-  return RELEVANT_MEASUREMENT_FIELDS.some(
+  return RELEVANT_MEASUREMENT_FIELDS.every(
     (field) => !m[field] || m[field].trim() === ""
   );
 }
