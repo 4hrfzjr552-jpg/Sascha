@@ -5,11 +5,17 @@ import {
   AnalysisFilterType,
   GenerationFilterType,
   ArticleNumberFilterType,
+  MeasurementsFilterType,
   SaleStatus,
 } from "../types";
 import { SALE_STATUS_OPTIONS } from "../lib/saleStatus";
 
-export type FilterCategory = "generation" | "analysis" | "sale" | "articleNumber";
+export type FilterCategory =
+  | "generation"
+  | "analysis"
+  | "sale"
+  | "articleNumber"
+  | "measurements";
 
 interface FilterBarProps {
   // Generation
@@ -38,6 +44,14 @@ interface FilterBarProps {
     digit_3_plus: number;
   };
 
+  // Measurements
+  measurementsFilter: MeasurementsFilterType;
+  onMeasurementsFilterChange: (filter: MeasurementsFilterType) => void;
+  measurementsCounts: {
+    all: number;
+    missing: number;
+  };
+
   // Search
   searchQuery: string;
   onSearchChange: (query: string) => void;
@@ -50,6 +64,7 @@ const CATEGORY_TABS: Array<{ id: FilterCategory; label: string }> = [
   { id: "analysis", label: "Analyse" },
   { id: "sale", label: "Verkauf" },
   { id: "articleNumber", label: "Artikelnummer" },
+  { id: "measurements", label: "Maße" },
 ];
 
 const GENERATION_OPTIONS: Array<{ id: GenerationFilterType; label: string }> = [
@@ -65,6 +80,11 @@ const ANALYSIS_OPTIONS: Array<{ id: AnalysisFilterType; label: string }> = [
   { id: "error", label: "Fehler" },
 ];
 
+const MEASUREMENTS_OPTIONS: Array<{ id: MeasurementsFilterType; label: string }> = [
+  { id: "all", label: "Alle" },
+  { id: "missing", label: "Maße fehlen" },
+];
+
 export const FilterBar: React.FC<FilterBarProps> = ({
   generationFilter,
   onGenerationFilterChange,
@@ -78,6 +98,9 @@ export const FilterBar: React.FC<FilterBarProps> = ({
   articleNumberFilter,
   onArticleNumberFilterChange,
   articleNumberCounts,
+  measurementsFilter,
+  onMeasurementsFilterChange,
+  measurementsCounts,
   searchQuery,
   onSearchChange,
   articleNumberSearchQuery,
@@ -243,6 +266,40 @@ export const FilterBar: React.FC<FilterBarProps> = ({
                 id={`article-number-chip-${opt.id}`}
                 type="button"
                 onClick={() => onArticleNumberFilterChange(opt.id)}
+                className={`whitespace-nowrap inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-all min-h-[32px] border ${
+                  isActive
+                    ? "bg-stone-800 dark:bg-stone-200 text-white dark:text-stone-900 border-stone-800 dark:border-stone-200"
+                    : "bg-stone-50 dark:bg-stone-800/50 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700/60 hover:bg-stone-100 dark:hover:bg-stone-800"
+                }`}
+              >
+                <span>{opt.label}</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                    isActive
+                      ? "bg-stone-700 dark:bg-stone-300 text-stone-100 dark:text-stone-900"
+                      : "bg-stone-200 dark:bg-stone-700 text-stone-600 dark:text-stone-300"
+                  }`}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+
+        {/* Maße Chips */}
+        {activeCategory === "measurements" &&
+          MEASUREMENTS_OPTIONS.map((opt) => {
+            const isActive = measurementsFilter === opt.id;
+            const count =
+              opt.id === "all"
+                ? measurementsCounts.all
+                : measurementsCounts.missing;
+            return (
+              <button
+                key={opt.id}
+                id={`measurements-chip-${opt.id}`}
+                type="button"
+                onClick={() => onMeasurementsFilterChange(opt.id)}
                 className={`whitespace-nowrap inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-all min-h-[32px] border ${
                   isActive
                     ? "bg-stone-800 dark:bg-stone-200 text-white dark:text-stone-900 border-stone-800 dark:border-stone-200"

@@ -6,6 +6,7 @@ import {
   AnalysisFilterType,
   GenerationFilterType,
   ArticleNumberFilterType,
+  MeasurementsFilterType,
   ExpenseItem,
   SaleStatus,
   PantImage,
@@ -26,6 +27,7 @@ import {
   appendKeywordsToDescription,
 } from "./lib/titleUtils";
 import { sortPantsByArticleNumber } from "./lib/articleNumberUtils";
+import { isPantMissingMeasurements } from "./lib/measurementUtils";
 import { Auth } from "./components/Auth";
 import { Header } from "./components/Header";
 import { FilterBar } from "./components/FilterBar";
@@ -75,6 +77,7 @@ export default function App() {
   const [analysisFilter, setAnalysisFilter] = useState<AnalysisFilterType>("all");
   const [generationFilter, setGenerationFilter] = useState<GenerationFilterType>("all");
   const [articleNumberFilter, setArticleNumberFilter] = useState<ArticleNumberFilterType>("all");
+  const [measurementsFilter, setMeasurementsFilter] = useState<MeasurementsFilterType>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [articleNumberSearchQuery, setArticleNumberSearchQuery] = useState("");
   const [editingArticleNumberPantId, setEditingArticleNumberPantId] = useState<string | null>(null);
@@ -863,6 +866,19 @@ export default function App() {
     };
   }, [pants]);
 
+  const measurementsCounts = useMemo(() => {
+    let missing = 0;
+    for (const p of pants) {
+      if (isPantMissingMeasurements(p)) {
+        missing++;
+      }
+    }
+    return {
+      all: pants.length,
+      missing,
+    };
+  }, [pants]);
+
   // Filter & Search pipeline
   const filteredPants = useMemo(() => {
     let result = [...pants];
@@ -914,7 +930,17 @@ export default function App() {
       });
     }
 
-    // 5. Article number search filter
+    // 5. Filter by Measurements status
+    if (measurementsFilter !== "all") {
+      result = result.filter((p) => {
+        if (measurementsFilter === "missing") {
+          return isPantMissingMeasurements(p);
+        }
+        return true;
+      });
+    }
+
+    // 6. Article number search filter
     if (articleNumberSearchQuery.trim()) {
       const q = articleNumberSearchQuery.trim().toLowerCase();
       result = result.filter((p) => {
@@ -923,7 +949,7 @@ export default function App() {
       });
     }
 
-    // 6. Search query filter
+    // 7. Search query filter
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
       result = result.filter((p) => {
@@ -936,14 +962,14 @@ export default function App() {
       });
     }
 
-    // 7. Numeric sorting: if filter is "uploaded" or generationFilter is "generated", sort numerically by artikelnummer
+    // 8. Numeric sorting: if filter is "uploaded" or generationFilter is "generated", sort numerically by artikelnummer
     if (filter === "uploaded" || generationFilter === "generated") {
       return sortPantsByArticleNumber(result);
     }
 
     // Default sort: numerical by hose number descending (highest number first)
     return result.sort((a, b) => b.number - a.number);
-  }, [pants, filter, analysisFilter, generationFilter, articleNumberFilter, searchQuery, articleNumberSearchQuery, editingArticleNumberPantId]);
+  }, [pants, filter, analysisFilter, generationFilter, articleNumberFilter, measurementsFilter, searchQuery, articleNumberSearchQuery, editingArticleNumberPantId]);
 
   const analysisDoneCount = useMemo(() => {
     return pants.filter((p) => p.status === "done" && p.result).length;
@@ -1024,6 +1050,9 @@ export default function App() {
             articleNumberFilter={articleNumberFilter}
             onArticleNumberFilterChange={setArticleNumberFilter}
             articleNumberCounts={articleNumberCounts}
+            measurementsFilter={measurementsFilter}
+            onMeasurementsFilterChange={setMeasurementsFilter}
+            measurementsCounts={measurementsCounts}
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
             articleNumberSearchQuery={articleNumberSearchQuery}
@@ -1088,7 +1117,9 @@ export default function App() {
                 setAnalysisFilter("all");
                 setGenerationFilter("all");
                 setArticleNumberFilter("all");
+                setMeasurementsFilter("all");
                 setSearchQuery("");
+                setArticleNumberSearchQuery("");
               }}
               className="mt-3 px-3.5 py-1.5 rounded-xl bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-xs font-semibold text-stone-800 dark:text-stone-200 transition-colors min-h-[40px]"
             >
