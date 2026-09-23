@@ -77,6 +77,7 @@ export default function App() {
   const [articleNumberFilter, setArticleNumberFilter] = useState<ArticleNumberFilterType>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [articleNumberSearchQuery, setArticleNumberSearchQuery] = useState("");
+  const [editingArticleNumberPantId, setEditingArticleNumberPantId] = useState<string | null>(null);
 
   // Modal states
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -894,7 +895,7 @@ export default function App() {
       result = result.filter((p) => {
         const trimmed = p.artikelnummer?.trim() || "";
         if (articleNumberFilter === "missing") {
-          return !trimmed;
+          return !trimmed || p.id === editingArticleNumberPantId;
         }
         if (!/^\d+$/.test(trimmed)) {
           return false;
@@ -942,7 +943,7 @@ export default function App() {
 
     // Default sort: numerical by hose number descending (highest number first)
     return result.sort((a, b) => b.number - a.number);
-  }, [pants, filter, analysisFilter, generationFilter, articleNumberFilter, searchQuery, articleNumberSearchQuery]);
+  }, [pants, filter, analysisFilter, generationFilter, articleNumberFilter, searchQuery, articleNumberSearchQuery, editingArticleNumberPantId]);
 
   const analysisDoneCount = useMemo(() => {
     return pants.filter((p) => p.status === "done" && p.result).length;
@@ -1110,6 +1111,8 @@ export default function App() {
               onSaleStatusChange={handleSaleStatusChange}
               onEditSale={(p) => setPantForSaleModalId(p.id)}
               isAnalyzingAny={isBatchRunning}
+              onArticleNumberFocus={(id) => setEditingArticleNumberPantId(id)}
+              onArticleNumberBlur={() => setEditingArticleNumberPantId(null)}
             />
           ))}
         </div>
