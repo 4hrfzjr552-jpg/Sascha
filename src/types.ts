@@ -67,6 +67,8 @@ export type ArticleNumberFilterType =
   | "digit_2"
   | "digit_3_plus";
 
+export type MeasurementsFilterType = "all" | "missing";
+
 export type ExpenseCategory =
   | "Einkauf"
   | "Versandmaterial"
