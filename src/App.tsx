@@ -39,12 +39,14 @@ import { ConfirmModal } from "./components/ConfirmModal";
 import { StatsModal } from "./components/StatsModal";
 import { ExpenseModal } from "./components/ExpenseModal";
 import { SoldModal } from "./components/SoldModal";
+import { BatchSelectionModal } from "./components/BatchSelectionModal";
 import {
   Plus,
   Sparkles,
   AlertCircle,
   RefreshCw,
   Loader2,
+  StopCircle,
 } from "lucide-react";
 
 const MAX_PANTS_LIMIT = 100;
@@ -99,8 +101,17 @@ export default function App() {
   } | null>(null);
 
   // Batch analysis state
+  const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
   const [isBatchRunning, setIsBatchRunning] = useState(false);
   const [batchActiveCount, setBatchActiveCount] = useState(0);
+  const [batchProgress, setBatchProgress] = useState<{
+    totalToProcess: number;
+    completed: number;
+    skippedNoArtNr: number;
+    skippedNoImages: number;
+    pendingCount: number;
+    isStopping: boolean;
+  } | null>(null);
   const stopBatchRef = useRef(false);
 
   const showToast = (
@@ -676,80 +687,6 @@ export default function App() {
     }
   };
 
-  // Batch analysis engine with Concurrency Pool (max 3 simultaneously)
-  const handleStartBatch = async (onlyMissing: boolean) => {
-    // Select candidates that have photos and an article number
-    const candidates = pants.filter((p) => {
-      if (p.images.length === 0) return false;
-      if (!p.artikelnummer?.trim()) return false;
-      if (onlyMissing) {
-        return p.status !== "done" || !p.result;
-      }
-      return true;
-    });
-
-    if (candidates.length === 0) {
-      const missingArtNrCount = pants.filter(
-        (p) => p.images.length > 0 && !p.artikelnummer?.trim()
-      ).length;
-      if (missingArtNrCount > 0) {
-        showToast("Bitte zuerst eine Artikelnummer eintragen.", "error");
-      } else {
-        showToast(
-          onlyMissing
-            ? "Keine Hosen mit Fotos gefunden, die noch analysiert werden müssen."
-            : "Keine Hosen mit Fotos vorhanden.",
-          "info"
-        );
-      }
-      return;
-    }
-
-    setIsBatchRunning(true);
-    stopBatchRef.current = false;
-    showToast(`Starke KI-Analyse für ${candidates.length} Hosen gestartet...`, "info");
-
-    const queue = [...candidates];
-    let active = 0;
-    let completedCount = 0;
-
-    return new Promise<void>((resolve) => {
-      const processNext = () => {
-        if (stopBatchRef.current || (queue.length === 0 && active === 0)) {
-          setIsBatchRunning(false);
-          setBatchActiveCount(0);
-          if (completedCount > 0) {
-            showToast(`${completedCount} Anzeigen wurden erfolgreich generiert!`, "success");
-          }
-          resolve();
-          return;
-        }
-
-        while (active < 3 && queue.length > 0 && !stopBatchRef.current) {
-          const item = queue.shift()!;
-          active++;
-          setBatchActiveCount(active);
-
-          analyzeSinglePant(item, customPrompt).then((success) => {
-            if (success) completedCount++;
-            active--;
-            setBatchActiveCount(active);
-            processNext();
-          });
-        }
-      };
-
-      processNext();
-    });
-  };
-
-  const handleStopBatch = () => {
-    stopBatchRef.current = true;
-    setIsBatchRunning(false);
-    setBatchActiveCount(0);
-    showToast("Batch-Analyse gestoppt.", "info");
-  };
-
   // Export handlers
   const handleExportJson = () => {
     exportPantsAsJson(pants);
@@ -971,6 +908,147 @@ export default function App() {
     return result.sort((a, b) => b.number - a.number);
   }, [pants, filter, analysisFilter, generationFilter, articleNumberFilter, measurementsFilter, searchQuery, articleNumberSearchQuery, editingArticleNumberPantId]);
 
+  // Calculate batch modal pre-selection stats based on currently filtered pants
+  const batchModalStats = useMemo(() => {
+    const visiblePants = filteredPants;
+    let skippedNoArtNr = 0;
+    let skippedNoImages = 0;
+    let alreadyGenerated = 0;
+    let allCandidates = 0;
+    let notGeneratedCandidates = 0;
+
+    for (const p of visiblePants) {
+      const hasImages = p.images.length > 0;
+      const hasArtNr = Boolean(p.artikelnummer?.trim());
+      const isDone = p.status === "done" && Boolean(p.result);
+
+      if (isDone) {
+        alreadyGenerated++;
+      }
+
+      if (!hasImages) {
+        skippedNoImages++;
+      } else if (!hasArtNr) {
+        skippedNoArtNr++;
+      } else {
+        allCandidates++;
+        if (!isDone) {
+          notGeneratedCandidates++;
+        }
+      }
+    }
+
+    return {
+      visiblePantsCount: visiblePants.length,
+      allCandidatesCount: allCandidates,
+      notGeneratedCandidatesCount: notGeneratedCandidates,
+      skippedNoArtNrCount: skippedNoArtNr,
+      skippedNoImagesCount: skippedNoImages,
+      alreadyGeneratedCount: alreadyGenerated,
+    };
+  }, [filteredPants]);
+
+  // Batch analysis engine with Concurrency Pool (max 3 simultaneously)
+  const handleStartBatch = async (mode: "all" | "only_not_generated") => {
+    setIsBatchModalOpen(false);
+
+    // Candidates operate on currently filtered/visible pants
+    const candidates = filteredPants.filter((p) => {
+      if (p.images.length === 0) return false;
+      if (!p.artikelnummer?.trim()) return false;
+      if (mode === "only_not_generated") {
+        return p.status !== "done" || !p.result;
+      }
+      return true;
+    });
+
+    if (candidates.length === 0) {
+      showToast(
+        mode === "only_not_generated"
+          ? "Keine ausstehenden Hosen zur Generierung im aktuellen Kontext."
+          : "Keine generierbaren Hosen mit Fotos und Artikelnummer im aktuellen Kontext.",
+        "info"
+      );
+      return;
+    }
+
+    setIsBatchRunning(true);
+    stopBatchRef.current = false;
+
+    setBatchProgress({
+      totalToProcess: candidates.length,
+      completed: 0,
+      skippedNoArtNr: batchModalStats.skippedNoArtNrCount,
+      skippedNoImages: batchModalStats.skippedNoImagesCount,
+      pendingCount: candidates.length,
+      isStopping: false,
+    });
+
+    showToast(`Batch-Generierung für ${candidates.length} Hosen gestartet...`, "info");
+
+    const queue = [...candidates];
+    let active = 0;
+    let completedCount = 0;
+
+    return new Promise<void>((resolve) => {
+      const processNext = () => {
+        if (active === 0 && (stopBatchRef.current || queue.length === 0)) {
+          setIsBatchRunning(false);
+          setBatchActiveCount(0);
+          const wasStopped = stopBatchRef.current;
+
+          if (completedCount > 0) {
+            showToast(
+              wasStopped
+                ? `Batch gestoppt. ${completedCount} Hosen wurden bisher generiert.`
+                : `${completedCount} Anzeigen wurden erfolgreich generiert!`,
+              "success"
+            );
+          } else if (wasStopped) {
+            showToast("Batch-Generierung abgebrochen.", "info");
+          }
+
+          setBatchProgress(null);
+          resolve();
+          return;
+        }
+
+        while (active < 3 && queue.length > 0 && !stopBatchRef.current) {
+          const item = queue.shift()!;
+          active++;
+          setBatchActiveCount(active);
+
+          analyzeSinglePant(item, customPrompt).then((success) => {
+            if (success) completedCount++;
+            active--;
+            setBatchActiveCount(active);
+
+            setBatchProgress((prev) => {
+              if (!prev) return null;
+              const nextCompleted = success ? prev.completed + 1 : prev.completed;
+              const remainingQueue = queue.length + active;
+              return {
+                ...prev,
+                completed: nextCompleted,
+                pendingCount: remainingQueue,
+              };
+            });
+
+            processNext();
+          });
+        }
+      };
+
+      processNext();
+    });
+  };
+
+  const handleStopBatch = () => {
+    stopBatchRef.current = true;
+    setBatchProgress((prev) => (prev ? { ...prev, isStopping: true } : null));
+    showToast("Generierung wird nach der aktuellen Hose gestoppt...", "info");
+  };
+
   const analysisDoneCount = useMemo(() => {
     return pants.filter((p) => p.status === "done" && p.result).length;
   }, [pants]);
@@ -1012,7 +1090,7 @@ export default function App() {
         onAddNewPant={handleAddNewPant}
         onOpenAddMultiple={() => setIsAddMultipleOpen(true)}
         onOpenBulkUpload={() => setIsBulkUploadOpen(true)}
-        onStartBatch={handleStartBatch}
+        onOpenBatchModal={() => setIsBatchModalOpen(true)}
         onStopBatch={handleStopBatch}
         onToggleCollapseAll={handleToggleCollapseAll}
         areAllCollapsed={areAllCollapsed}
@@ -1035,6 +1113,67 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-5xl w-full mx-auto px-3 py-3 sm:px-6 space-y-3 sm:space-y-4">
+        {/* Batch Progress Banner */}
+        {isBatchRunning && batchProgress && (
+          <div
+            id="batch-progress-banner"
+            className="bg-stone-900 dark:bg-stone-900 text-white border border-stone-800 rounded-2xl p-3.5 sm:p-4 shadow-lg space-y-2.5 animate-in fade-in slide-in-from-top-2 duration-200"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-emerald-400 animate-spin" />
+                  <span className="text-xs sm:text-sm font-bold text-white">
+                    {batchProgress.isStopping
+                      ? "Generierung wird gestoppt..."
+                      : "Batch-Generierung läuft..."}
+                  </span>
+                </div>
+                <p className="text-xs sm:text-sm font-black text-emerald-400">
+                  {batchProgress.completed} von {batchProgress.totalToProcess} generiert
+                </p>
+              </div>
+
+              {/* Abbrechen Button */}
+              <button
+                type="button"
+                onClick={handleStopBatch}
+                disabled={batchProgress.isStopping}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:bg-stone-800 disabled:text-stone-500 text-xs font-semibold text-white transition-colors shrink-0 min-h-[40px] shadow-sm"
+              >
+                <StopCircle className="w-4 h-4" />
+                <span>
+                  {batchProgress.isStopping ? "Stoppt..." : "Generierung abbrechen"}
+                </span>
+              </button>
+            </div>
+
+            {/* Visual Progress Bar */}
+            <div className="w-full bg-stone-800 rounded-full h-2 overflow-hidden">
+              <div
+                className="bg-emerald-500 h-2 transition-all duration-300 rounded-full"
+                style={{
+                  width: `${Math.round(
+                    (batchProgress.completed / Math.max(1, batchProgress.totalToProcess)) * 100
+                  )}%`,
+                }}
+              />
+            </div>
+
+            {/* Details Summary */}
+            <div className="flex flex-wrap items-center justify-between text-[11px] text-stone-300 font-medium pt-0.5">
+              <span>
+                Ausstehend: <strong className="text-white">{batchProgress.pendingCount}</strong>
+              </span>
+              {batchProgress.skippedNoArtNr > 0 && (
+                <span className="text-amber-400">
+                  {batchProgress.skippedNoArtNr} übersprungen (keine Artikelnummer)
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Filter & Search Bar */}
         {pants.length > 0 && (
           <FilterBar
@@ -1164,6 +1303,19 @@ export default function App() {
           {toastMessage.text}
         </div>
       )}
+
+      {/* Batch Selection Modal */}
+      <BatchSelectionModal
+        isOpen={isBatchModalOpen}
+        onClose={() => setIsBatchModalOpen(false)}
+        onConfirm={handleStartBatch}
+        visiblePantsCount={batchModalStats.visiblePantsCount}
+        allCandidatesCount={batchModalStats.allCandidatesCount}
+        notGeneratedCandidatesCount={batchModalStats.notGeneratedCandidatesCount}
+        skippedNoArtNrCount={batchModalStats.skippedNoArtNrCount}
+        skippedNoImagesCount={batchModalStats.skippedNoImagesCount}
+        alreadyGeneratedCount={batchModalStats.alreadyGeneratedCount}
+      />
 
       {/* Settings Modal (Mein Vinted-Prompt) */}
       <SettingsModal
