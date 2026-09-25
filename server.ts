@@ -525,7 +525,7 @@ CRITICAL INSTRUCTIONS:
 
     try {
       const response = await ai.models.generateContent({
-        model,
+        model: "gemini-3.1-flash-image",
         contents: [
           {
             inlineData: {
@@ -537,6 +537,9 @@ CRITICAL INSTRUCTIONS:
             text: backgroundPrompt,
           },
         ],
+        config: {
+          responseModalities: ["IMAGE"],
+        },
       });
 
       const candidates = response?.candidates;
@@ -551,7 +554,7 @@ CRITICAL INSTRUCTIONS:
         }
       }
     } catch (err: any) {
-      console.error(`[AI Background Replace Error] Model ${model}:`, err);
+      console.error(`[AI Background Replace Error] Model ${model}:`, err?.message || err);
       return res.status(500).json({
         success: false,
         error:
@@ -573,7 +576,7 @@ CRITICAL INSTRUCTIONS:
         "Die KI lieferte kein direktes Bild zurück. Bitte versuche es erneut.",
     });
   } catch (error: any) {
-    console.error("Background replacement error:", error);
+    console.error(`[AI Background Replace Error] Model gemini-3.1-flash-image:`, error?.message || error);
     return res.status(500).json({
       error: error?.message || "Fehler bei der Hintergrund-Ersetzung.",
     });
