@@ -458,6 +458,143 @@ WICHTIGE REGELN:
   }
 });
 
+// Background replacement endpoint
+app.post("/api/replace-background", async (req, res) => {
+  try {
+    const { image } = req.body;
+    if (!image || typeof image !== "string") {
+      return res.status(400).json({ error: "Kein Bild übergeben." });
+    }
+
+    let base64Data = "";
+    let mimeType = "image/jpeg";
+
+    if (image.startsWith("data:") && image.includes(",")) {
+      const commaIndex = image.indexOf(",");
+      const header = image.slice(0, commaIndex);
+      base64Data = image.slice(commaIndex + 1);
+
+      const mimeMatch = header.match(/:(.*?);/);
+      if (mimeMatch) mimeType = mimeMatch[1].toLowerCase();
+    } else if (image.startsWith("http://") || image.startsWith("https://")) {
+      try {
+        const resp = await fetch(image);
+        if (!resp.ok) {
+          return res.status(400).json({ error: "Bild konnte nicht geladen werden." });
+        }
+        const contentType = resp.headers.get("content-type") || "";
+        mimeType = contentType.split(";")[0].trim().toLowerCase() || "image/jpeg";
+        const arrayBuffer = await resp.arrayBuffer();
+        base64Data = Buffer.from(arrayBuffer).toString("base64");
+      } catch (err) {
+        return res.status(400).json({ error: "Fehler beim Laden der Bild-URL." });
+      }
+    }
+
+    if (!base64Data) {
+      return res.status(400).json({ error: "Gültiges Bild erforderlich." });
+    }
+
+    const ai = getGeminiClient();
+
+    const backgroundPrompt = `Isolate the clothing item cleanly from its background and place it on a realistic, matte, light-gray microcement / plaster floor background.
+
+Key requirements:
+1. FREISTELLUNG: Isolate the clothing item (jeans/pants) cleanly. No harsh cutout outlines, no visible white or dark edge fringes or halos. Smooth and natural anti-aliased edge blending.
+2. NEUER HINTERGRUND: Matte, light gray microcement / plaster floor surface (hellgrau, leicht wolkig, feine Spachtel-/Putzstruktur, matt, keine Fliesenfugen, keine auffälligen oder künstlichen Muster).
+3. KONTAKT-SCHATTEN: Generate natural dark contact shadows directly beneath the garment where it touches the surface, and soft ambient occlusion shadows along folds and edges.
+4. LICHTSTIMMUNG: Harmonize the light temperature and intensity so the clothing appears photorealistically lying flat on this microcement surface.
+5. GEWÄNDER & PERSPEKTIVE UNVERÄNDERT: Keep the clothing's shape, folds, wash, color, stitching, labels, logos, and signs of wear 100% intact. Do NOT change perspective or add extra objects.`;
+
+    const candidateModels = [
+      "imagen-3.0-capability-001",
+      "gemini-2.5-flash",
+      "gemini-3.1-flash-lite",
+      "gemini-3.6-flash",
+    ];
+
+    let editedImageDataUrl: string | null = null;
+    let lastError: any = null;
+
+    for (const model of candidateModels) {
+      try {
+        if (model.startsWith("imagen-")) {
+          const response = await ai.models.editImage({
+            model,
+            prompt: backgroundPrompt,
+            referenceImages: [
+              {
+                image: {
+                  imageBytes: base64Data,
+                },
+                referenceId: 1,
+              } as any,
+            ],
+            config: {
+              numberOfImages: 1,
+              outputMimeType: "image/jpeg",
+            },
+          });
+
+          if (response?.generatedImages?.[0]?.image?.imageBytes) {
+            editedImageDataUrl = `data:image/jpeg;base64,${response.generatedImages[0].image.imageBytes}`;
+            break;
+          }
+        } else {
+          const response = await ai.models.generateContent({
+            model,
+            contents: [
+              {
+                inlineData: {
+                  mimeType,
+                  data: base64Data,
+                },
+              },
+              {
+                text: backgroundPrompt,
+              },
+            ],
+          });
+
+          const candidates = response?.candidates;
+          if (candidates && candidates.length > 0) {
+            const parts = candidates[0].content?.parts || [];
+            for (const part of parts) {
+              if (part.inlineData && part.inlineData.data) {
+                const outMime = part.inlineData.mimeType || "image/jpeg";
+                editedImageDataUrl = `data:${outMime};base64,${part.inlineData.data}`;
+                break;
+              }
+            }
+          }
+          if (editedImageDataUrl) break;
+        }
+      } catch (err: any) {
+        lastError = err;
+        console.log(`[AI Background Replace Note] Model ${model}:`, err?.message || err);
+      }
+    }
+
+    if (editedImageDataUrl) {
+      return res.json({
+        success: true,
+        image: editedImageDataUrl,
+      });
+    }
+
+    return res.status(200).json({
+      success: false,
+      fallbackNeeded: true,
+      error: lastError?.message || "KI-Bildgenerierung lieferte kein direktes Bild zurück.",
+    });
+  } catch (error: any) {
+    console.error("Background replacement error:", error);
+    return res.status(500).json({
+      error: error?.message || "Fehler bei der Hintergrund-Ersetzung.",
+    });
+  }
+});
+
 // Vite middleware setup
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {

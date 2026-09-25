@@ -22,7 +22,9 @@ import {
   Loader2,
   ImageIcon,
   Share2,
+  Wand2,
 } from "lucide-react";
+import { ImageEditModal } from "./ImageEditModal";
 import { compressImageFile } from "../lib/imageCompressor";
 import { shareVintedPhotos } from "../lib/vintedShare";
 import { formatTitleWithArticleNumber } from "../lib/titleUtils";
@@ -64,6 +66,10 @@ export const PantCard: React.FC<PantCardProps> = ({
   const [showPhotoWarning, setShowPhotoWarning] = useState(false);
   const [isPreparingPhotos, setIsPreparingPhotos] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
+  const [editingImageState, setEditingImageState] = useState<{
+    imageId: string;
+    dataUrl: string;
+  } | null>(null);
 
   // Vinted photo sharing handler
   const handleShareVintedPhotos = async () => {
@@ -146,6 +152,41 @@ export const PantCard: React.FC<PantCardProps> = ({
         fileInputRef.current.value = "";
       }
     }
+  };
+
+  // Accept background edit from ImageEditModal
+  const handleAcceptEditedImage = (editedDataUrl: string) => {
+    if (!editingImageState) return;
+
+    const newEditedImage: PantImage = {
+      id: `img_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      dataUrl: editedDataUrl,
+      name: `edited_${Date.now()}.jpg`,
+      size: Math.round(editedDataUrl.length * 0.75),
+    };
+
+    let newImages = [...pant.images];
+    // Keep original image intact and append edited version as a separate image
+    if (newImages.length < 5) {
+      newImages.push(newEditedImage);
+    } else {
+      // If maximum 5 photos limit reached, replace the last image or replace target if needed
+      const targetIdx = newImages.findIndex((i) => i.id === editingImageState.imageId);
+      if (targetIdx !== -1) {
+        newImages.splice(targetIdx + 1, 0, newEditedImage);
+        newImages = newImages.slice(0, 5);
+      } else {
+        newImages[4] = newEditedImage;
+      }
+    }
+
+    onUpdate({
+      ...pant,
+      images: newImages,
+      updatedAt: Date.now(),
+    });
+
+    setEditingImageState(null);
   };
 
   // Delete an image
@@ -537,15 +578,32 @@ export const PantCard: React.FC<PantCardProps> = ({
                     #{index + 1}
                   </div>
 
-                  {/* Delete button top right */}
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteImage(img.id)}
-                    className="absolute top-1.5 right-1.5 flex h-7 w-7 items-center justify-center rounded-lg bg-stone-900/80 text-white hover:bg-rose-600 transition-colors backdrop-blur-xs min-h-[36px] min-w-[36px]"
-                    title="Foto löschen"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                  {/* Top right buttons: Hintergrund ändern & Delete */}
+                  <div className="absolute top-1.5 right-1.5 flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEditingImageState({
+                          imageId: img.id,
+                          dataUrl: img.dataUrl,
+                        })
+                      }
+                      className="flex h-7 px-1.5 items-center justify-center gap-1 rounded-lg bg-stone-900/80 text-amber-300 hover:bg-stone-900 hover:text-amber-200 transition-colors backdrop-blur-xs min-h-[36px] text-[10px] font-bold"
+                      title="Bild bearbeiten -> Hintergrund ändern"
+                    >
+                      <Wand2 className="h-3.5 w-3.5" />
+                      <span className="hidden xs:inline">Hintergrund</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteImage(img.id)}
+                      className="flex h-7 w-7 items-center justify-center rounded-lg bg-stone-900/80 text-white hover:bg-rose-600 transition-colors backdrop-blur-xs min-h-[36px] min-w-[36px]"
+                      title="Foto löschen"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
 
                   {/* Bottom reorder bar */}
                   <div className="absolute bottom-0 inset-x-0 bg-stone-900/75 p-1 flex items-center justify-between text-white backdrop-blur-xs">
