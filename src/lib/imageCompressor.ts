@@ -170,6 +170,59 @@ export async function ensureDataUrl(urlOrDataUrl: string): Promise<string> {
   }
 }
 
+/**
+ * Compresses any image (data URL or HTTP/HTTPS URL) to a JPEG data URL
+ * constrained by max dimensions and JPEG quality to ensure Vercel payload limits are respected.
+ */
+export async function compressDataUrl(
+  inputUrl: string,
+  maxDim: number = 1200,
+  quality: number = 0.7
+): Promise<string> {
+  const dataUrl = await ensureDataUrl(inputUrl);
+  if (!dataUrl) return inputUrl;
+
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      try {
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          return resolve(dataUrl);
+        }
+
+        // Fill white background in case source has transparency
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillRect(0, 0, width, height);
+
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      } catch (err) {
+        console.warn("compressDataUrl error, using input dataUrl:", err);
+        resolve(dataUrl);
+      }
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
 export function createThumbnail(
   dataUrl: string,
   maxDim: number = THUMBNAIL_MAX_DIMENSION,

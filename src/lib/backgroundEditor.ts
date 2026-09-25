@@ -1,3 +1,5 @@
+import { compressDataUrl } from "./imageCompressor";
+
 /**
  * Utility for Gemini AI background replacement
  */
@@ -7,12 +9,20 @@
  * Throws an explicit error if AI generation fails so the UI displays an error with retry option.
  */
 export async function replaceBackground(imageDataUrl: string): Promise<string> {
+  // Compress input image prior to API call to prevent Vercel 4.5MB payload limit issues
+  let preparedImage = imageDataUrl;
+  try {
+    preparedImage = await compressDataUrl(imageDataUrl, 1200, 0.7);
+  } catch (compressErr) {
+    console.warn("Client-side image compression prior to background edit failed, using original:", compressErr);
+  }
+
   let response: Response;
   try {
     response = await fetch("/api/replace-background", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ image: imageDataUrl }),
+      body: JSON.stringify({ image: preparedImage }),
     });
   } catch (err: any) {
     throw new Error("Netzwerkverbindung fehlgeschlagen. Bitte erneut versuchen.");
