@@ -458,6 +458,128 @@ WICHTIGE REGELN:
   }
 });
 
+// Background replacement endpoint
+app.post("/api/replace-background", async (req, res) => {
+  try {
+    const { image } = req.body;
+    if (!image || typeof image !== "string") {
+      return res.status(400).json({ error: "Kein Bild übergeben." });
+    }
+
+    let base64Data = "";
+    let mimeType = "image/jpeg";
+
+    if (image.startsWith("data:") && image.includes(",")) {
+      const commaIndex = image.indexOf(",");
+      const header = image.slice(0, commaIndex);
+      base64Data = image.slice(commaIndex + 1);
+
+      const mimeMatch = header.match(/:(.*?);/);
+      if (mimeMatch) mimeType = mimeMatch[1].toLowerCase();
+    } else if (image.startsWith("http://") || image.startsWith("https://")) {
+      try {
+        const resp = await fetch(image);
+        if (!resp.ok) {
+          return res.status(400).json({ error: "Bild konnte nicht geladen werden." });
+        }
+        const contentType = resp.headers.get("content-type") || "";
+        mimeType = contentType.split(";")[0].trim().toLowerCase() || "image/jpeg";
+        const arrayBuffer = await resp.arrayBuffer();
+        base64Data = Buffer.from(arrayBuffer).toString("base64");
+      } catch (err) {
+        return res.status(400).json({ error: "Fehler beim Laden der Bild-URL." });
+      }
+    }
+
+    if (!base64Data) {
+      return res.status(400).json({ error: "Gültiges Bild erforderlich." });
+    }
+
+    const ai = getGeminiClient();
+
+    const backgroundPrompt = `Modify ONLY the background of this image while keeping the clothing item 100% exact and unchanged.
+
+CRITICAL INSTRUCTIONS:
+1. EXCLUSIVELY CHANGE THE BACKGROUND: Do not touch or modify the clothing item (jeans/pants) in any way.
+2. KEEP CLOTHING EXACTLY UNCHANGED:
+   - Form / shape
+   - Color / wash (Farbe & Waschung)
+   - Stitching & seams (Nähte)
+   - Logos & brand marks
+   - Labels & tags (Etiketten)
+   - Holes / distressing / signs of wear (Löcher & Gebrauchsspuren)
+   - Folds & creases (Falten)
+   - Perspective & orientation
+   - Size and position within the image frame
+3. NEW BACKGROUND: Replace the existing background with a photorealistic, light gray-greige microcement / plaster floor (heller grau-greige Mikrozement-/Putzboden).
+   - Matte surface
+   - Subtly cloudy fine plaster texture (leicht wolkige feine Struktur)
+   - NO tile joints / grout lines (keine Fliesenfugen)
+   - NO bold, loud, or distracting patterns
+4. NATURAL CONTACT SHADOWS: Render realistic, soft dark contact shadows directly beneath the pants where it physically rests on the surface, making it look as though it was photographed lying flat on this microcement floor.
+5. Return the edited image.`;
+
+    // Strictly use gemini-3.1-flash-image for image editing
+    const model = "gemini-3.1-flash-image";
+    let editedImageDataUrl: string | null = null;
+
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: [
+          {
+            inlineData: {
+              mimeType,
+              data: base64Data,
+            },
+          },
+          {
+            text: backgroundPrompt,
+          },
+        ],
+      });
+
+      const candidates = response?.candidates;
+      if (candidates && candidates.length > 0) {
+        const parts = candidates[0].content?.parts || [];
+        for (const part of parts) {
+          if (part.inlineData && part.inlineData.data) {
+            const outMime = part.inlineData.mimeType || "image/jpeg";
+            editedImageDataUrl = `data:${outMime};base64,${part.inlineData.data}`;
+            break;
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error(`[AI Background Replace Error] Model ${model}:`, err);
+      return res.status(500).json({
+        success: false,
+        error:
+          err?.message ||
+          "Hintergrund-Ersetzung mit gemini-3.1-flash-image fehlgeschlagen. Bitte versuche es erneut.",
+      });
+    }
+
+    if (editedImageDataUrl) {
+      return res.json({
+        success: true,
+        image: editedImageDataUrl,
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      error:
+        "Die KI lieferte kein direktes Bild zurück. Bitte versuche es erneut.",
+    });
+  } catch (error: any) {
+    console.error("Background replacement error:", error);
+    return res.status(500).json({
+      error: error?.message || "Fehler bei der Hintergrund-Ersetzung.",
+    });
+  }
+});
+
 // Vite middleware setup
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {

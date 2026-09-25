@@ -22,7 +22,9 @@ import {
   Loader2,
   ImageIcon,
   Share2,
+  Wand2,
 } from "lucide-react";
+import { ImageEditModal } from "./ImageEditModal";
 import { compressImageFile } from "../lib/imageCompressor";
 import { shareVintedPhotos } from "../lib/vintedShare";
 import { formatTitleWithArticleNumber } from "../lib/titleUtils";
@@ -64,6 +66,10 @@ export const PantCard: React.FC<PantCardProps> = ({
   const [showPhotoWarning, setShowPhotoWarning] = useState(false);
   const [isPreparingPhotos, setIsPreparingPhotos] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
+  const [editingImageState, setEditingImageState] = useState<{
+    imageId: string;
+    dataUrl: string;
+  } | null>(null);
 
   // Vinted photo sharing handler
   const handleShareVintedPhotos = async () => {
@@ -146,6 +152,33 @@ export const PantCard: React.FC<PantCardProps> = ({
         fileInputRef.current.value = "";
       }
     }
+  };
+
+  // Accept background edit from ImageEditModal (replaces selected original image)
+  const handleAcceptEditedImage = (editedDataUrl: string) => {
+    if (!editingImageState) return;
+
+    const targetIdx = pant.images.findIndex((i) => i.id === editingImageState.imageId);
+    if (targetIdx === -1) return;
+
+    const targetImage = pant.images[targetIdx];
+    const updatedImage: PantImage = {
+      ...targetImage,
+      dataUrl: editedDataUrl,
+      size: Math.round(editedDataUrl.length * 0.75),
+      storagePath: undefined, // Reset storagePath so Supabase uploads edited content
+    };
+
+    const newImages = [...pant.images];
+    newImages[targetIdx] = updatedImage;
+
+    onUpdate({
+      ...pant,
+      images: newImages,
+      updatedAt: Date.now(),
+    });
+
+    setEditingImageState(null);
   };
 
   // Delete an image
@@ -270,6 +303,14 @@ export const PantCard: React.FC<PantCardProps> = ({
           : "border-stone-200 dark:border-stone-800"
       }`}
     >
+      {/* Image Editing Modal */}
+      <ImageEditModal
+        isOpen={editingImageState !== null}
+        originalDataUrl={editingImageState?.dataUrl || ""}
+        imageName={`Hose #${pant.number} Foto`}
+        onClose={() => setEditingImageState(null)}
+        onAccept={handleAcceptEditedImage}
+      />
       {/* COLLAPSED HEADER / COMPACT SUMMARY ROW */}
       <div
         className="flex items-center justify-between gap-2 px-3 py-2.5 sm:px-4 sm:py-3 cursor-pointer hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors"
@@ -537,15 +578,32 @@ export const PantCard: React.FC<PantCardProps> = ({
                     #{index + 1}
                   </div>
 
-                  {/* Delete button top right */}
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteImage(img.id)}
-                    className="absolute top-1.5 right-1.5 flex h-7 w-7 items-center justify-center rounded-lg bg-stone-900/80 text-white hover:bg-rose-600 transition-colors backdrop-blur-xs min-h-[36px] min-w-[36px]"
-                    title="Foto löschen"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                  {/* Top right buttons: Hintergrund ändern & Delete */}
+                  <div className="absolute top-1.5 right-1.5 flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEditingImageState({
+                          imageId: img.id,
+                          dataUrl: img.dataUrl,
+                        })
+                      }
+                      className="flex h-7 px-1.5 items-center justify-center gap-1 rounded-lg bg-stone-900/80 text-amber-300 hover:bg-stone-900 hover:text-amber-200 transition-colors backdrop-blur-xs min-h-[36px] text-[10px] font-bold"
+                      title="Bild bearbeiten -> Hintergrund ändern"
+                    >
+                      <Wand2 className="h-3.5 w-3.5" />
+                      <span className="hidden xs:inline">Hintergrund</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteImage(img.id)}
+                      className="flex h-7 w-7 items-center justify-center rounded-lg bg-stone-900/80 text-white hover:bg-rose-600 transition-colors backdrop-blur-xs min-h-[36px] min-w-[36px]"
+                      title="Foto löschen"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
 
                   {/* Bottom reorder bar */}
                   <div className="absolute bottom-0 inset-x-0 bg-stone-900/75 p-1 flex items-center justify-between text-white backdrop-blur-xs">
