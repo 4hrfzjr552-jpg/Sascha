@@ -141,10 +141,12 @@ export const ImageEditModal: React.FC<ImageEditModalProps> = ({
           {!isLoading && error && (
             <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-300 text-xs sm:text-sm space-y-3">
               <div className="flex items-center gap-2 font-bold">
-                <AlertCircle className="h-4 w-4 text-rose-600" />
+                <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
                 <span>Anpassung fehlgeschlagen</span>
               </div>
-              <p>{error}</p>
+              <div className="whitespace-pre-wrap break-words font-mono text-xs bg-rose-100/60 dark:bg-rose-900/40 p-3 rounded-xl border border-rose-200/60 dark:border-rose-800/60">
+                {error}
+              </div>
               <button
                 type="button"
                 onClick={handleGenerate}
