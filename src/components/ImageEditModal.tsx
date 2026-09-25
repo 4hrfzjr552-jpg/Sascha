@@ -22,53 +22,26 @@ export const ImageEditModal: React.FC<ImageEditModalProps> = ({
   const [activeTab, setActiveTab] = useState<"compare" | "edited" | "original">("compare");
   const [error, setError] = useState<string | null>(null);
 
-  // Trigger background replacement when modal opens
+  // Reset modal state whenever modal opens or original image changes
   useEffect(() => {
-    if (!isOpen || !originalDataUrl) {
+    if (isOpen) {
       setEditedDataUrl(null);
       setError(null);
       setIsLoading(false);
-      return;
+      setActiveTab("compare");
     }
-
-    let isCancelled = false;
-
-    async function generateBackground() {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const result = await replaceBackground(originalDataUrl);
-        if (!isCancelled) {
-          setEditedDataUrl(result);
-        }
-      } catch (err: any) {
-        if (!isCancelled) {
-          console.error("Error editing background:", err);
-          setError(err?.message || "Fehler beim Ersetzen des Hintergrunds.");
-        }
-      } finally {
-        if (!isCancelled) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    generateBackground();
-
-    return () => {
-      isCancelled = true;
-    };
   }, [isOpen, originalDataUrl]);
 
   if (!isOpen) return null;
 
-  const handleRetry = async () => {
+  const handleGenerate = async () => {
     setIsLoading(true);
     setError(null);
     try {
       const result = await replaceBackground(originalDataUrl);
       setEditedDataUrl(result);
     } catch (err: any) {
+      console.error("Error editing background:", err);
       setError(err?.message || "Fehler beim Ersetzen des Hintergrunds.");
     } finally {
       setIsLoading(false);
@@ -117,6 +90,37 @@ export const ImageEditModal: React.FC<ImageEditModalProps> = ({
 
         {/* Modal Body / Preview */}
         <div className="p-3 sm:p-6 overflow-y-auto flex-1 space-y-4">
+          {/* Initial State before generation */}
+          {!isLoading && !editedDataUrl && !error && (
+            <div className="flex flex-col items-center justify-center gap-4 py-4 sm:py-8 text-center max-w-lg mx-auto">
+              <div className="relative rounded-2xl overflow-hidden border border-stone-200 dark:border-stone-800 bg-stone-100 dark:bg-stone-800 aspect-3/4 w-full max-w-xs sm:max-w-sm flex items-center justify-center shadow-md">
+                <img
+                  src={originalDataUrl}
+                  alt="Original Hose Foto"
+                  className="w-full h-full object-contain"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <h4 className="text-sm sm:text-base font-bold text-stone-900 dark:text-stone-100">
+                  Originalbild bereit zur Anpassung
+                </h4>
+                <p className="text-xs text-stone-500 dark:text-stone-400">
+                  Klicke auf den Button unten, um den Hintergrund per KI durch hellen Mikrozement-Betonboden zu ersetzen.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleGenerate}
+                className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-bold text-sm shadow-lg hover:shadow-xl transition-all min-h-[48px] cursor-pointer"
+              >
+                <Sparkles className="h-5 w-5 text-stone-950" />
+                <span>Hintergrund erstellen</span>
+              </button>
+            </div>
+          )}
+
           {/* Loading State */}
           {isLoading && (
             <div className="py-16 sm:py-24 flex flex-col items-center justify-center gap-3 text-center">
@@ -135,7 +139,7 @@ export const ImageEditModal: React.FC<ImageEditModalProps> = ({
 
           {/* Error State */}
           {!isLoading && error && (
-            <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-300 text-xs sm:text-sm space-y-2">
+            <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-300 text-xs sm:text-sm space-y-3">
               <div className="flex items-center gap-2 font-bold">
                 <AlertCircle className="h-4 w-4 text-rose-600" />
                 <span>Anpassung fehlgeschlagen</span>
@@ -143,8 +147,8 @@ export const ImageEditModal: React.FC<ImageEditModalProps> = ({
               <p>{error}</p>
               <button
                 type="button"
-                onClick={handleRetry}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-600 text-white text-xs font-semibold hover:bg-rose-700 transition-colors min-h-[38px]"
+                onClick={handleGenerate}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 text-white text-xs font-bold hover:bg-rose-700 transition-colors min-h-[40px] shadow-xs cursor-pointer"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
                 <span>Erneut versuchen</span>
