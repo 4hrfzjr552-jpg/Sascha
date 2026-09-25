@@ -519,74 +519,45 @@ CRITICAL INSTRUCTIONS:
 4. NATURAL CONTACT SHADOWS: Render realistic, soft dark contact shadows directly beneath the pants where it physically rests on the surface, making it look as though it was photographed lying flat on this microcement floor.
 5. Return the edited image.`;
 
-    // Model priority starting explicitly with gemini-3.1-flash-image
-    const candidateModels = [
-      "gemini-3.1-flash-image",
-      "gemini-2.5-flash",
-      "gemini-3.6-flash",
-      "imagen-3.0-capability-001",
-    ];
-
+    // Strictly use gemini-3.1-flash-image for image editing
+    const model = "gemini-3.1-flash-image";
     let editedImageDataUrl: string | null = null;
-    let lastError: any = null;
 
-    for (const model of candidateModels) {
-      try {
-        if (model.startsWith("imagen-")) {
-          const response = await ai.models.editImage({
-            model,
-            prompt: backgroundPrompt,
-            referenceImages: [
-              {
-                image: {
-                  imageBytes: base64Data,
-                },
-                referenceId: 1,
-              } as any,
-            ],
-            config: {
-              numberOfImages: 1,
-              outputMimeType: "image/jpeg",
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: [
+          {
+            inlineData: {
+              mimeType,
+              data: base64Data,
             },
-          });
+          },
+          {
+            text: backgroundPrompt,
+          },
+        ],
+      });
 
-          if (response?.generatedImages?.[0]?.image?.imageBytes) {
-            editedImageDataUrl = `data:image/jpeg;base64,${response.generatedImages[0].image.imageBytes}`;
+      const candidates = response?.candidates;
+      if (candidates && candidates.length > 0) {
+        const parts = candidates[0].content?.parts || [];
+        for (const part of parts) {
+          if (part.inlineData && part.inlineData.data) {
+            const outMime = part.inlineData.mimeType || "image/jpeg";
+            editedImageDataUrl = `data:${outMime};base64,${part.inlineData.data}`;
             break;
           }
-        } else {
-          const response = await ai.models.generateContent({
-            model,
-            contents: [
-              {
-                inlineData: {
-                  mimeType,
-                  data: base64Data,
-                },
-              },
-              {
-                text: backgroundPrompt,
-              },
-            ],
-          });
-
-          const candidates = response?.candidates;
-          if (candidates && candidates.length > 0) {
-            const parts = candidates[0].content?.parts || [];
-            for (const part of parts) {
-              if (part.inlineData && part.inlineData.data) {
-                const outMime = part.inlineData.mimeType || "image/jpeg";
-                editedImageDataUrl = `data:${outMime};base64,${part.inlineData.data}`;
-                break;
-              }
-            }
-          }
-          if (editedImageDataUrl) break;
         }
-      } catch (err: any) {
-        lastError = err;
-        console.log(`[AI Background Replace Note] Model ${model}:`, err?.message || err);
       }
+    } catch (err: any) {
+      console.error(`[AI Background Replace Error] Model ${model}:`, err);
+      return res.status(500).json({
+        success: false,
+        error:
+          err?.message ||
+          "Hintergrund-Ersetzung mit gemini-3.1-flash-image fehlgeschlagen. Bitte versuche es erneut.",
+      });
     }
 
     if (editedImageDataUrl) {
@@ -599,8 +570,7 @@ CRITICAL INSTRUCTIONS:
     return res.status(500).json({
       success: false,
       error:
-        lastError?.message ||
-        "Hintergrund-Ersetzung durch KI fehlgeschlagen. Bitte versuche es erneut.",
+        "Die KI lieferte kein direktes Bild zurück. Bitte versuche es erneut.",
     });
   } catch (error: any) {
     console.error("Background replacement error:", error);
