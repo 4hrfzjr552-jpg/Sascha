@@ -154,31 +154,23 @@ export const PantCard: React.FC<PantCardProps> = ({
     }
   };
 
-  // Accept background edit from ImageEditModal
+  // Accept background edit from ImageEditModal (replaces selected original image)
   const handleAcceptEditedImage = (editedDataUrl: string) => {
     if (!editingImageState) return;
 
-    const newEditedImage: PantImage = {
-      id: `img_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    const targetIdx = pant.images.findIndex((i) => i.id === editingImageState.imageId);
+    if (targetIdx === -1) return;
+
+    const targetImage = pant.images[targetIdx];
+    const updatedImage: PantImage = {
+      ...targetImage,
       dataUrl: editedDataUrl,
-      name: `edited_${Date.now()}.jpg`,
       size: Math.round(editedDataUrl.length * 0.75),
+      storagePath: undefined, // Reset storagePath so Supabase uploads edited content
     };
 
-    let newImages = [...pant.images];
-    // Keep original image intact and append edited version as a separate image
-    if (newImages.length < 5) {
-      newImages.push(newEditedImage);
-    } else {
-      // If maximum 5 photos limit reached, replace the last image or replace target if needed
-      const targetIdx = newImages.findIndex((i) => i.id === editingImageState.imageId);
-      if (targetIdx !== -1) {
-        newImages.splice(targetIdx + 1, 0, newEditedImage);
-        newImages = newImages.slice(0, 5);
-      } else {
-        newImages[4] = newEditedImage;
-      }
-    }
+    const newImages = [...pant.images];
+    newImages[targetIdx] = updatedImage;
 
     onUpdate({
       ...pant,
@@ -311,6 +303,14 @@ export const PantCard: React.FC<PantCardProps> = ({
           : "border-stone-200 dark:border-stone-800"
       }`}
     >
+      {/* Image Editing Modal */}
+      <ImageEditModal
+        isOpen={editingImageState !== null}
+        originalDataUrl={editingImageState?.dataUrl || ""}
+        imageName={`Hose #${pant.number} Foto`}
+        onClose={() => setEditingImageState(null)}
+        onAccept={handleAcceptEditedImage}
+      />
       {/* COLLAPSED HEADER / COMPACT SUMMARY ROW */}
       <div
         className="flex items-center justify-between gap-2 px-3 py-2.5 sm:px-4 sm:py-3 cursor-pointer hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors"

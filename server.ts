@@ -497,20 +497,34 @@ app.post("/api/replace-background", async (req, res) => {
 
     const ai = getGeminiClient();
 
-    const backgroundPrompt = `Isolate the clothing item cleanly from its background and place it on a realistic, matte, light-gray microcement / plaster floor background.
+    const backgroundPrompt = `Modify ONLY the background of this image while keeping the clothing item 100% exact and unchanged.
 
-Key requirements:
-1. FREISTELLUNG: Isolate the clothing item (jeans/pants) cleanly. No harsh cutout outlines, no visible white or dark edge fringes or halos. Smooth and natural anti-aliased edge blending.
-2. NEUER HINTERGRUND: Matte, light gray microcement / plaster floor surface (hellgrau, leicht wolkig, feine Spachtel-/Putzstruktur, matt, keine Fliesenfugen, keine auffälligen oder künstlichen Muster).
-3. KONTAKT-SCHATTEN: Generate natural dark contact shadows directly beneath the garment where it touches the surface, and soft ambient occlusion shadows along folds and edges.
-4. LICHTSTIMMUNG: Harmonize the light temperature and intensity so the clothing appears photorealistically lying flat on this microcement surface.
-5. GEWÄNDER & PERSPEKTIVE UNVERÄNDERT: Keep the clothing's shape, folds, wash, color, stitching, labels, logos, and signs of wear 100% intact. Do NOT change perspective or add extra objects.`;
+CRITICAL INSTRUCTIONS:
+1. EXCLUSIVELY CHANGE THE BACKGROUND: Do not touch or modify the clothing item (jeans/pants) in any way.
+2. KEEP CLOTHING EXACTLY UNCHANGED:
+   - Form / shape
+   - Color / wash (Farbe & Waschung)
+   - Stitching & seams (Nähte)
+   - Logos & brand marks
+   - Labels & tags (Etiketten)
+   - Holes / distressing / signs of wear (Löcher & Gebrauchsspuren)
+   - Folds & creases (Falten)
+   - Perspective & orientation
+   - Size and position within the image frame
+3. NEW BACKGROUND: Replace the existing background with a photorealistic, light gray-greige microcement / plaster floor (heller grau-greige Mikrozement-/Putzboden).
+   - Matte surface
+   - Subtly cloudy fine plaster texture (leicht wolkige feine Struktur)
+   - NO tile joints / grout lines (keine Fliesenfugen)
+   - NO bold, loud, or distracting patterns
+4. NATURAL CONTACT SHADOWS: Render realistic, soft dark contact shadows directly beneath the pants where it physically rests on the surface, making it look as though it was photographed lying flat on this microcement floor.
+5. Return the edited image.`;
 
+    // Model priority starting explicitly with gemini-3.1-flash-image
     const candidateModels = [
-      "imagen-3.0-capability-001",
+      "gemini-3.1-flash-image",
       "gemini-2.5-flash",
-      "gemini-3.1-flash-lite",
       "gemini-3.6-flash",
+      "imagen-3.0-capability-001",
     ];
 
     let editedImageDataUrl: string | null = null;
@@ -582,10 +596,11 @@ Key requirements:
       });
     }
 
-    return res.status(200).json({
+    return res.status(500).json({
       success: false,
-      fallbackNeeded: true,
-      error: lastError?.message || "KI-Bildgenerierung lieferte kein direktes Bild zurück.",
+      error:
+        lastError?.message ||
+        "Hintergrund-Ersetzung durch KI fehlgeschlagen. Bitte versuche es erneut.",
     });
   } catch (error: any) {
     console.error("Background replacement error:", error);
