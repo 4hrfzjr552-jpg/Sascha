@@ -519,7 +519,7 @@ CRITICAL INSTRUCTIONS:
 4. NATURAL CONTACT SHADOWS: Render realistic, soft dark contact shadows directly beneath the pants where it physically rests on the surface, making it look as though it was photographed lying flat on this microcement floor.
 5. Return the edited image.`;
 
-    // Strictly use gemini-3.1-flash-image for image editing
+    // Strictly use gemini-3.1-flash-image for image editing with explicit image output request
     const model = "gemini-3.1-flash-image";
     let editedImageDataUrl: string | null = null;
 
@@ -537,6 +537,9 @@ CRITICAL INSTRUCTIONS:
             text: backgroundPrompt,
           },
         ],
+        config: {
+          responseModalities: ["IMAGE"],
+        },
       });
 
       const candidates = response?.candidates;
@@ -551,12 +554,12 @@ CRITICAL INSTRUCTIONS:
         }
       }
     } catch (err: any) {
-      console.error(`[AI Background Replace Error] Model ${model}:`, err);
+      const errMsg = err?.message || String(err);
+      const errStatus = err?.status || err?.statusCode || err?.error?.code || "UNKNOWN";
+      console.error(`[AI Background Replace Error] Model: ${model} | Status: ${errStatus} | Message: ${errMsg}`, err);
       return res.status(500).json({
         success: false,
-        error:
-          err?.message ||
-          "Hintergrund-Ersetzung mit gemini-3.1-flash-image fehlgeschlagen. Bitte versuche es erneut.",
+        error: `Fehler (${model}): ${errMsg}`,
       });
     }
 
