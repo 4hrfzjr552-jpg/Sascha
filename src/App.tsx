@@ -47,6 +47,8 @@ import {
   RefreshCw,
   Loader2,
   StopCircle,
+  CheckSquare,
+  X,
 } from "lucide-react";
 
 const MAX_PANTS_LIMIT = 100;
@@ -83,6 +85,9 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [articleNumberSearchQuery, setArticleNumberSearchQuery] = useState("");
   const [editingArticleNumberPantId, setEditingArticleNumberPantId] = useState<string | null>(null);
+
+  // Selection state (UI-only, resets on reload)
+  const [selectedPantIds, setSelectedPantIds] = useState<Set<string>>(new Set());
 
   // Modal states
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -439,6 +444,32 @@ export default function App() {
     }
   };
 
+  // Selection Handlers
+  const handleToggleSelectPant = (id: string) => {
+    setSelectedPantIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleDeselectAllVisible = () => {
+    const visibleSet = new Set(filteredPants.map((p) => p.id));
+    setSelectedPantIds((prev) => {
+      const next = new Set(prev);
+      visibleSet.forEach((id) => next.delete(id));
+      return next;
+    });
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedPantIds(new Set());
+  };
+
   // Delete Single Pant
   const handleDeletePant = async (pantId: string) => {
     if (!session?.user?.id) return;
@@ -446,6 +477,11 @@ export default function App() {
 
     const target = pants.find((p) => p.id === pantId);
     setPants((prev) => prev.filter((p) => p.id !== pantId));
+    setSelectedPantIds((prev) => {
+      const next = new Set(prev);
+      next.delete(pantId);
+      return next;
+    });
 
     try {
       await deletePantFromSupabase(userId, pantId, target?.images);
@@ -908,6 +944,21 @@ export default function App() {
     return result.sort((a, b) => b.number - a.number);
   }, [pants, filter, analysisFilter, generationFilter, articleNumberFilter, measurementsFilter, searchQuery, articleNumberSearchQuery, editingArticleNumberPantId]);
 
+  // Check if all currently visible/filtered pants are selected
+  const areAllVisibleSelected = useMemo(() => {
+    if (filteredPants.length === 0) return false;
+    return filteredPants.every((p) => selectedPantIds.has(p.id));
+  }, [filteredPants, selectedPantIds]);
+
+  const handleSelectAllVisible = () => {
+    const visibleIds = filteredPants.map((p) => p.id);
+    setSelectedPantIds((prev) => {
+      const next = new Set(prev);
+      visibleIds.forEach((id) => next.add(id));
+      return next;
+    });
+  };
+
   // Calculate batch modal pre-selection stats based on currently filtered pants
   const batchModalStats = useMemo(() => {
     const visiblePants = filteredPants;
@@ -938,37 +989,90 @@ export default function App() {
       }
     }
 
+    const selectedCount = pants.filter((p) => selectedPantIds.has(p.id)).length;
+
     return {
       visiblePantsCount: visiblePants.length,
       allCandidatesCount: allCandidates,
       notGeneratedCandidatesCount: notGeneratedCandidates,
+      selectedCandidatesCount: selectedCount,
       skippedNoArtNrCount: skippedNoArtNr,
       skippedNoImagesCount: skippedNoImages,
       alreadyGeneratedCount: alreadyGenerated,
     };
-  }, [filteredPants]);
+  }, [filteredPants, pants, selectedPantIds]);
 
   // Batch analysis engine with Concurrency Pool (max 3 simultaneously)
-  const handleStartBatch = async (mode: "all" | "only_not_generated") => {
+  const handleStartBatch = async (mode: "all" | "only_not_generated" | "selected") => {
     setIsBatchModalOpen(false);
 
-    // Candidates operate on currently filtered/visible pants
-    const candidates = filteredPants.filter((p) => {
-      if (p.images.length === 0) return false;
-      if (!p.artikelnummer?.trim()) return false;
-      if (mode === "only_not_generated") {
-        return p.status !== "done" || !p.result;
-      }
-      return true;
-    });
+    let targetPool: PantItem[] = [];
+    if (mode === "selected") {
+      targetPool = pants.filter((p) => selectedPantIds.has(p.id));
+    } else {
+      targetPool = filteredPants;
+    }
 
-    if (candidates.length === 0) {
+    if (targetPool.length === 0) {
       showToast(
-        mode === "only_not_generated"
-          ? "Keine ausstehenden Hosen zur Generierung im aktuellen Kontext."
-          : "Keine generierbaren Hosen mit Fotos und Artikelnummer im aktuellen Kontext.",
+        mode === "selected"
+          ? "Keine Hosen ausgewählt."
+          : "Keine Hosen zur Generierung vorhanden.",
         "info"
       );
+      return;
+    }
+
+    let skippedNoArtNr = 0;
+    let skippedNoImages = 0;
+
+    const candidates: PantItem[] = [];
+    for (const p of targetPool) {
+      const hasImages = p.images.length > 0;
+      const hasArtNr = Boolean(p.artikelnummer?.trim());
+      const isDone = p.status === "done" && Boolean(p.result);
+
+      if (mode === "only_not_generated" && isDone) {
+        continue;
+      }
+
+      if (!hasImages) {
+        skippedNoImages++;
+        continue;
+      }
+
+      if (!hasArtNr) {
+        skippedNoArtNr++;
+        continue;
+      }
+
+      candidates.push(p);
+    }
+
+    if (candidates.length === 0) {
+      if (mode === "selected") {
+        if (skippedNoArtNr > 0) {
+          showToast(
+            `${skippedNoArtNr} ${
+              skippedNoArtNr === 1
+                ? "ausgewählte Hose wurde übersprungen, weil die Artikelnummer fehlt."
+                : "ausgewählte Hosen wurden übersprungen, weil die Artikelnummer fehlt."
+            }`,
+            "error"
+          );
+        } else if (skippedNoImages > 0) {
+          showToast("Die ausgewählten Hosen besitzen keine Fotos.", "error");
+        } else {
+          showToast("Keine generierbaren Hosen ausgewählt.", "info");
+        }
+      } else {
+        showToast(
+          mode === "only_not_generated"
+            ? "Keine ausstehenden Hosen zur Generierung im aktuellen Kontext."
+            : "Keine generierbaren Hosen mit Fotos und Artikelnummer im aktuellen Kontext.",
+          "info"
+        );
+      }
       return;
     }
 
@@ -978,13 +1082,29 @@ export default function App() {
     setBatchProgress({
       totalToProcess: candidates.length,
       completed: 0,
-      skippedNoArtNr: batchModalStats.skippedNoArtNrCount,
-      skippedNoImages: batchModalStats.skippedNoImagesCount,
+      skippedNoArtNr,
+      skippedNoImages,
       pendingCount: candidates.length,
       isStopping: false,
     });
 
-    showToast(`Batch-Generierung für ${candidates.length} Hosen gestartet...`, "info");
+    if (mode === "selected" && skippedNoArtNr > 0) {
+      showToast(
+        `${skippedNoArtNr} ${
+          skippedNoArtNr === 1
+            ? "ausgewählte Hose wurde übersprungen, weil die Artikelnummer fehlt."
+            : "ausgewählte Hosen wurden übersprungen, weil die Artikelnummer fehlt."
+        }`,
+        "info"
+      );
+    } else {
+      showToast(
+        `Generierung für ${candidates.length} ${
+          candidates.length === 1 ? "Hose" : "Hosen"
+        } gestartet...`,
+        "info"
+      );
+    }
 
     const queue = [...candidates];
     let active = 0;
@@ -998,14 +1118,28 @@ export default function App() {
           const wasStopped = stopBatchRef.current;
 
           if (completedCount > 0) {
-            showToast(
-              wasStopped
-                ? `Batch gestoppt. ${completedCount} Hosen wurden bisher generiert.`
-                : `${completedCount} Anzeigen wurden erfolgreich generiert!`,
-              "success"
-            );
+            let msg = wasStopped
+              ? `Generierung gestoppt. ${completedCount} Hosen wurden generiert.`
+              : `${completedCount} ${
+                  completedCount === 1 ? "Anzeige wurde" : "Anzeigen wurden"
+                } erfolgreich generiert!`;
+
+            if (skippedNoArtNr > 0) {
+              msg += ` (${skippedNoArtNr} ohne Artikelnummer übersprungen)`;
+            }
+
+            showToast(msg, "success");
           } else if (wasStopped) {
             showToast("Batch-Generierung abgebrochen.", "info");
+          } else if (skippedNoArtNr > 0) {
+            showToast(
+              `${skippedNoArtNr} ${
+                skippedNoArtNr === 1
+                  ? "ausgewählte Hose wurde übersprungen, weil die Artikelnummer fehlt."
+                  : "ausgewählte Hosen wurden übersprungen, weil die Artikelnummer fehlt."
+              }`,
+              "error"
+            );
           }
 
           setBatchProgress(null);
@@ -1199,6 +1333,56 @@ export default function App() {
           />
         )}
 
+        {/* Selection Toolbar */}
+        {pants.length > 0 && (
+          <div
+            id="selection-action-bar"
+            className="bg-white dark:bg-stone-900 rounded-2xl border border-stone-200 dark:border-stone-800 p-2.5 sm:p-3 shadow-xs flex flex-wrap items-center justify-between gap-2.5 transition-colors"
+          >
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                id="select-all-visible-btn"
+                type="button"
+                onClick={areAllVisibleSelected ? handleDeselectAllVisible : handleSelectAllVisible}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 hover:bg-stone-100 dark:hover:bg-stone-700/80 text-xs font-semibold text-stone-800 dark:text-stone-200 transition-colors min-h-[36px]"
+              >
+                <CheckSquare className="w-4 h-4 text-stone-600 dark:text-stone-400" />
+                <span>{areAllVisibleSelected ? "Sichtbare abwählen" : "Alle sichtbaren auswählen"}</span>
+              </button>
+
+              {selectedPantIds.size > 0 && (
+                <button
+                  id="deselect-all-btn"
+                  type="button"
+                  onClick={handleDeselectAll}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-medium text-stone-500 hover:text-stone-900 dark:hover:text-stone-100 transition-colors min-h-[36px]"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  <span>Auswahl aufheben</span>
+                </button>
+              )}
+
+              <span
+                id="selected-count-badge"
+                className="text-xs font-bold text-stone-700 dark:text-stone-300 px-2.5 py-1 rounded-lg bg-stone-100 dark:bg-stone-800"
+              >
+                {selectedPantIds.size} {selectedPantIds.size === 1 ? "Hose" : "Hosen"} ausgewählt
+              </span>
+            </div>
+
+            <button
+              id="generate-selected-btn"
+              type="button"
+              disabled={selectedPantIds.size === 0 || isBatchRunning}
+              onClick={() => handleStartBatch("selected")}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:bg-stone-200 dark:disabled:bg-stone-800 text-white disabled:text-stone-400 text-xs font-bold transition-all shadow-xs disabled:shadow-none min-h-[38px] disabled:pointer-events-none"
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>Ausgewählte generieren ({selectedPantIds.size})</span>
+            </button>
+          </div>
+        )}
+
         {/* Empty State when no pants exist */}
         {pants.length === 0 && (
           <div
@@ -1274,6 +1458,8 @@ export default function App() {
               key={pant.id}
               pant={pant}
               allPants={pants}
+              isSelected={selectedPantIds.has(pant.id)}
+              onToggleSelect={handleToggleSelectPant}
               onUpdate={handleUpdatePant}
               onDelete={(id) => setPantToDeleteId(id)}
               onDuplicate={handleDuplicatePant}
@@ -1312,6 +1498,7 @@ export default function App() {
         visiblePantsCount={batchModalStats.visiblePantsCount}
         allCandidatesCount={batchModalStats.allCandidatesCount}
         notGeneratedCandidatesCount={batchModalStats.notGeneratedCandidatesCount}
+        selectedCandidatesCount={batchModalStats.selectedCandidatesCount}
         skippedNoArtNrCount={batchModalStats.skippedNoArtNrCount}
         skippedNoImagesCount={batchModalStats.skippedNoImagesCount}
         alreadyGeneratedCount={batchModalStats.alreadyGeneratedCount}

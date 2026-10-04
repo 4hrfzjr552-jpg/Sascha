@@ -13,6 +13,59 @@ const PORT = Number(process.env.PORT) || 3000;
 app.use(express.json({ limit: "35mb" }));
 app.use(express.urlencoded({ extended: true, limit: "35mb" }));
 
+function sanitizePricing(rawPricing: any) {
+  if (!rawPricing || typeof rawPricing !== "object") {
+    return {
+      listingPrice: 0,
+      realisticPrice: 0,
+      quickSalePrice: 0,
+      minimumPrice: 0,
+      reasoning: "Keine Preisschätzung verfügbar.",
+    };
+  }
+
+  const parsePrice = (val: any): number => {
+    const num = typeof val === "number" ? val : parseFloat(String(val || "0"));
+    if (isNaN(num) || !isFinite(num)) return 0;
+    return Math.max(0, Math.round(num));
+  };
+
+  let listingPrice = parsePrice(rawPricing.listingPrice);
+  let realisticPrice = parsePrice(rawPricing.realisticPrice);
+  let minimumPrice = parsePrice(rawPricing.minimumPrice);
+  let quickSalePrice = parsePrice(rawPricing.quickSalePrice);
+
+  // Enforce required order: quickSalePrice <= minimumPrice <= realisticPrice <= listingPrice
+  if (realisticPrice > listingPrice) {
+    if (listingPrice === 0) {
+      listingPrice = realisticPrice;
+    } else {
+      realisticPrice = listingPrice;
+    }
+  }
+
+  if (minimumPrice > realisticPrice) {
+    minimumPrice = realisticPrice;
+  }
+
+  if (quickSalePrice > minimumPrice) {
+    quickSalePrice = minimumPrice;
+  }
+
+  const reasoning =
+    typeof rawPricing.reasoning === "string" && rawPricing.reasoning.trim()
+      ? rawPricing.reasoning.trim()
+      : "Realistische KI-Preisschätzung basierend auf Zustand und Marke.";
+
+  return {
+    listingPrice,
+    realisticPrice,
+    quickSalePrice,
+    minimumPrice,
+    reasoning,
+  };
+}
+
 // Lazy get or check Gemini client
 function getGeminiClient(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -209,6 +262,20 @@ Nur Begriffe verwenden, die wirklich zum Piece passen.
 Deutsche und englische Begriffe dürfen gemischt werden.
 Keine fremden Marken als Keywords benutzen.
 
+PREISSCHÄTZUNG / PREISVORSCHLÄGE:
+Schätze zusätzlich realistische Preisvorschläge in Euro (als reine gerundete Ganzzahlen >= 0) basierend auf den tatsächlich erkannten Daten (Marke, Modell, Größe, Geschlecht, Zustand, Schnitt, Farbe/Waschung, Material, Details und Gebrauchsspuren/Mängel).
+Erfinde keine falschen Marktdaten oder Behauptungen wie „wird auf Vinted aktuell für X verkauft“.
+Gestaffle die Preise strikt in dieser Reihenfolge:
+quickSalePrice <= minimumPrice <= realisticPrice <= listingPrice
+
+Beispiel:
+- listingPrice: 45 (Preis zum Einstellen auf Vinted)
+- realisticPrice: 38 (realistischer Verkaufspreis)
+- minimumPrice: 35 (Untergrenze, nicht unterschreiten)
+- quickSalePrice: 32 (Preis für schnellen Verkauf)
+- reasoning: kurze natürliche Begründung, max. 1–2 Sätze.
+WICHTIG: Schreibe die Preisvorschläge NICHT in die Vinted-Beschreibung, sondern gib sie nur im pricing-Objekt der JSON-Antwort zurück.
+
 Vermeide typische KI-Sätze wie:
 „absolutes Must-have“
 „perfekt für jeden Anlass“
@@ -228,7 +295,8 @@ WICHTIGE REGELN:
 - Alle übergebenen Bilder gehören zu DIESEM EINEN Kleidungsstück.
 - NIEMALS Angaben erfinden! Wenn Marke, Modell, Größe, Schnitt oder Material nicht sicher erkennbar sind, lasse sie weg oder schreibe "nicht angegeben" bzw. nenne nur das Sichtbare.
 - Manuelle Maße des Nutzers haben IMMER Vorrang gegenüber Schätzungen aus Bildern.
-- Die Keywords müssen genau 25 thematisch passende Suchbegriffe als Liste von Strings sein (z.B. ["jeans", "vintage", "mom jeans", ...]).`;
+- Die Keywords müssen genau 25 thematisch passende Suchbegriffe als Liste von Strings sein (z.B. ["jeans", "vintage", "mom jeans", ...]).
+- Preisvorschläge (pricing) müssen gerundete Zahlenwerte >= 0 in Euro enthalten, mit der strikten Reihenfolge: quickSalePrice <= minimumPrice <= realisticPrice <= listingPrice. Schreibe Preise NICHT in die Vinted-Beschreibung.`;
 
     const ai = getGeminiClient();
 
@@ -310,8 +378,40 @@ WICHTIGE REGELN:
               "material",
             ],
           },
+          pricing: {
+            type: Type.OBJECT,
+            properties: {
+              listingPrice: {
+                type: Type.NUMBER,
+                description: "Preis in Euro zum Einstellen auf Vinted",
+              },
+              realisticPrice: {
+                type: Type.NUMBER,
+                description: "Realistischer Verkaufspreis in Euro",
+              },
+              quickSalePrice: {
+                type: Type.NUMBER,
+                description: "Preis für einen schnellen Verkauf in Euro",
+              },
+              minimumPrice: {
+                type: Type.NUMBER,
+                description: "Preis in Euro, unter den man möglichst nicht gehen sollte",
+              },
+              reasoning: {
+                type: Type.STRING,
+                description: "Kurze Begründung, max. 1-2 Sätze.",
+              },
+            },
+            required: [
+              "listingPrice",
+              "realisticPrice",
+              "quickSalePrice",
+              "minimumPrice",
+              "reasoning",
+            ],
+          },
         },
-        required: ["title", "description", "keywords", "detected"],
+        required: ["title", "description", "keywords", "detected", "pricing"],
       },
     };
 
@@ -378,6 +478,8 @@ WICHTIGE REGELN:
       const cleaned = rawText.replace(/```json\s*/g, "").replace(/```\s*$/g, "").trim();
       parsedResult = JSON.parse(cleaned);
     }
+
+    parsedResult.pricing = sanitizePricing(parsedResult.pricing);
 
     // Automatically append keywords to the bottom of the description
     if (Array.isArray(parsedResult.keywords) && parsedResult.keywords.length > 0) {

@@ -34,6 +34,8 @@ import { getDuplicatePantNumbers } from "../lib/articleNumberUtils";
 interface PantCardProps {
   pant: PantItem;
   allPants?: PantItem[];
+  isSelected?: boolean;
+  onToggleSelect?: (id: string) => void;
   onUpdate: (updated: PantItem) => void;
   onDelete: (id: string) => void;
   onDuplicate: (pant: PantItem) => void;
@@ -48,6 +50,8 @@ interface PantCardProps {
 export const PantCard: React.FC<PantCardProps> = ({
   pant,
   allPants = [],
+  isSelected = false,
+  onToggleSelect,
   onUpdate,
   onDelete,
   onDuplicate,
@@ -296,7 +300,9 @@ export const PantCard: React.FC<PantCardProps> = ({
     <div
       id={`pant-card-${pant.id}`}
       className={`rounded-2xl border transition-all duration-200 bg-white dark:bg-stone-900 shadow-xs overflow-hidden ${
-        isAnalyzing
+        isSelected
+          ? "border-stone-900 dark:border-stone-100 ring-2 ring-stone-900/20 dark:ring-stone-100/30"
+          : isAnalyzing
           ? "border-amber-400 dark:border-amber-500 ring-2 ring-amber-100 dark:ring-amber-950"
           : pant.status === "error"
           ? "border-rose-300 dark:border-rose-800"
@@ -316,8 +322,25 @@ export const PantCard: React.FC<PantCardProps> = ({
         className="flex items-center justify-between gap-2 px-3 py-2.5 sm:px-4 sm:py-3 cursor-pointer hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors"
         onClick={() => onUpdate({ ...pant, isCollapsed: !isCollapsed })}
       >
-        {/* Left Side: Thumbnail + Hose #Nummer + Analyse-Status */}
+        {/* Left Side: Checkbox + Thumbnail + Hose #Nummer + Analyse-Status */}
         <div className="flex items-center gap-2.5 min-w-0">
+          {/* Selection Checkbox */}
+          {onToggleSelect && (
+            <div
+              className="flex items-center justify-center shrink-0 pr-0.5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <input
+                id={`select-pant-checkbox-${pant.id}`}
+                type="checkbox"
+                checked={isSelected}
+                onChange={() => onToggleSelect(pant.id)}
+                className="w-4 h-4 rounded border-stone-300 dark:border-stone-700 text-stone-900 dark:text-stone-100 focus:ring-stone-900 dark:focus:ring-stone-100 cursor-pointer"
+                aria-label={`Hose #${pant.number} auswählen`}
+              />
+            </div>
+          )}
+
           {/* Kleines Vorschaubild des ersten Fotos */}
           {firstPhoto ? (
             <img
@@ -984,6 +1007,57 @@ export const PantCard: React.FC<PantCardProps> = ({
                   className="w-full rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800/90 p-2.5 text-xs sm:text-sm text-stone-900 dark:text-stone-100 leading-relaxed font-sans focus:border-stone-900 dark:focus:border-stone-400 focus:outline-none transition-colors"
                 />
               </div>
+
+              {/* KI-PREISVORSCHLAG */}
+              {pant.result.pricing && (
+                <div
+                  id={`pricing-card-${pant.id}`}
+                  className="rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/40 dark:bg-amber-950/30 p-3 sm:p-4 space-y-2.5"
+                >
+                  <div className="flex items-center gap-1.5 font-bold text-xs sm:text-sm text-amber-950 dark:text-amber-200">
+                    <span>💰 KI-PREISVORSCHLAG</span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-semibold">
+                    <div className="bg-white dark:bg-stone-900 p-2.5 rounded-lg border border-amber-200/60 dark:border-amber-900/40 flex flex-col justify-between">
+                      <span className="text-[10px] text-stone-500 dark:text-stone-400 uppercase font-bold">
+                        Einstellen:
+                      </span>
+                      <span className="text-sm font-black text-stone-900 dark:text-stone-100 mt-0.5">
+                        {pant.result.pricing.listingPrice} €
+                      </span>
+                    </div>
+                    <div className="bg-white dark:bg-stone-900 p-2.5 rounded-lg border border-amber-200/60 dark:border-amber-900/40 flex flex-col justify-between">
+                      <span className="text-[10px] text-stone-500 dark:text-stone-400 uppercase font-bold">
+                        Realistisch:
+                      </span>
+                      <span className="text-sm font-black text-emerald-700 dark:text-emerald-400 mt-0.5">
+                        {pant.result.pricing.realisticPrice} €
+                      </span>
+                    </div>
+                    <div className="bg-white dark:bg-stone-900 p-2.5 rounded-lg border border-amber-200/60 dark:border-amber-900/40 flex flex-col justify-between">
+                      <span className="text-[10px] text-stone-500 dark:text-stone-400 uppercase font-bold">
+                        Schnellverkauf:
+                      </span>
+                      <span className="text-sm font-black text-amber-700 dark:text-amber-400 mt-0.5">
+                        {pant.result.pricing.quickSalePrice} €
+                      </span>
+                    </div>
+                    <div className="bg-white dark:bg-stone-900 p-2.5 rounded-lg border border-amber-200/60 dark:border-amber-900/40 flex flex-col justify-between">
+                      <span className="text-[10px] text-stone-500 dark:text-stone-400 uppercase font-bold">
+                        Minimum:
+                      </span>
+                      <span className="text-sm font-black text-rose-700 dark:text-rose-400 mt-0.5">
+                        {pant.result.pricing.minimumPrice} €
+                      </span>
+                    </div>
+                  </div>
+                  {pant.result.pricing.reasoning && (
+                    <p className="text-xs text-stone-600 dark:text-stone-300 italic leading-snug pt-0.5">
+                      „{pant.result.pricing.reasoning}“
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Collapsible: Von KI erkannt */}
               <div className="rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50/50 dark:bg-stone-800/40 overflow-hidden">
