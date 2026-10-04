@@ -4,10 +4,11 @@ import { Sparkles, Layers, X, AlertTriangle, CheckCircle2 } from "lucide-react";
 interface BatchSelectionModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (mode: "all" | "only_not_generated") => void;
+  onConfirm: (mode: "all" | "only_not_generated" | "selected") => void;
   visiblePantsCount: number;
   allCandidatesCount: number;
   notGeneratedCandidatesCount: number;
+  selectedCandidatesCount: number;
   skippedNoArtNrCount: number;
   skippedNoImagesCount: number;
   alreadyGeneratedCount: number;
@@ -20,6 +21,7 @@ export const BatchSelectionModal: React.FC<BatchSelectionModalProps> = ({
   visiblePantsCount,
   allCandidatesCount,
   notGeneratedCandidatesCount,
+  selectedCandidatesCount,
   skippedNoArtNrCount,
   skippedNoImagesCount,
   alreadyGeneratedCount,
@@ -92,6 +94,27 @@ export const BatchSelectionModal: React.FC<BatchSelectionModalProps> = ({
 
         {/* Options */}
         <div className="space-y-2.5 pt-1">
+          {/* Option 0: Ausgewählte Hosen generieren (falls welche ausgewählt sind) */}
+          <button
+            type="button"
+            onClick={() => onConfirm("selected")}
+            disabled={selectedCandidatesCount === 0}
+            className="w-full text-left p-3.5 rounded-2xl border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/60 hover:border-emerald-600 dark:hover:border-emerald-400 transition-all group disabled:opacity-40 disabled:pointer-events-none"
+          >
+            <div className="flex items-center justify-between">
+              <div className="font-bold text-sm text-emerald-950 dark:text-emerald-100 flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <span>Ausgewählte Hosen generieren</span>
+              </div>
+              <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-emerald-700 dark:bg-emerald-500 text-white dark:text-stone-900">
+                {selectedCandidatesCount}
+              </span>
+            </div>
+            <p className="text-xs text-emerald-800/90 dark:text-emerald-300/90 mt-1 leading-snug">
+              Generiert ausschließlich die {selectedCandidatesCount} aktuell per Checkbox ausgewählten Hosen.
+            </p>
+          </button>
+
           {/* Option 1: Alle Hosen generieren */}
           <button
             type="button"
@@ -117,18 +140,17 @@ export const BatchSelectionModal: React.FC<BatchSelectionModalProps> = ({
             type="button"
             onClick={() => onConfirm("only_not_generated")}
             disabled={notGeneratedCandidatesCount === 0}
-            className="w-full text-left p-3.5 rounded-2xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/50 dark:bg-emerald-950/20 hover:bg-emerald-100/60 dark:hover:bg-emerald-950/40 hover:border-emerald-500 dark:hover:border-emerald-500 transition-all group disabled:opacity-50 disabled:pointer-events-none"
+            className="w-full text-left p-3.5 rounded-2xl border border-stone-200 dark:border-stone-800 hover:border-stone-900 dark:hover:border-stone-100 bg-white dark:bg-stone-900 hover:bg-stone-50 dark:hover:bg-stone-800/80 transition-all group disabled:opacity-50 disabled:pointer-events-none"
           >
             <div className="flex items-center justify-between">
-              <div className="font-bold text-sm text-emerald-950 dark:text-emerald-100 flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <div className="font-bold text-sm text-stone-900 dark:text-stone-100 flex items-center gap-2">
                 <span>Nur nicht generierte Hosen</span>
               </div>
-              <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-emerald-700 dark:bg-emerald-500 text-white dark:text-stone-900">
+              <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-stone-700 dark:bg-stone-300 text-white dark:text-stone-900">
                 {notGeneratedCandidatesCount}
               </span>
             </div>
-            <p className="text-xs text-emerald-800/80 dark:text-emerald-300/80 mt-1 leading-snug">
+            <p className="text-xs text-stone-500 dark:text-stone-400 mt-1 leading-snug">
               Überspringt bereits fertig generierte Ergebnisse und verarbeitet nur die {notGeneratedCandidatesCount} ausstehenden Hosen.
             </p>
           </button>

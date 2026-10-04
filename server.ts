@@ -209,6 +209,17 @@ Nur Begriffe verwenden, die wirklich zum Piece passen.
 Deutsche und englische Begriffe dürfen gemischt werden.
 Keine fremden Marken als Keywords benutzen.
 
+PREISSCHÄTZUNG / PREISVORSCHLÄGE:
+Schätze zusätzlich realistische Preisvorschläge in Euro (als reine Zahlen) basierend auf den tatsächlich erkannten Daten (Marke, Modell, Größe, Geschlecht, Zustand, Schnitt, Farbe/Waschung, Material, Details und Gebrauchsspuren/Mängel).
+Erfinde keine falschen Marktdaten oder Behauptungen wie „wird auf Vinted aktuell für X verkauft“.
+Gestaffle die Preise sinnvoll:
+- listingPrice: Preis, zu dem die Anzeige auf Vinted eingestellt werden sollte
+- realisticPrice: realistischer Verkaufspreis
+- quickSalePrice: Preis für einen schnellen Verkauf (darf nicht höher als realisticPrice oder listingPrice sein)
+- minimumPrice: Preis, unter den man möglichst nicht gehen sollte
+- reasoning: kurze natürliche Begründung, max. 1–2 Sätze.
+WICHTIG: Schreibe die Preisvorschläge NICHT in die Vinted-Beschreibung, sondern gib sie nur im pricing-Objekt der JSON-Antwort zurück.
+
 Vermeide typische KI-Sätze wie:
 „absolutes Must-have“
 „perfekt für jeden Anlass“
@@ -228,7 +239,8 @@ WICHTIGE REGELN:
 - Alle übergebenen Bilder gehören zu DIESEM EINEN Kleidungsstück.
 - NIEMALS Angaben erfinden! Wenn Marke, Modell, Größe, Schnitt oder Material nicht sicher erkennbar sind, lasse sie weg oder schreibe "nicht angegeben" bzw. nenne nur das Sichtbare.
 - Manuelle Maße des Nutzers haben IMMER Vorrang gegenüber Schätzungen aus Bildern.
-- Die Keywords müssen genau 25 thematisch passende Suchbegriffe als Liste von Strings sein (z.B. ["jeans", "vintage", "mom jeans", ...]).`;
+- Die Keywords müssen genau 25 thematisch passende Suchbegriffe als Liste von Strings sein (z.B. ["jeans", "vintage", "mom jeans", ...]).
+- Preisvorschläge (pricing) müssen sinnvolle Zahlenwerte in Euro enthalten, und quickSalePrice darf keinesfalls höher als realisticPrice oder listingPrice sein. Schreibe Preise NICHT in die Vinted-Beschreibung.`;
 
     const ai = getGeminiClient();
 
@@ -310,8 +322,40 @@ WICHTIGE REGELN:
               "material",
             ],
           },
+          pricing: {
+            type: Type.OBJECT,
+            properties: {
+              listingPrice: {
+                type: Type.NUMBER,
+                description: "Preis in Euro zum Einstellen auf Vinted",
+              },
+              realisticPrice: {
+                type: Type.NUMBER,
+                description: "Realistischer Verkaufspreis in Euro",
+              },
+              quickSalePrice: {
+                type: Type.NUMBER,
+                description: "Preis für einen schnellen Verkauf in Euro",
+              },
+              minimumPrice: {
+                type: Type.NUMBER,
+                description: "Preis in Euro, unter den man möglichst nicht gehen sollte",
+              },
+              reasoning: {
+                type: Type.STRING,
+                description: "Kurze Begründung, max. 1-2 Sätze.",
+              },
+            },
+            required: [
+              "listingPrice",
+              "realisticPrice",
+              "quickSalePrice",
+              "minimumPrice",
+              "reasoning",
+            ],
+          },
         },
-        required: ["title", "description", "keywords", "detected"],
+        required: ["title", "description", "keywords", "detected", "pricing"],
       },
     };
 

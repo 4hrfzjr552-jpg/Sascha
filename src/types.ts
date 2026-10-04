@@ -24,11 +24,20 @@ export interface DetectedData {
   material: string;
 }
 
+export interface PantPricing {
+  listingPrice: number;
+  realisticPrice: number;
+  quickSalePrice: number;
+  minimumPrice: number;
+  reasoning: string;
+}
+
 export interface PantResult {
   title: string;
   description: string;
   keywords: string[];
   detected: DetectedData;
+  pricing?: PantPricing;
 }
 
 export type PantStatus = "waiting" | "analyzing" | "done" | "error";
