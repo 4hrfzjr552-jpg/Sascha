@@ -457,6 +457,15 @@ export default function App() {
     });
   };
 
+  const handleDeselectAllVisible = () => {
+    const visibleSet = new Set(filteredPants.map((p) => p.id));
+    setSelectedPantIds((prev) => {
+      const next = new Set(prev);
+      visibleSet.forEach((id) => next.delete(id));
+      return next;
+    });
+  };
+
   const handleDeselectAll = () => {
     setSelectedPantIds(new Set());
   };
@@ -1334,11 +1343,11 @@ export default function App() {
               <button
                 id="select-all-visible-btn"
                 type="button"
-                onClick={areAllVisibleSelected ? handleDeselectAll : handleSelectAllVisible}
+                onClick={areAllVisibleSelected ? handleDeselectAllVisible : handleSelectAllVisible}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 hover:bg-stone-100 dark:hover:bg-stone-700/80 text-xs font-semibold text-stone-800 dark:text-stone-200 transition-colors min-h-[36px]"
               >
                 <CheckSquare className="w-4 h-4 text-stone-600 dark:text-stone-400" />
-                <span>{areAllVisibleSelected ? "Auswahl aufheben" : "Alle sichtbaren auswählen"}</span>
+                <span>{areAllVisibleSelected ? "Sichtbare abwählen" : "Alle sichtbaren auswählen"}</span>
               </button>
 
               {selectedPantIds.size > 0 && (
