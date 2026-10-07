@@ -44,6 +44,36 @@
     return true;
   }
 
+  // Format Vinted Title: Article number at the end, no duplicates
+  function formatVintedTitle(rawTitle, rawArtNr) {
+    let baseTitle = (rawTitle || "").trim();
+    const artNr = (rawArtNr || "").trim();
+
+    if (!artNr) {
+      return baseTitle;
+    }
+
+    const artNrTag = `#${artNr}`;
+
+    // Strip leading article number if present (e.g., "#42 Diesel...", "42 - Diesel...", "#42 - Diesel...")
+    const escapedArtNr = artNr.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&");
+    const leadingRegex = new RegExp(`^#?${escapedArtNr}\\b[\\s:-]*`, "i");
+    if (leadingRegex.test(baseTitle)) {
+      baseTitle = baseTitle.replace(leadingRegex, "").trim();
+    }
+
+    // If title already contains the article tag (#42), do not duplicate
+    if (baseTitle.includes(artNrTag)) {
+      return baseTitle;
+    }
+
+    if (!baseTitle) {
+      return artNrTag;
+    }
+
+    return `${baseTitle} ${artNrTag}`.trim();
+  }
+
   // Convert base64 dataUrl to File
   function dataURLToFile(dataUrl, fileName) {
     try {
@@ -92,13 +122,7 @@
 
     // 1. Fill Title
     try {
-      const titleVal = [
-        draft.artikelnummer ? `#${draft.artikelnummer}` : "",
-        draft.title,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .trim();
+      const titleVal = formatVintedTitle(draft.title, draft.artikelnummer);
 
       if (titleVal) {
         const titleEl = findInputField(["title", "titel", "heading", "name"]);

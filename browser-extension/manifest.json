@@ -11,6 +11,7 @@
   "host_permissions": [
     "https://www.vinted.de/*",
     "https://www.vinted.at/*",
+    "https://*.vercel.app/*",
     "https://sascha-omega.vercel.app/*",
     "http://localhost/*",
     "http://127.0.0.1/*"
@@ -25,6 +26,7 @@
   "content_scripts": [
     {
       "matches": [
+        "https://*.vercel.app/*",
         "https://sascha-omega.vercel.app/*",
         "http://localhost/*",
         "http://127.0.0.1/*"

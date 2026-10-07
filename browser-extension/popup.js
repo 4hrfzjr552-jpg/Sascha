@@ -138,7 +138,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function isSaschaUrl(url) {
     if (!url) return false;
     return (
-      url.includes("sascha-omega.vercel.app") ||
+      url.includes("vercel.app") ||
       url.includes("localhost") ||
       url.includes("127.0.0.1")
     );
@@ -159,7 +159,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const allSaschaTabs = await chrome.tabs.query({
-      url: ["https://sascha-omega.vercel.app/*", "http://localhost/*", "http://127.0.0.1/*"],
+      url: [
+        "https://*.vercel.app/*",
+        "https://sascha-omega.vercel.app/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+      ],
     });
 
     if (allSaschaTabs && allSaschaTabs.length > 0) {

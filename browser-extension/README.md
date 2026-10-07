@@ -8,6 +8,8 @@ Sie wurde primär für den **Orion Browser auf iPhone/iPad (iOS)** entwickelt, i
 
 ## 🎯 Hauptmerkmale & Sicherheit
 
+* **Vercel & Localhost Unterstützung**: Funktioniert sowohl mit Production-Deployments (`*.vercel.app`) als auch in der lokalen Entwicklung (`localhost`).
+* **Optimierte Titel-Formatierung**: Die Artikelnummer wird automatisch am Ende des Titels angefügt (z. B. `Diesel Krooley Jeans W32 L32 #42`), ohne doppelt eingefügt zu werden.
 * **Leichtgewichtige Speicherung**: Es werden nur kleine Metadaten der Entwürfe im Browser-Speicher abgelegt. Große Base64-Bilddaten werden erst direkt beim Einfügen geladen und nicht dauerhaft gespeichert.
 * **Kein automatisches Veröffentlichen**: Artikel werden niemals ohne deine ausdrückliche Bestätigung auf Vinted veröffentlicht.
 * **Sicher & Datenschutzkonform**: Es werden keine Session-Cookies, Login-Token oder Passwörter ausgelesen, gespeichert oder übertragen.
@@ -68,7 +70,7 @@ browser-extension/
 ## 🚀 Nutzung im Alltag
 
 ### 1. Entwurfsliste aus Sascha AI übernehmen
-1. Öffne **Sascha AI** im Browser.
+1. Öffne **Sascha AI** im Browser (`*.vercel.app` oder `localhost`).
 2. Bereite deine Hosen-Analysen vor, sodass Vinted-Entwürfe existieren.
 3. Öffne das **Extension-Popup** über die Menüleiste des Browsers.
 4. Tippe auf den Button **[Entwurf aus Sascha AI übernehmen]**.
@@ -79,7 +81,7 @@ browser-extension/
 2. Sobald die Vinted-Verkaufsmaske (`https://www.vinted.de/items/new`) geladen ist, öffne das Extension-Popup erneut.
 3. Tippe auf **[In Vinted einfügen]**.
 4. Die Extension ruft die vollständigen Daten (inklusive Bilder) dynamisch aus dem geöffneten Sascha-AI-Tab ab und befüllt:
-   * **Titel**
+   * **Titel** (Artikelnummer am Ende: `Titel ... #42`)
    * **Beschreibung**
    * **Preis**
    * **Marke**
