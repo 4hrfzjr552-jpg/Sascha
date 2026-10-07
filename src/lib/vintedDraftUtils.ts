@@ -164,23 +164,34 @@ export async function getVintedDraftPayload(
       const ref = draft.imageRefs?.find((r) => r.id === id);
       let dataUrl = found?.dataUrl || "";
       const name = found?.name || ref?.name || `Image_${idx + 1}`;
+      let source = "none";
+
+      if (dataUrl && (dataUrl.startsWith("data:") || dataUrl.startsWith("http"))) {
+        source = found?.storagePath ? "pant-storagePath" : "pant-dataUrl";
+      }
 
       // Resolve signed URL if storagePath exists and dataUrl is missing/expired
-      if ((!dataUrl || !dataUrl.startsWith("data:") && !dataUrl.startsWith("http")) && found?.storagePath) {
+      if ((!dataUrl || (!dataUrl.startsWith("data:") && !dataUrl.startsWith("http"))) && found?.storagePath) {
         try {
           const signedUrl = await getSignedImageUrl(found.storagePath);
           if (signedUrl) {
             dataUrl = signedUrl;
+            source = "pant-storagePath";
           }
         } catch (err) {
           console.warn(`[VintedDraftPayload] Fehler beim Erstellen der Signed-URL für ${found.storagePath}:`, err);
         }
       }
 
-      // Fallback 4: Bulk image store dataUrl
-      if ((!dataUrl || !dataUrl.startsWith("data:") && !dataUrl.startsWith("http")) && bulkImagesMap.has(id)) {
+      // Fallback 4: Bulk image store dataUrl (last fallback only)
+      if ((!dataUrl || (!dataUrl.startsWith("data:") && !dataUrl.startsWith("http"))) && bulkImagesMap.has(id)) {
         dataUrl = bulkImagesMap.get(id) || "";
+        if (dataUrl) {
+          source = "bulk-staging-fallback";
+        }
       }
+
+      console.log(`[VintedDraftPayload] Image ${idx + 1}/${targetImageIds.length}: source=${source}`);
 
       return {
         id,
@@ -199,7 +210,14 @@ export async function getVintedDraftPayload(
     `[VintedDraftPayload] ${totalImageCount} Bilder, ${validDataUrlCount} gültige Bildquellen (Draft ID: ${draft.id})`
   );
 
-  if (draft.price === undefined || draft.price === null) {
+  let resolvedPrice = draft.price;
+  if (resolvedPrice === undefined || resolvedPrice === null) {
+    if (activePant?.result?.pricing?.listingPrice !== undefined) {
+      resolvedPrice = Number(activePant.result.pricing.listingPrice);
+    }
+  }
+
+  if (resolvedPrice === undefined || resolvedPrice === null) {
     console.log(
       `[VintedDraftPayload] kein listingPrice in result.pricing vorhanden (Draft ID: ${draft.id})`
     );
@@ -211,7 +229,7 @@ export async function getVintedDraftPayload(
     artikelnummer: draft.artikelnummer,
     title: draft.title,
     description: draft.description,
-    price: draft.price,
+    price: resolvedPrice,
     brand: draft.brand,
     model: draft.model,
     size: draft.size,

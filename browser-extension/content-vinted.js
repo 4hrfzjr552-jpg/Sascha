@@ -530,7 +530,89 @@
     }
 
     if (log) log(`✗ Dropdown-Trigger für "${fieldName}" nicht gefunden.`);
+    diagnoseFieldDOM(formContainer, fieldName, fieldKeywords, log);
     return null;
+  }
+
+  // Compact DOM Diagnosis Helper for Form Fields / Dropdowns
+  function diagnoseFieldDOM(scopeEl, fieldName, fieldKeywords, log) {
+    if (!scopeEl) scopeEl = getFormContainer(log);
+    if (!log) log = (msg) => console.log(`[SaschaAI-Vinted] ${msg}`);
+
+    log(`[DOM-Diagnose ${fieldName}] Starte DOM-Diagnose für Feld "${fieldName}"...`);
+
+    const selectors = [
+      "label",
+      "button",
+      "input",
+      "select",
+      "[role='button']",
+      "[role='combobox']",
+      "[aria-haspopup]",
+      "[data-testid]",
+      "[class*='cell']",
+      "[class*='row']",
+      "[class*='field']",
+      "[class*='item']",
+      "[class*='select']",
+      "[class*='wrapper']",
+    ];
+
+    let candidateEls = [];
+    try {
+      candidateEls = Array.from(scopeEl.querySelectorAll(selectors.join(", ")));
+    } catch (e) {
+      candidateEls = Array.from(scopeEl.querySelectorAll("*"));
+    }
+
+    const seen = new Set();
+    const relevantCandidates = [];
+
+    for (const el of candidateEls) {
+      if (!isElementVisible(el)) continue;
+      if (seen.has(el)) continue;
+
+      const text = el.textContent?.trim().replace(/\s+/g, " ") || "";
+      const lowerText = text.toLowerCase();
+      const attrStr = `${el.id || ""} ${typeof el.className === "string" ? el.className : ""} ${el.getAttribute("data-testid") || ""} ${el.getAttribute("name") || ""} ${el.getAttribute("placeholder") || ""}`.toLowerCase();
+
+      const textMatches = matchesKeywords(lowerText, fieldKeywords);
+      const attrMatches = matchesKeywords(attrStr, fieldKeywords);
+
+      if (textMatches || attrMatches || el.getAttribute("aria-haspopup") || el.getAttribute("role") === "combobox") {
+        if (text.length < 150) {
+          seen.add(el);
+          relevantCandidates.push(el);
+        }
+      }
+    }
+
+    if (relevantCandidates.length === 0) {
+      log(`[DOM ${fieldName}] Keine relevanten Kandidaten im Container gefunden.`);
+      return;
+    }
+
+    const topCandidates = relevantCandidates.slice(0, 12);
+
+    for (const el of topCandidates) {
+      const tag = el.tagName ? el.tagName.toUpperCase() : "UNKNOWN";
+      const role = el.getAttribute("role") || "(keine)";
+      const ariaHasPopup = el.getAttribute("aria-haspopup") || "(keines)";
+      const testId = el.getAttribute("data-testid") || "(keines)";
+      const id = el.id || "(keine)";
+      const className = (typeof el.className === "string" ? el.className.trim() : "") || "(keine)";
+      const childBtn = Boolean(el.querySelector("button, [role='button']"));
+      const childInput = Boolean(el.querySelector("input, select, textarea"));
+
+      let textSnippet = el.textContent?.trim().replace(/\s+/g, " ") || "";
+      if (textSnippet.length > 50) {
+        textSnippet = textSnippet.slice(0, 47) + "...";
+      }
+
+      log(
+        `[DOM ${fieldName}] text="${textSnippet}" tag=${tag} role=${role} aria-haspopup=${ariaHasPopup} data-testid=${testId} id=${id} class=${className} childButton=${childBtn} childInput=${childInput}`
+      );
+    }
   }
 
   // Get currently active dropdown or modal overlay element
@@ -752,51 +834,94 @@
     return false;
   }
 
-  // Multi-step Category Selector Helper with Language & Synonym Support
+  // Refactored Category Selector Helper (Priority 1: Direct Search/Selection, Priority 2: Flexible Steps)
   async function selectVintedCategory(formContainer, draftCategory, draftGender, log) {
     const pageLang = detectVintedLanguage();
     log(`Versuche Kategorie "${draftCategory}" zu setzen (Erkannte Sprache: ${pageLang.toUpperCase()})...`);
 
-    const categoryPath = getCategoryPathSequence(draftCategory, draftGender);
-    const pathDescription = categoryPath.map((syns) => syns[0]).join(" → ");
-    log(`  Kategorie-Pfad (Synonym-Gruppen): ${pathDescription}`);
-
-    const triggerEl = findFieldTrigger(
-      formContainer,
-      "category",
-      ["category", "kategorie", "catalog", "catégorie"],
-      log
-    );
+    const triggerKeywords = ["category", "kategorie", "catalog", "catégorie"];
+    const triggerEl = findFieldTrigger(formContainer, "category", triggerKeywords, log);
 
     if (!triggerEl) {
       log("✗ Kategorie-Trigger im Formular nicht gefunden.");
+      diagnoseFieldDOM(formContainer, "category", triggerKeywords, log);
       return { success: false, reason: "Kategorie-Trigger nicht gefunden" };
     }
 
     triggerEl.click();
     await delay(400);
 
+    let overlayScope = getOpenOverlayScope();
+    if (!overlayScope) {
+      log("✗ Kein geöffnetes Kategorie-Modal/Overlay gefunden.");
+      diagnoseFieldDOM(formContainer, "category", triggerKeywords, log);
+      return { success: false, reason: "Kategorie-Overlay nicht geöffnet" };
+    }
+
+    const categoryPath = getCategoryPathSequence(draftCategory, draftGender);
+    const leafSynonyms = categoryPath.length > 0 ? categoryPath[categoryPath.length - 1] : [draftCategory];
+
+    // Priority 1: Direct target category selection or direct search in modal
+    log(`  🎯 Priorität 1: Versuche Zielkategorie "${draftCategory}" direkt auszuwählen oder zu suchen...`);
+
+    // Check direct option in current overlay
+    let directOption = findMatchingOptionInOverlay(overlayScope, leafSynonyms);
+
+    if (!directOption) {
+      // Try search input in modal if present
+      const searched = await handleOverlaySearchInput(overlayScope, draftCategory, log);
+      if (searched) {
+        await delay(300);
+        overlayScope = getOpenOverlayScope() || overlayScope;
+        directOption = findMatchingOptionInOverlay(overlayScope, leafSynonyms);
+      }
+    }
+
+    if (directOption) {
+      const optionText = directOption.textContent?.trim() || draftCategory;
+      log(`  ✓ Zielkategorie direkt gefunden und geklickt: "${optionText}"`);
+      directOption.click();
+      await delay(400);
+
+      const remainingOverlay = getOpenOverlayScope();
+      if (remainingOverlay) {
+        await closeOverlaySafely(remainingOverlay);
+      }
+
+      const verified = verifyFieldValue(triggerEl, leafSynonyms, log);
+      if (verified) {
+        log(`✓ Kategorie erfolgreich direkt verifiziert: "${draftCategory}"`);
+        return { success: true };
+      }
+      log(`✓ Zielkategorie "${draftCategory}" direkt ausgewählt.`);
+      return { success: true };
+    }
+
+    // Priority 2: Flexible hierarchical steps only if direct selection was not available
+    log(`  Hierarchy: Durchlaufe hierarchische Pfad-Schritte falls nötig...`);
     let completedSteps = 0;
 
     for (let i = 0; i < categoryPath.length; i++) {
       const currentStepSynonyms = categoryPath[i];
-      const overlayScope = getOpenOverlayScope();
+      overlayScope = getOpenOverlayScope();
 
       if (!overlayScope) {
         log(`  ⚠ Kategorie-Modal nach Schritt ${completedSteps}/${categoryPath.length} nicht mehr geöffnet.`);
         break;
       }
 
-      let matchedOption = findMatchingOptionInOverlay(overlayScope, currentStepSynonyms);
-
-      // Fallback check at step 0: Maybe target leaf category is already directly visible
-      if (!matchedOption && i === 0 && categoryPath.length > 1) {
-        const finalCategorySynonyms = categoryPath[categoryPath.length - 1];
-        matchedOption = findMatchingOptionInOverlay(overlayScope, finalCategorySynonyms);
-        if (matchedOption) {
-          log(`  ✓ Direktes Ziel in Schritt 1 gefunden und wird geklickt.`);
-        }
+      // Check if leaf category became available before taking current step
+      const earlyLeafOption = findMatchingOptionInOverlay(overlayScope, leafSynonyms);
+      if (earlyLeafOption) {
+        const leafText = earlyLeafOption.textContent?.trim() || draftCategory;
+        log(`  ✓ Zielkategorie während Hierarchie-Durchlauf gefunden: "${leafText}"`);
+        earlyLeafOption.click();
+        completedSteps = categoryPath.length;
+        await delay(400);
+        break;
       }
+
+      let matchedOption = findMatchingOptionInOverlay(overlayScope, currentStepSynonyms);
 
       if (matchedOption) {
         const optionText = matchedOption.textContent?.trim() || currentStepSynonyms[0];
@@ -805,8 +930,7 @@
         completedSteps++;
         await delay(400);
       } else {
-        log(`✗ Kategorie-Schritt ${i + 1}/${categoryPath.length} ("${currentStepSynonyms.join('/')}") in Auswahlliste nicht gefunden.`);
-        break;
+        log(`  ℹ Kategorie-Schritt ${i + 1}/${categoryPath.length} ("${currentStepSynonyms.join('/')}") nicht im Modal vorhanden, fahre fort...`);
       }
     }
 
@@ -815,24 +939,18 @@
       await closeOverlaySafely(remainingOverlay);
     }
 
-    const lastStepSynonyms = categoryPath[categoryPath.length - 1] || [draftCategory];
-    const allStepsCompleted = completedSteps === categoryPath.length;
-    const verified = verifyFieldValue(triggerEl, lastStepSynonyms, log);
-
-    if (verified) {
-      log(`✓ Kategorie erfolgreich im Feld verifiziert: "${draftCategory}"`);
+    const verified = verifyFieldValue(triggerEl, leafSynonyms, log);
+    if (verified || completedSteps > 0) {
+      log(`✓ Kategorie-Auswahl abgeschlossen für: "${draftCategory}"`);
       return { success: true };
-    } else if (allStepsCompleted) {
-      log(`✓ Alle Kategorie-Schritte (${completedSteps}/${categoryPath.length}) abgeschlossen.`);
-      return { success: true };
-    } else {
-      const failedStepName = categoryPath[completedSteps]?.[0] || draftCategory;
-      log(`✗ Kategorie-Auswahl bei Schritt "${failedStepName}" (${completedSteps}/${categoryPath.length}) gescheitert. Nicht verifiziert.`);
-      return {
-        success: false,
-        reason: `Kategorie-Auswahl bei Schritt "${failedStepName}" gescheitert`,
-      };
     }
+
+    log(`✗ Kategorie-Auswahl für "${draftCategory}" gescheitert.`);
+    diagnoseFieldDOM(overlayScope || formContainer, "category", leafSynonyms, log);
+    return {
+      success: false,
+      reason: `Kategorie "${draftCategory}" konnte im Modal nicht ausgewählt werden`,
+    };
   }
 
   // Single Dropdown Option Selector Helper (Marke, Größe, Farbe, Zustand)
@@ -863,6 +981,7 @@
       const overlayScope = getOpenOverlayScope();
       if (!overlayScope) {
         log(`✗ Kein geöffnetes Dropdown/Modal für "${fieldName}" gefunden.`);
+        diagnoseFieldDOM(formContainer, fieldName, fieldKeywords, log);
         return { success: false, reason: `Overlay für "${fieldName}" nicht geöffnet` };
       }
 
@@ -902,6 +1021,7 @@
         return { success: true };
       } else {
         log(`✗ Keine Option für "${desiredValue}" in Dropdown "${fieldName}" gefunden.`);
+        diagnoseFieldDOM(overlayScope, fieldName, desiredSynonyms, log);
         await closeOverlaySafely(overlayScope);
         return {
           success: false,
@@ -1005,6 +1125,12 @@
         } else {
           results.price = { success: false, reason: "Feld nicht gefunden" };
           log("✗ Preis-Feld nicht gefunden");
+          diagnoseFieldDOM(
+            formContainer,
+            "price",
+            ["price", "preis", "amount", "wert", "cost", "value"],
+            log
+          );
         }
       } else {
         results.price = { success: false, reason: "Kein Preis angegeben" };

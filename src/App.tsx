@@ -33,6 +33,12 @@ import {
   deleteExpenseFromSupabase,
 } from "./lib/supabase";
 import {
+  savePantToDB,
+  saveMultiplePantsToDB,
+  deletePantFromDB,
+  clearAllPantsFromDB,
+} from "./lib/indexedDb";
+import {
   formatTitleWithArticleNumber,
   appendKeywordsToDescription,
 } from "./lib/titleUtils";
@@ -215,6 +221,9 @@ export default function App() {
         if (!isCancelled) {
           setPants(fetchedPants);
           setExpenses(fetchedExpenses);
+          saveMultiplePantsToDB(fetchedPants).catch((err) =>
+            console.warn("Failed saving pants to IndexedDB:", err)
+          );
         }
       } catch (err) {
         console.error("Error loading data from Supabase:", err);
@@ -374,6 +383,9 @@ export default function App() {
       setPants((prev) =>
         prev.map((p) => (p.id === saved.id ? saved : p))
       );
+      savePantToDB(saved).catch((err) =>
+        console.warn("Failed saving pant to IndexedDB:", err)
+      );
     } catch (err) {
       console.error("Failed to save pant to Supabase:", err);
       showToast("Fehler beim Speichern in Supabase.", "error");
@@ -413,6 +425,9 @@ export default function App() {
     try {
       const saved = await savePantToSupabase(userId, newPant);
       setPants((prev) => prev.map((p) => (p.id === saved.id ? saved : p)));
+      savePantToDB(saved).catch((err) =>
+        console.warn("Failed saving new pant to IndexedDB:", err)
+      );
       showToast(`Hose #${saved.number} angelegt.`, "success");
     } catch (err) {
       console.error("Failed to add new pant to Supabase:", err);
@@ -461,9 +476,14 @@ export default function App() {
 
     try {
       setIsSyncing(true);
+      const savedItems: PantItem[] = [];
       for (const item of newItems) {
-        await savePantToSupabase(userId, item);
+        const saved = await savePantToSupabase(userId, item);
+        savedItems.push(saved);
       }
+      saveMultiplePantsToDB(savedItems).catch((err) =>
+        console.warn("Failed saving multiple pants to IndexedDB:", err)
+      );
       showToast(`${toAdd} Hosen erfolgreich angelegt!`, "success");
     } catch (err) {
       console.error("Failed adding multiple pants to Supabase:", err);
@@ -516,6 +536,9 @@ export default function App() {
         const savedMap = new Map(savedItems.map((s) => [s.id, s]));
         return prev.map((p) => savedMap.get(p.id) || p);
       });
+      saveMultiplePantsToDB(savedItems).catch((err) =>
+        console.warn("Failed saving bulk pants to IndexedDB:", err)
+      );
       showToast(`${groupsToAdd.length} Hosen mit Fotos angelegt!`, "success");
       return { added: groupsToAdd.length, skipped: 0 };
     } catch (err) {
@@ -554,6 +577,9 @@ export default function App() {
     try {
       const saved = await savePantToSupabase(userId, duplicatedPant);
       setPants((prev) => prev.map((p) => (p.id === saved.id ? saved : p)));
+      savePantToDB(saved).catch((err) =>
+        console.warn("Failed saving duplicated pant to IndexedDB:", err)
+      );
       showToast(`Hose #${duplicatedPant.number} dupliziert!`, "success");
     } catch (err) {
       console.error("Failed to save duplicated pant to Supabase:", err);
@@ -602,6 +628,9 @@ export default function App() {
 
     try {
       await deletePantFromSupabase(userId, pantId, target?.images);
+      deletePantFromDB(pantId).catch((err) =>
+        console.warn("Failed deleting pant from IndexedDB:", err)
+      );
       showToast("Hose gelöscht.", "info");
     } catch (err) {
       console.error("Error deleting pant from Supabase:", err);
@@ -624,6 +653,9 @@ export default function App() {
       }
       setPants([]);
       setExpenses([]);
+      clearAllPantsFromDB().catch((err) =>
+        console.warn("Failed clearing pants in IndexedDB:", err)
+      );
       setIsDeleteProjectOpen(false);
       showToast("Gesamtes Projekt gelöscht.", "info");
     } catch (err) {
@@ -812,6 +844,7 @@ export default function App() {
             fit: "",
             material: "",
           },
+          pricing: rawResult.pricing,
         },
         updatedAt: Date.now(),
       };
