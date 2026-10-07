@@ -59,7 +59,7 @@ export const VintedDraftsModal: React.FC<VintedDraftsModalProps> = ({
 
   const handleCopyPayload = async (draft: VintedDraftData) => {
     const pant = pantsMap.get(draft.pantId);
-    const payload = getVintedDraftPayload(draft, pant);
+    const payload = await getVintedDraftPayload(draft, pant);
     const jsonStr = JSON.stringify(payload, null, 2);
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -81,9 +81,9 @@ export const VintedDraftsModal: React.FC<VintedDraftsModalProps> = ({
     }
   };
 
-  const handleDownloadAllJson = () => {
-    const payloads = drafts.map((d) =>
-      getVintedDraftPayload(d, pantsMap.get(d.pantId))
+  const handleDownloadAllJson = async () => {
+    const payloads = await Promise.all(
+      drafts.map((d) => getVintedDraftPayload(d, pantsMap.get(d.pantId)))
     );
     const jsonStr = JSON.stringify(payloads, null, 2);
     const blob = new Blob([jsonStr], { type: "application/json" });
