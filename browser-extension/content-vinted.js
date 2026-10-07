@@ -74,10 +74,35 @@
     return `${baseTitle} ${artNrTag}`.trim();
   }
 
-  // Convert base64 dataUrl to File
-  function dataURLToFile(dataUrl, fileName) {
+  // Convert base64 dataUrl or http URL to File asynchronously
+  async function imageRefToFile(dataUrl, fileName, log) {
+    if (!dataUrl || typeof dataUrl !== "string") {
+      if (log) log(`  ⚠ Bild "${fileName}": dataUrl ist leer or ungültig.`);
+      return null;
+    }
+
+    if (dataUrl.startsWith("http://") || dataUrl.startsWith("https://")) {
+      try {
+        const res = await fetch(dataUrl);
+        if (!res.ok) {
+          if (log) log(`  ⚠ Bild "${fileName}": HTTP-Fetch fehlgeschlagen Status ${res.status}`);
+          return null;
+        }
+        const blob = await res.blob();
+        const mime = blob.type || "image/jpeg";
+        return new File([blob], fileName, { type: mime });
+      } catch (err) {
+        if (log) log(`  ⚠ Bild "${fileName}": HTTP-Fetch Fehler - ${err.message}`);
+        return null;
+      }
+    }
+
     try {
       const arr = dataUrl.split(",");
+      if (arr.length < 2) {
+        if (log) log(`  ⚠ Bild "${fileName}": Base64 dataUrl Format ungültig (kein Komma-Separator).`);
+        return null;
+      }
       const mimeMatch = arr[0].match(/:(.*?);/);
       const mime = mimeMatch ? mimeMatch[1] : "image/jpeg";
       const bstr = atob(arr[1]);
@@ -88,7 +113,7 @@
       }
       return new File([u8arr], fileName, { type: mime });
     } catch (e) {
-      console.error("Error converting dataUrl to File:", e);
+      if (log) log(`  ⚠ Bild "${fileName}": Base64-Konvertierung fehlgeschlagen - ${e.message}`);
       return null;
     }
   }
@@ -138,37 +163,121 @@
     return keywords.some((kw) => lower.includes(kw.toLowerCase()));
   }
 
+  // Count presence of selling fields inside container
+  function countSellFieldsInContainer(container) {
+    if (!container) return 0;
+    const keywords = [
+      "title", "titel", "description", "beschreibung", "price", "preis",
+      "kategorie", "category", "catalog", "brand", "marke", "size", "größe",
+      "grosse", "condition", "zustand", "farbe", "color", "colour"
+    ];
+    let score = 0;
+
+    try {
+      const els = container.querySelectorAll(
+        "input, textarea, button, [role='button'], [role='combobox'], [data-testid], [class*='cell'], [class*='field'], label"
+      );
+      for (const el of els) {
+        const attrStr = `${el.name || ""} ${el.id || ""} ${el.placeholder || ""} ${el.getAttribute("data-testid") || ""} ${el.getAttribute("aria-label") || ""}`.toLowerCase();
+        if (keywords.some((kw) => attrStr.includes(kw))) {
+          score++;
+        } else {
+          const text = el.textContent?.toLowerCase() || "";
+          if (text.length > 0 && text.length < 100 && keywords.some((kw) => text.includes(kw))) {
+            score++;
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Error in countSellFieldsInContainer:", e);
+    }
+
+    return score;
+  }
+
+  function logContainerSelection(el, reason, log) {
+    const tag = el && el.tagName ? el.tagName.toUpperCase() : "UNKNOWN";
+    const id = (el && el.id) || "(keine)";
+    const className = el && el.className && typeof el.className === "string" ? el.className.trim() : "(keine)";
+    const testId = el && el.getAttribute ? (el.getAttribute("data-testid") || "(keines)") : "(keines)";
+
+    const msg = `Formular-Container gewählt (${reason}): Tag=${tag}, id=${id}, class=${className}, data-testid=${testId}`;
+    if (log) {
+      log(`[FormContainer] ${msg}`);
+    } else {
+      console.log(`[SaschaAI-Vinted] [FormContainer] ${msg}`);
+    }
+  }
+
   // Get the main Vinted seller form container
-  function getFormContainer() {
-    const selectors = [
-      'form[action*="item"]',
-      'form[action*="upload"]',
-      'form',
+  function getFormContainer(log) {
+    const mainEl = document.querySelector("main");
+    const specificSelectors = [
       '[data-testid*="item-form"]',
       '[data-testid*="sell-form"]',
+      '[data-testid*="upload-form"]',
+      'form[action*="item"]',
+      'form[action*="upload"]',
       '.cell-form',
-      'main',
     ];
 
-    for (const sel of selectors) {
-      const el = document.querySelector(sel);
-      if (el && isElementVisible(el)) {
-        return el;
+    function evaluateContainer(el) {
+      if (!el || !isElementVisible(el)) return -1;
+      if (el.closest('nav, header, footer, [role="navigation"], sidebar, .sidebar, #sidebar')) {
+        return -1;
+      }
+      return countSellFieldsInContainer(el);
+    }
+
+    // 1. First check specific sell form selectors with fields
+    for (const sel of specificSelectors) {
+      const candidate = document.querySelector(sel);
+      if (candidate) {
+        const score = evaluateContainer(candidate);
+        if (score >= 1) {
+          logContainerSelection(candidate, "Spezifischer Verkaufs-Formular-Selector", log);
+          return candidate;
+        }
       }
     }
 
-    return document.body;
+    // 2. Check main element if available and contains selling fields
+    if (mainEl && isElementVisible(mainEl)) {
+      const score = evaluateContainer(mainEl);
+      if (score >= 1) {
+        logContainerSelection(mainEl, "Main-Element mit Verkaufsfeldern", log);
+        return mainEl;
+      }
+    }
+
+    // 3. Check generic forms, but ONLY if they actually contain selling fields (score >= 2)
+    const forms = Array.from(document.querySelectorAll("form"));
+    for (const form of forms) {
+      const score = evaluateContainer(form);
+      if (score >= 2) {
+        logContainerSelection(form, "Formular mit Verkaufsfeldern", log);
+        return form;
+      }
+    }
+
+    // 4. Fallback: Use main if available, otherwise document.body
+    const fallback = (mainEl && isElementVisible(mainEl)) ? mainEl : document.body;
+    logContainerSelection(fallback, "Sicherer Such-Root Fallback (main/body)", log);
+    return fallback;
   }
 
   // Find input field restricted to form container
-  function findInputField(formContainer, keywords) {
-    if (!formContainer) formContainer = getFormContainer();
+  function findInputField(formContainer, keywords, log) {
+    if (!formContainer) formContainer = getFormContainer(log);
 
     for (const kw of keywords) {
       const el = formContainer.querySelector(
         `input[name*="${kw}" i], input[id*="${kw}" i], input[data-testid*="${kw}" i], input[placeholder*="${kw}" i]`
       );
-      if (el && isSafeInteractiveElement(el)) return el;
+      if (el && isSafeInteractiveElement(el)) {
+        if (log) log(`✓ Input-Feld gefunden via Direct-Attribute ("${kw}")`);
+        return el;
+      }
     }
 
     const inputs = Array.from(formContainer.querySelectorAll("input"));
@@ -176,9 +285,14 @@
       if (!isSafeInteractiveElement(input)) continue;
 
       if (input.id) {
-        const label = formContainer.querySelector(`label[for="${input.id}"]`);
-        if (label && matchesKeywords(label.textContent, keywords)) {
-          return input;
+        try {
+          const label = formContainer.querySelector(`label[for="${CSS.escape(input.id)}"]`);
+          if (label && matchesKeywords(label.textContent, keywords)) {
+            if (log) log(`✓ Input-Feld gefunden via Label-For ("${label.textContent?.trim()}")`);
+            return input;
+          }
+        } catch (e) {
+          // CSS.escape fallback
         }
       }
 
@@ -189,6 +303,7 @@
         depth++
       ) {
         if (matchesKeywords(parent.textContent, keywords)) {
+          if (log) log(`✓ Input-Feld gefunden via Parent-Text ("${keywords.join('/')}")`);
           return input;
         }
         parent = parent.parentElement;
@@ -199,14 +314,17 @@
   }
 
   // Find textarea field restricted to form container
-  function findTextareaField(formContainer, keywords) {
-    if (!formContainer) formContainer = getFormContainer();
+  function findTextareaField(formContainer, keywords, log) {
+    if (!formContainer) formContainer = getFormContainer(log);
 
     for (const kw of keywords) {
       const el = formContainer.querySelector(
         `textarea[name*="${kw}" i], textarea[id*="${kw}" i], textarea[data-testid*="${kw}" i], textarea[placeholder*="${kw}" i]`
       );
-      if (el && isSafeInteractiveElement(el)) return el;
+      if (el && isSafeInteractiveElement(el)) {
+        if (log) log(`✓ Textarea gefunden via Direct-Attribute ("${kw}")`);
+        return el;
+      }
     }
 
     const textareas = Array.from(formContainer.querySelectorAll("textarea"));
@@ -219,6 +337,7 @@
         depth++
       ) {
         if (matchesKeywords(parent.textContent, keywords)) {
+          if (log) log(`✓ Textarea gefunden via Parent-Text ("${keywords.join('/')}")`);
           return ta;
         }
         parent = parent.parentElement;
@@ -229,26 +348,89 @@
   }
 
   // Find trigger button/cell for a dropdown field within form container
-  function findFieldTrigger(formContainer, fieldName, fieldKeywords) {
-    if (!formContainer) formContainer = getFormContainer();
+  function findFieldTrigger(formContainer, fieldName, fieldKeywords, log) {
+    if (!formContainer) formContainer = getFormContainer(log);
 
-    // 1. Check direct attributes within form container
+    const matchInfo = (el, strategy) => {
+      const tag = el.tagName ? el.tagName.toUpperCase() : "UNKNOWN";
+      const id = el.id || "(keine)";
+      const className = el.className && typeof el.className === "string" ? el.className.trim() : "(keine)";
+      const testId = el.getAttribute ? (el.getAttribute("data-testid") || "(keines)") : "(keines)";
+      const role = el.getAttribute ? (el.getAttribute("role") || "(keine)") : "(keine)";
+      const ariaHasPopup = el.getAttribute ? (el.getAttribute("aria-haspopup") || "(keines)") : "(keines)";
+      return `[${fieldName}] Trigger gefunden via ${strategy}: Tag=${tag}, id=${id}, class=${className}, data-testid=${testId}, role=${role}, aria-haspopup=${ariaHasPopup}`;
+    };
+
+    // Strategy 1: Direct selector on attributes & interactive elements
     for (const kw of fieldKeywords) {
-      const selector = `[data-testid*="${kw}" i], [name*="${kw}" i], [id*="${kw}" i], [aria-label*="${kw}" i]`;
-      const candidate = formContainer.querySelector(selector);
-      if (candidate && isSafeInteractiveElement(candidate)) {
-        const clickTarget =
-          candidate.querySelector(
-            "button, input, [role='button'], div[class*='input'], div[class*='select']"
-          ) || candidate;
-        if (isSafeInteractiveElement(clickTarget)) return clickTarget;
+      const selectors = [
+        `[data-testid*="${kw}" i]`,
+        `[name*="${kw}" i]`,
+        `[id*="${kw}" i]`,
+        `[aria-label*="${kw}" i]`,
+        `[placeholder*="${kw}" i]`,
+        `button[data-testid*="${kw}" i]`,
+        `[role="button"][data-testid*="${kw}" i]`,
+        `[role="combobox"][data-testid*="${kw}" i]`,
+        `[aria-haspopup="dialog"][data-testid*="${kw}" i]`,
+        `[aria-haspopup="listbox"][data-testid*="${kw}" i]`,
+      ];
+      for (const sel of selectors) {
+        const candidate = formContainer.querySelector(sel);
+        if (candidate && isSafeInteractiveElement(candidate)) {
+          const clickTarget =
+            candidate.querySelector(
+              "button, input, [role='button'], [role='combobox'], [aria-haspopup], div[class*='input'], div[class*='select']"
+            ) || candidate;
+          if (isSafeInteractiveElement(clickTarget)) {
+            const msg = matchInfo(clickTarget, `Attribut-Match ("${kw}")`);
+            if (log) log(`✓ ${msg}`);
+            else console.log(`[SaschaAI-Vinted] ✓ ${msg}`);
+            return clickTarget;
+          }
+        }
       }
     }
 
-    // 2. Search form cells / rows
+    // Strategy 2: Explicit <label> text matching
+    const labels = Array.from(formContainer.querySelectorAll("label, span, div[class*='label']"));
+    for (const label of labels) {
+      if (!isElementVisible(label)) continue;
+      const labelText = label.textContent?.trim() || "";
+      if (labelText.length < 80 && matchesKeywords(labelText, fieldKeywords)) {
+        if (label.htmlFor) {
+          try {
+            const target = formContainer.querySelector(`#${CSS.escape(label.htmlFor)}`);
+            if (target && isSafeInteractiveElement(target)) {
+              const msg = matchInfo(target, `Label-For-Match ("${labelText}")`);
+              if (log) log(`✓ ${msg}`);
+              else console.log(`[SaschaAI-Vinted] ✓ ${msg}`);
+              return target;
+            }
+          } catch (e) {
+            // CSS.escape fallback
+          }
+        }
+        let parent = label.parentElement;
+        for (let depth = 0; depth < 3 && parent && parent !== formContainer; depth++) {
+          const btn = parent.querySelector(
+            "button, [role='button'], [role='combobox'], [aria-haspopup], input, select, div[class*='select'], div[class*='input'], div[class*='cell'], div[class*='value']"
+          );
+          if (btn && isSafeInteractiveElement(btn)) {
+            const msg = matchInfo(btn, `Label-Wrapper-Match ("${labelText}")`);
+            if (log) log(`✓ ${msg}`);
+            else console.log(`[SaschaAI-Vinted] ✓ ${msg}`);
+            return btn;
+          }
+          parent = parent.parentElement;
+        }
+      }
+    }
+
+    // Strategy 3: Vinted row / cell / field wrappers
     const candidateRows = Array.from(
       formContainer.querySelectorAll(
-        '[data-testid*="cell"], [class*="cell"], [class*="row"], [class*="field"], label, div'
+        '[data-testid*="cell"], [class*="cell"], [class*="row"], [class*="field"], [class*="item"], div[class*="wrapper"]'
       )
     );
 
@@ -262,18 +444,25 @@
 
       const textToTest = directText || row.textContent?.trim() || "";
       if (textToTest.length < 200 && matchesKeywords(textToTest, fieldKeywords)) {
-        const btn = row.querySelector(
-          "button, div[role='button'], input, div[class*='select'], div[class*='input']"
+        const interactiveEl = row.querySelector(
+          "button, [role='button'], [role='combobox'], [aria-haspopup], input, select, div[class*='select'], div[class*='input'], div[class*='value']"
         );
-        if (btn && isSafeInteractiveElement(btn)) {
-          return btn;
+        if (interactiveEl && isSafeInteractiveElement(interactiveEl)) {
+          const msg = matchInfo(interactiveEl, `Cell-Row-Interactive-Match ("${fieldName}")`);
+          if (log) log(`✓ ${msg}`);
+          else console.log(`[SaschaAI-Vinted] ✓ ${msg}`);
+          return interactiveEl;
         }
         if (isSafeInteractiveElement(row)) {
+          const msg = matchInfo(row, `Cell-Row-Element-Match ("${fieldName}")`);
+          if (log) log(`✓ ${msg}`);
+          else console.log(`[SaschaAI-Vinted] ✓ ${msg}`);
           return row;
         }
       }
     }
 
+    if (log) log(`✗ Dropdown-Trigger für "${fieldName}" nicht gefunden.`);
     return null;
   }
 
@@ -488,11 +677,12 @@
     const categoryPath = getCategoryPathSequence(draftCategory, draftGender);
     log(`  Kategorie-Pfad: ${categoryPath.join(" → ")}`);
 
-    const triggerEl = findFieldTrigger(formContainer, "category", [
-      "kategorie",
+    const triggerEl = findFieldTrigger(
+      formContainer,
       "category",
-      "catalog",
-    ]);
+      ["kategorie", "category", "catalog"],
+      log
+    );
 
     if (!triggerEl) {
       log("✗ Kategorie-Trigger im Formular nicht gefunden.");
@@ -581,7 +771,7 @@
         return { success: false, reason: "Kein Zielwert angegeben" };
       }
 
-      const triggerEl = findFieldTrigger(formContainer, fieldName, fieldKeywords);
+      const triggerEl = findFieldTrigger(formContainer, fieldName, fieldKeywords, log);
 
       if (!triggerEl) {
         log(`✗ Dropdown-Element für "${fieldName}" nicht gefunden.`);
@@ -647,7 +837,7 @@
 
     log(`Starte das Befüllen für Entwurf: "${draft.title || draft.artikelnummer}"`);
 
-    const formContainer = getFormContainer();
+    const formContainer = getFormContainer(log);
 
     const results = {
       title: { success: false },
@@ -666,7 +856,11 @@
       const titleVal = formatVintedTitle(draft.title, draft.artikelnummer);
 
       if (titleVal) {
-        const titleEl = findInputField(formContainer, ["title", "titel", "heading", "name"]);
+        const titleEl = findInputField(
+          formContainer,
+          ["title", "titel", "heading", "name"],
+          log
+        );
         if (titleEl) {
           setNativeInputValue(titleEl, titleVal);
           results.title = { success: true };
@@ -686,12 +880,11 @@
     // 2. Fill Description
     try {
       if (draft.description) {
-        const descEl = findTextareaField(formContainer, [
-          "description",
-          "beschreibung",
-          "details",
-          "body",
-        ]);
+        const descEl = findTextareaField(
+          formContainer,
+          ["description", "beschreibung", "details", "body"],
+          log
+        );
         if (descEl) {
           setNativeInputValue(descEl, draft.description);
           results.description = { success: true };
@@ -712,12 +905,11 @@
     try {
       if (draft.price !== undefined && draft.price !== null) {
         const priceVal = String(draft.price);
-        const priceEl = findInputField(formContainer, [
-          "price",
-          "preis",
-          "amount",
-          "price_numeric",
-        ]);
+        const priceEl = findInputField(
+          formContainer,
+          ["price", "preis", "amount", "price_numeric"],
+          log
+        );
         if (priceEl) {
           setNativeInputValue(priceEl, priceVal);
           results.price = { success: true };
@@ -797,7 +989,13 @@
     // 5. Fill Images
     try {
       if (draft.images && draft.images.length > 0) {
-        log(`Versuche ${draft.images.length} Bilder einzufügen...`);
+        const totalDraftImages = draft.images.length;
+        const validDataUrlImages = draft.images.filter(
+          (img) => img.dataUrl && (img.dataUrl.startsWith("data:") || img.dataUrl.startsWith("http"))
+        ).length;
+
+        log(`Versuche ${totalDraftImages} Bilder einzufügen (Erkannt: ${totalDraftImages}, Gültige dataUrls/URLs: ${validDataUrlImages})...`);
+
         const fileInput = formContainer.querySelector('input[type="file"]') || document.querySelector('input[type="file"]');
 
         if (!fileInput) {
@@ -808,15 +1006,16 @@
           log("✗ Dateiauswahl-Element auf Vinted nicht gefunden.");
         } else {
           const files = [];
-          draft.images.forEach((img, idx) => {
-            if (img.dataUrl) {
-              const file = dataURLToFile(
-                img.dataUrl,
-                img.name || `image_${idx + 1}.jpg`
-              );
-              if (file) files.push(file);
+          for (let idx = 0; idx < draft.images.length; idx++) {
+            const img = draft.images[idx];
+            const fileName = img.name || `image_${idx + 1}.jpg`;
+            const file = await imageRefToFile(img.dataUrl, fileName, log);
+            if (file) {
+              files.push(file);
             }
-          });
+          }
+
+          log(`  Bild-Konvertierung abgeschlossen: ${files.length}/${totalDraftImages} Dateien bereit.`);
 
           if (files.length === 0) {
             results.images = {
