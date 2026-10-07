@@ -94,18 +94,62 @@ export function getVintedDraftPayload(
 
   if (pant && pant.images) {
     pant.images.forEach((img) => {
-      pantImagesMap.set(img.id, { dataUrl: img.dataUrl, name: img.name });
+      if (img.id) {
+        pantImagesMap.set(img.id, { dataUrl: img.dataUrl || "", name: img.name });
+      }
     });
   }
 
-  const hydratedImages = (draft.imageIds || []).map((id, idx) => {
-    const found = pantImagesMap.get(id);
+  // Determine list of image IDs to hydrate
+  let targetImageIds = draft.imageIds || [];
+
+  // Fallback 1: If draft.imageIds is empty or unmapped, fall back to draft.imageRefs
+  if (targetImageIds.length === 0 && draft.imageRefs && draft.imageRefs.length > 0) {
+    targetImageIds = draft.imageRefs.map((r) => r.id);
+  }
+
+  // Fallback 2: If draft has no image references but pant has images, fall back to all pant image IDs
+  if (targetImageIds.length === 0 && pant && pant.images && pant.images.length > 0) {
+    targetImageIds = pant.images.map((img) => img.id);
+  }
+
+  const hydratedImages = targetImageIds.map((id, idx) => {
+    let found = pantImagesMap.get(id);
+
+    // Fallback 3: If not matched by ID, try positional matching with pant.images
+    if ((!found || !found.dataUrl) && pant && pant.images && pant.images[idx]) {
+      const fallbackImg = pant.images[idx];
+      if (fallbackImg.dataUrl) {
+        found = { dataUrl: fallbackImg.dataUrl, name: fallbackImg.name };
+      }
+    }
+
     const ref = draft.imageRefs?.find((r) => r.id === id);
+    const dataUrl = found?.dataUrl || "";
+    const name = found?.name || ref?.name || `Image_${idx + 1}`;
+
     return {
       id,
-      dataUrl: found?.dataUrl || "",
-      name: found?.name || ref?.name || `Image_${idx + 1}`,
+      dataUrl,
+      name,
     };
+  });
+
+  const totalImageCount = hydratedImages.length;
+  const validDataUrlCount = hydratedImages.filter(
+    (img) => img.dataUrl && (img.dataUrl.startsWith("data:image/") || img.dataUrl.startsWith("http"))
+  ).length;
+
+  console.log(
+    `[VintedDraftPayload] Draft ID: ${draft.id} | Pant ID: ${draft.pantId} | Total images: ${totalImageCount} | Valid dataUrls: ${validDataUrlCount}`
+  );
+
+  hydratedImages.forEach((img, idx) => {
+    if (!img.dataUrl) {
+      console.warn(
+        `[VintedDraftPayload] Bild #${idx + 1} (ID: ${img.id}) hat keinen gültigen dataUrl. (pant present: ${Boolean(pant)}, storagePath/signedUrl missing)`
+      );
+    }
   });
 
   return {
