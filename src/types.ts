@@ -106,9 +106,8 @@ export interface ExpenseItem {
 
 export type VintedDraftStatus = "prepared" | "opened" | "saved" | "error";
 
-export interface VintedDraftImage {
+export interface VintedDraftImageRef {
   id: string;
-  dataUrl: string;
   name?: string;
 }
 
@@ -129,7 +128,7 @@ export interface VintedDraftData {
   condition?: string;
   category?: string;
   imageIds: string[];
-  images: VintedDraftImage[];
+  imageRefs?: VintedDraftImageRef[];
   status: VintedDraftStatus;
   createdAt: number;
   updatedAt: number;

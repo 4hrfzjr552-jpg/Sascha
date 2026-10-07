@@ -1,7 +1,12 @@
 import { PantItem, VintedDraftData, VintedDraftPayload } from "../types";
-import { getSetting, setSetting } from "./indexedDb";
-
-const VINTED_DRAFTS_STORAGE_KEY = "vinted_drafts";
+import {
+  getAllVintedDrafts,
+  saveVintedDraft,
+  saveMultipleVintedDrafts,
+  deleteVintedDraft,
+  clearVintedDrafts,
+  getAllPants,
+} from "./indexedDb";
 
 /**
  * Checks whether a PantItem is eligible for preparing a Vinted draft.
@@ -20,7 +25,7 @@ export function isPantEligibleForVintedDraft(pant: PantItem): boolean {
 
 /**
  * Creates a structured VintedDraftData object from a finished PantItem.
- * Uses pant.result, pricing.listingPrice (if available), pant.images, and pant.artikelnummer.
+ * Uses lightweight image references (imageRefs/imageIds) instead of copying full dataUrls.
  */
 export function createVintedDraftFromPant(
   pant: PantItem,
@@ -41,15 +46,15 @@ export function createVintedDraftFromPant(
     material: "",
   };
 
-  const images = (pant.images || []).map((img) => ({
+  const imageRefs = (pant.images || []).map((img) => ({
     id: img.id,
-    dataUrl: img.dataUrl,
     name: img.name,
   }));
 
-  const defaultPrice = result.pricing?.listingPrice !== undefined
-    ? Number(result.pricing.listingPrice)
-    : undefined;
+  const defaultPrice =
+    result.pricing?.listingPrice !== undefined
+      ? Number(result.pricing.listingPrice)
+      : undefined;
 
   const now = Date.now();
 
@@ -69,8 +74,8 @@ export function createVintedDraftFromPant(
     material: detected.material || "",
     condition: "Sehr gut", // Standard default condition for Vinted
     category: "Jeans", // Standard default category
-    imageIds: images.map((img) => img.id),
-    images,
+    imageIds: imageRefs.map((img) => img.id),
+    imageRefs,
     status: "prepared",
     createdAt: now,
     updatedAt: now,
@@ -78,11 +83,31 @@ export function createVintedDraftFromPant(
 }
 
 /**
- * Converts a VintedDraftData item to a JSON-compatible VintedDraftPayload for browser extensions.
+ * Converts a VintedDraftData item to a JSON-compatible VintedDraftPayload for browser extensions,
+ * dynamically fetching image dataUrls from the associated PantItem.
  */
 export function getVintedDraftPayload(
-  draft: VintedDraftData
+  draft: VintedDraftData,
+  pant?: PantItem
 ): VintedDraftPayload {
+  const pantImagesMap = new Map<string, { dataUrl: string; name?: string }>();
+
+  if (pant && pant.images) {
+    pant.images.forEach((img) => {
+      pantImagesMap.set(img.id, { dataUrl: img.dataUrl, name: img.name });
+    });
+  }
+
+  const hydratedImages = (draft.imageIds || []).map((id, idx) => {
+    const found = pantImagesMap.get(id);
+    const ref = draft.imageRefs?.find((r) => r.id === id);
+    return {
+      id,
+      dataUrl: found?.dataUrl || "",
+      name: found?.name || ref?.name || `Image_${idx + 1}`,
+    };
+  });
+
   return {
     id: draft.id,
     pantId: draft.pantId,
@@ -99,60 +124,159 @@ export function getVintedDraftPayload(
     material: draft.material,
     condition: draft.condition,
     category: draft.category,
-    images: draft.images.map((img) => ({
-      id: img.id,
-      dataUrl: img.dataUrl,
-      name: img.name,
-    })),
+    images: hydratedImages,
   };
 }
 
 /**
- * Load saved Vinted drafts from persistence (IndexedDB with localStorage fallback).
+ * Load saved Vinted drafts from IndexedDB STORE_VINTED_DRAFTS.
  */
 export async function loadVintedDraftsFromStorage(): Promise<VintedDraftData[]> {
-  try {
-    const saved = await getSetting<VintedDraftData[]>(
-      VINTED_DRAFTS_STORAGE_KEY,
-      []
-    );
-    return Array.isArray(saved) ? saved : [];
-  } catch (err) {
-    console.error("Failed to load Vinted drafts from storage:", err);
-    return [];
-  }
+  return await getAllVintedDrafts();
 }
 
 /**
- * Save Vinted drafts list to persistence.
+ * Save a single Vinted draft to IndexedDB.
+ */
+export async function saveVintedDraftToStorage(
+  draft: VintedDraftData
+): Promise<void> {
+  await saveVintedDraft(draft);
+}
+
+/**
+ * Save multiple Vinted drafts to IndexedDB.
  */
 export async function saveVintedDraftsToStorage(
   drafts: VintedDraftData[]
 ): Promise<void> {
-  try {
-    await setSetting(VINTED_DRAFTS_STORAGE_KEY, drafts);
-  } catch (err) {
-    console.error("Failed to save Vinted drafts to storage:", err);
-  }
+  await saveMultipleVintedDrafts(drafts);
 }
 
 /**
- * Global helper function for Chrome/Edge extensions to fetch payload by draftId or all drafts.
+ * Delete a Vinted draft from IndexedDB.
  */
-if (typeof window !== "undefined") {
+export async function deleteVintedDraftFromStorage(
+  draftId: string
+): Promise<void> {
+  await deleteVintedDraft(draftId);
+}
+
+/**
+ * Clear all Vinted drafts from IndexedDB.
+ */
+export async function clearVintedDraftsFromStorage(): Promise<void> {
+  await clearVintedDrafts();
+}
+
+/**
+ * Setup Window postMessage Event Listener for Content Script Chrome/Edge Extensions.
+ * Message protocol:
+ * Incoming: { source: "sascha-ai-extension", type: "GET_VINTED_DRAFT", draftId?: string }
+ * Outgoing: { source: "sascha-ai", type: "VINTED_DRAFT_DATA", draftId?: string, payload: ... }
+ */
+export function setupVintedExtensionBridge(): () => void {
+  if (typeof window === "undefined") return () => {};
+
+  const handleMessage = async (event: MessageEvent) => {
+    if (!event.data || typeof event.data !== "object") return;
+    const { source, type, draftId } = event.data;
+
+    if (source === "sascha-ai-extension" && type === "GET_VINTED_DRAFT") {
+      try {
+        const drafts = await getAllVintedDrafts();
+        const allPants = await getAllPants();
+        const pantsMap = new Map<string, PantItem>(
+          allPants.map((p) => [p.id, p])
+        );
+
+        if (draftId) {
+          const targetDraft = drafts.find(
+            (d) => d.id === draftId || d.pantId === draftId
+          );
+          if (!targetDraft) {
+            window.postMessage(
+              {
+                source: "sascha-ai",
+                type: "VINTED_DRAFT_DATA",
+                draftId,
+                payload: null,
+                error: "Draft nicht gefunden.",
+              },
+              "*"
+            );
+            return;
+          }
+          const pant = pantsMap.get(targetDraft.pantId);
+          const payload = getVintedDraftPayload(targetDraft, pant);
+
+          window.postMessage(
+            {
+              source: "sascha-ai",
+              type: "VINTED_DRAFT_DATA",
+              draftId,
+              payload,
+            },
+            "*"
+          );
+        } else {
+          const payloads = drafts.map((d) => {
+            const pant = pantsMap.get(d.pantId);
+            return getVintedDraftPayload(d, pant);
+          });
+
+          window.postMessage(
+            {
+              source: "sascha-ai",
+              type: "VINTED_DRAFT_DATA",
+              payload: payloads,
+            },
+            "*"
+          );
+        }
+      } catch (err: any) {
+        window.postMessage(
+          {
+            source: "sascha-ai",
+            type: "VINTED_DRAFT_DATA",
+            draftId,
+            payload: null,
+            error: err?.message || "Fehler beim Laden des Entwurfs.",
+          },
+          "*"
+        );
+      }
+    }
+  };
+
+  window.addEventListener("message", handleMessage);
+
+  // Maintain window helper functions
   (window as any).getVintedDraftPayload = async (draftId?: string) => {
-    const drafts = await loadVintedDraftsFromStorage();
+    const drafts = await getAllVintedDrafts();
+    const allPants = await getAllPants();
+    const pantsMap = new Map(allPants.map((p) => [p.id, p]));
+
     if (!draftId) {
-      return drafts.map(getVintedDraftPayload);
+      return drafts.map((d) => getVintedDraftPayload(d, pantsMap.get(d.pantId)));
     }
     const draft = drafts.find((d) => d.id === draftId || d.pantId === draftId);
-    return draft ? getVintedDraftPayload(draft) : null;
+    if (!draft) return null;
+    return getVintedDraftPayload(draft, pantsMap.get(draft.pantId));
   };
 
   (window as any).exportVintedDraft = async (draftId: string) => {
-    const drafts = await loadVintedDraftsFromStorage();
-    const draft = drafts.find((d) => d.id === draftId || d.pantId === draftId);
-    if (!draft) return null;
-    return JSON.stringify(getVintedDraftPayload(draft), null, 2);
+    const payload = await (window as any).getVintedDraftPayload(draftId);
+    if (!payload) return null;
+    return JSON.stringify(payload, null, 2);
   };
+
+  return () => {
+    window.removeEventListener("message", handleMessage);
+  };
+}
+
+// Auto-initialize extension bridge in client environment
+if (typeof window !== "undefined") {
+  setupVintedExtensionBridge();
 }

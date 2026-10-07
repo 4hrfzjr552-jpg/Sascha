@@ -15,7 +15,9 @@ import {
 import {
   createVintedDraftFromPant,
   loadVintedDraftsFromStorage,
+  saveVintedDraftToStorage,
   saveVintedDraftsToStorage,
+  deleteVintedDraftFromStorage,
   isPantEligibleForVintedDraft,
 } from "./lib/vintedDraftUtils";
 import { DEFAULT_VINTED_PROMPT } from "./lib/defaultPrompt";
@@ -237,24 +239,20 @@ export default function App() {
   };
 
   // Vinted Draft Handlers
-  const handleUpdateVintedDraft = (updatedDraft: VintedDraftData) => {
-    setVintedDrafts((prev) => {
-      const next = prev.map((d) => (d.id === updatedDraft.id ? updatedDraft : d));
-      saveVintedDraftsToStorage(next);
-      return next;
-    });
+  const handleUpdateVintedDraft = async (updatedDraft: VintedDraftData) => {
+    setVintedDrafts((prev) =>
+      prev.map((d) => (d.id === updatedDraft.id ? updatedDraft : d))
+    );
+    await saveVintedDraftToStorage(updatedDraft);
   };
 
-  const handleRemoveVintedDraft = (draftId: string) => {
-    setVintedDrafts((prev) => {
-      const next = prev.filter((d) => d.id !== draftId);
-      saveVintedDraftsToStorage(next);
-      return next;
-    });
+  const handleRemoveVintedDraft = async (draftId: string) => {
+    setVintedDrafts((prev) => prev.filter((d) => d.id !== draftId));
+    await deleteVintedDraftFromStorage(draftId);
     showToast("Vinted-Entwurf aus der Warteschlange entfernt.", "info");
   };
 
-  const handlePrepareSingleVintedDraft = (pant: PantItem) => {
+  const handlePrepareSingleVintedDraft = async (pant: PantItem) => {
     if (!isPantEligibleForVintedDraft(pant)) {
       showToast(
         "Diese Hose ist nicht für einen Vinted-Entwurf bereit (Ergebnis oder Fotos fehlen).",
@@ -279,9 +277,9 @@ export default function App() {
       } else {
         next = [draft, ...prev];
       }
-      saveVintedDraftsToStorage(next);
       return next;
     });
+    await saveVintedDraftToStorage(draft);
 
     showToast(`Vinted-Entwurf für Hose #${pant.number} vorbereitet!`, "success");
   };
@@ -1620,6 +1618,7 @@ export default function App() {
       <VintedDraftsModal
         isOpen={isVintedDraftsOpen}
         drafts={vintedDrafts}
+        pants={pants}
         onClose={() => setIsVintedDraftsOpen(false)}
         onUpdateDraft={handleUpdateVintedDraft}
         onRemoveDraft={handleRemoveVintedDraft}

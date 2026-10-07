@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { VintedDraftData, VintedDraftStatus } from "../types";
+import { PantItem, VintedDraftData, VintedDraftStatus } from "../types";
 import { getVintedDraftPayload } from "../lib/vintedDraftUtils";
 import {
   X,
@@ -17,6 +17,7 @@ import {
 interface VintedDraftsModalProps {
   isOpen: boolean;
   drafts: VintedDraftData[];
+  pants?: PantItem[];
   onClose: () => void;
   onUpdateDraft: (updated: VintedDraftData) => void;
   onRemoveDraft: (draftId: string) => void;
@@ -43,6 +44,7 @@ const CATEGORY_OPTIONS = [
 export const VintedDraftsModal: React.FC<VintedDraftsModalProps> = ({
   isOpen,
   drafts,
+  pants = [],
   onClose,
   onUpdateDraft,
   onRemoveDraft,
@@ -50,12 +52,14 @@ export const VintedDraftsModal: React.FC<VintedDraftsModalProps> = ({
 }) => {
   const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
   const [copiedDraftId, setCopiedDraftId] = useState<string | null>(null);
-  const [copiedAll, setCopiedAll] = useState(false);
 
   if (!isOpen) return null;
 
+  const pantsMap = new Map<string, PantItem>(pants.map((p) => [p.id, p]));
+
   const handleCopyPayload = async (draft: VintedDraftData) => {
-    const payload = getVintedDraftPayload(draft);
+    const pant = pantsMap.get(draft.pantId);
+    const payload = getVintedDraftPayload(draft, pant);
     const jsonStr = JSON.stringify(payload, null, 2);
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -78,7 +82,9 @@ export const VintedDraftsModal: React.FC<VintedDraftsModalProps> = ({
   };
 
   const handleDownloadAllJson = () => {
-    const payloads = drafts.map(getVintedDraftPayload);
+    const payloads = drafts.map((d) =>
+      getVintedDraftPayload(d, pantsMap.get(d.pantId))
+    );
     const jsonStr = JSON.stringify(payloads, null, 2);
     const blob = new Blob([jsonStr], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -179,7 +185,11 @@ export const VintedDraftsModal: React.FC<VintedDraftsModalProps> = ({
           ) : (
             drafts.map((draft) => {
               const isEditing = editingDraftId === draft.id;
-              const thumbUrl = draft.images.length > 0 ? draft.images[0].dataUrl : null;
+              const pant = pantsMap.get(draft.pantId);
+              const thumbUrl =
+                pant && pant.images && pant.images.length > 0
+                  ? pant.images[0].dataUrl
+                  : null;
 
               return (
                 <div
