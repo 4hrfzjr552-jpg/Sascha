@@ -22,7 +22,9 @@
   });
 
   // Detect language of Vinted UI
+  // Priority: 1. document.documentElement.lang -> 2. Visible UI text -> 3. Domain/Hostname fallback
   function detectVintedLanguage() {
+    // 1. Check document.documentElement.lang
     const htmlLang = (document.documentElement.lang || "").toLowerCase();
     if (htmlLang.startsWith("en")) return "en";
     if (htmlLang.startsWith("de")) return "de";
@@ -30,26 +32,31 @@
     if (htmlLang.startsWith("es")) return "es";
     if (htmlLang.startsWith("it")) return "it";
 
-    const host = window.location.hostname.toLowerCase();
-    if (host.endsWith(".de") || host.endsWith(".at") || host.endsWith(".ch")) return "de";
-    if (host.endsWith(".co.uk") || host.endsWith(".com")) return "en";
-    if (host.endsWith(".fr")) return "fr";
-
-    const bodyText = (document.body?.innerText || "").slice(0, 1500).toLowerCase();
+    // 2. Check visible UI / body text (allows detecting English UI on vinted.de)
+    const bodyText = (document.body?.innerText || "").slice(0, 2000).toLowerCase();
     if (
       bodyText.includes("select a category") ||
       bodyText.includes("upload photos") ||
-      bodyText.includes("describe your item")
+      bodyText.includes("describe your item") ||
+      bodyText.includes("choose a category") ||
+      bodyText.includes("select category")
     ) {
       return "en";
     }
     if (
       bodyText.includes("kategorie wählen") ||
       bodyText.includes("fotos hochladen") ||
-      bodyText.includes("beschreibe deinen artikel")
+      bodyText.includes("beschreibe deinen artikel") ||
+      bodyText.includes("kategorie auswä")
     ) {
       return "de";
     }
+
+    // 3. Domain / Hostname fallback LAST
+    const host = window.location.hostname.toLowerCase();
+    if (host.endsWith(".co.uk") || host.endsWith(".com")) return "en";
+    if (host.endsWith(".fr")) return "fr";
+    if (host.endsWith(".de") || host.endsWith(".at") || host.endsWith(".ch")) return "de";
 
     return "de";
   }
@@ -770,15 +777,13 @@
     await delay(400);
 
     let completedSteps = 0;
-    let allStepsCompleted = false;
 
     for (let i = 0; i < categoryPath.length; i++) {
       const currentStepSynonyms = categoryPath[i];
       const overlayScope = getOpenOverlayScope();
 
       if (!overlayScope) {
-        log(`  ✓ Kategorie-Modal geschlossen nach Schritt ${completedSteps}. Pfadbeendigung erreicht.`);
-        allStepsCompleted = true;
+        log(`  ⚠ Kategorie-Modal nach Schritt ${completedSteps}/${categoryPath.length} nicht mehr geöffnet.`);
         break;
       }
 
@@ -799,18 +804,8 @@
         matchedOption.click();
         completedSteps++;
         await delay(400);
-
-        const nextOverlay = getOpenOverlayScope();
-        if (!nextOverlay) {
-          log("  ✓ Kategorie-Modal geschlossen. Pfadbeendigung erreicht.");
-          allStepsCompleted = true;
-          break;
-        } else if (i === categoryPath.length - 1) {
-          allStepsCompleted = true;
-        }
       } else {
         log(`✗ Kategorie-Schritt ${i + 1}/${categoryPath.length} ("${currentStepSynonyms.join('/')}") in Auswahlliste nicht gefunden.`);
-        allStepsCompleted = false;
         break;
       }
     }
@@ -821,14 +816,18 @@
     }
 
     const lastStepSynonyms = categoryPath[categoryPath.length - 1] || [draftCategory];
+    const allStepsCompleted = completedSteps === categoryPath.length;
     const verified = verifyFieldValue(triggerEl, lastStepSynonyms, log);
 
-    if (allStepsCompleted || verified || completedSteps >= 2) {
-      log(`✓ Kategorie erfolgreich ausgewählt: "${draftCategory}"`);
+    if (verified) {
+      log(`✓ Kategorie erfolgreich im Feld verifiziert: "${draftCategory}"`);
+      return { success: true };
+    } else if (allStepsCompleted) {
+      log(`✓ Alle Kategorie-Schritte (${completedSteps}/${categoryPath.length}) abgeschlossen.`);
       return { success: true };
     } else {
       const failedStepName = categoryPath[completedSteps]?.[0] || draftCategory;
-      log(`✗ Kategorie-Auswahl bei Schritt "${failedStepName}" gescheitert.`);
+      log(`✗ Kategorie-Auswahl bei Schritt "${failedStepName}" (${completedSteps}/${categoryPath.length}) gescheitert. Nicht verifiziert.`);
       return {
         success: false,
         reason: `Kategorie-Auswahl bei Schritt "${failedStepName}" gescheitert`,
