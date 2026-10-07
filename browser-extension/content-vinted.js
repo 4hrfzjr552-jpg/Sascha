@@ -98,6 +98,537 @@
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  // Check element visibility
+  function isElementVisible(el) {
+    if (!el) return false;
+    const style = window.getComputedStyle(el);
+    return (
+      style.display !== "none" &&
+      style.visibility !== "hidden" &&
+      style.opacity !== "0" &&
+      el.offsetWidth > 0 &&
+      el.offsetHeight > 0
+    );
+  }
+
+  // Check if an element is safe to click (not link, no href, not navigation/sidebar/header)
+  function isSafeInteractiveElement(el) {
+    if (!el || !isElementVisible(el)) return false;
+
+    // Reject links or elements with href attribute
+    if (el.tagName === "A" || el.hasAttribute("href") || el.closest("a")) {
+      return false;
+    }
+
+    // Reject elements inside navigation, header, footer, or sidebars
+    if (
+      el.closest(
+        'nav, header, footer, [role="navigation"], sidebar, .sidebar, #sidebar, [data-testid*="header"], [data-testid*="footer"], [data-testid*="nav"]'
+      )
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
+  function matchesKeywords(text, keywords) {
+    if (!text) return false;
+    const lower = text.toLowerCase();
+    return keywords.some((kw) => lower.includes(kw.toLowerCase()));
+  }
+
+  // Get the main Vinted seller form container
+  function getFormContainer() {
+    const selectors = [
+      'form[action*="item"]',
+      'form[action*="upload"]',
+      'form',
+      '[data-testid*="item-form"]',
+      '[data-testid*="sell-form"]',
+      '.cell-form',
+      'main',
+    ];
+
+    for (const sel of selectors) {
+      const el = document.querySelector(sel);
+      if (el && isElementVisible(el)) {
+        return el;
+      }
+    }
+
+    return document.body;
+  }
+
+  // Find input field restricted to form container
+  function findInputField(formContainer, keywords) {
+    if (!formContainer) formContainer = getFormContainer();
+
+    for (const kw of keywords) {
+      const el = formContainer.querySelector(
+        `input[name*="${kw}" i], input[id*="${kw}" i], input[data-testid*="${kw}" i], input[placeholder*="${kw}" i]`
+      );
+      if (el && isSafeInteractiveElement(el)) return el;
+    }
+
+    const inputs = Array.from(formContainer.querySelectorAll("input"));
+    for (const input of inputs) {
+      if (!isSafeInteractiveElement(input)) continue;
+
+      if (input.id) {
+        const label = formContainer.querySelector(`label[for="${input.id}"]`);
+        if (label && matchesKeywords(label.textContent, keywords)) {
+          return input;
+        }
+      }
+
+      let parent = input.parentElement;
+      for (
+        let depth = 0;
+        depth < 3 && parent && parent !== formContainer;
+        depth++
+      ) {
+        if (matchesKeywords(parent.textContent, keywords)) {
+          return input;
+        }
+        parent = parent.parentElement;
+      }
+    }
+
+    return null;
+  }
+
+  // Find textarea field restricted to form container
+  function findTextareaField(formContainer, keywords) {
+    if (!formContainer) formContainer = getFormContainer();
+
+    for (const kw of keywords) {
+      const el = formContainer.querySelector(
+        `textarea[name*="${kw}" i], textarea[id*="${kw}" i], textarea[data-testid*="${kw}" i], textarea[placeholder*="${kw}" i]`
+      );
+      if (el && isSafeInteractiveElement(el)) return el;
+    }
+
+    const textareas = Array.from(formContainer.querySelectorAll("textarea"));
+    for (const ta of textareas) {
+      if (!isSafeInteractiveElement(ta)) continue;
+      let parent = ta.parentElement;
+      for (
+        let depth = 0;
+        depth < 3 && parent && parent !== formContainer;
+        depth++
+      ) {
+        if (matchesKeywords(parent.textContent, keywords)) {
+          return ta;
+        }
+        parent = parent.parentElement;
+      }
+    }
+
+    return null;
+  }
+
+  // Find trigger button/cell for a dropdown field within form container
+  function findFieldTrigger(formContainer, fieldName, fieldKeywords) {
+    if (!formContainer) formContainer = getFormContainer();
+
+    // 1. Check direct attributes within form container
+    for (const kw of fieldKeywords) {
+      const selector = `[data-testid*="${kw}" i], [name*="${kw}" i], [id*="${kw}" i], [aria-label*="${kw}" i]`;
+      const candidate = formContainer.querySelector(selector);
+      if (candidate && isSafeInteractiveElement(candidate)) {
+        const clickTarget =
+          candidate.querySelector(
+            "button, input, [role='button'], div[class*='input'], div[class*='select']"
+          ) || candidate;
+        if (isSafeInteractiveElement(clickTarget)) return clickTarget;
+      }
+    }
+
+    // 2. Search form cells / rows
+    const candidateRows = Array.from(
+      formContainer.querySelectorAll(
+        '[data-testid*="cell"], [class*="cell"], [class*="row"], [class*="field"], label, div'
+      )
+    );
+
+    for (const row of candidateRows) {
+      if (!isElementVisible(row)) continue;
+      const directText = Array.from(row.childNodes)
+        .filter((n) => n.nodeType === Node.TEXT_NODE)
+        .map((n) => n.textContent?.trim())
+        .filter(Boolean)
+        .join(" ");
+
+      const textToTest = directText || row.textContent?.trim() || "";
+      if (textToTest.length < 200 && matchesKeywords(textToTest, fieldKeywords)) {
+        const btn = row.querySelector(
+          "button, div[role='button'], input, div[class*='select'], div[class*='input']"
+        );
+        if (btn && isSafeInteractiveElement(btn)) {
+          return btn;
+        }
+        if (isSafeInteractiveElement(row)) {
+          return row;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  // Get currently active dropdown or modal overlay element
+  function getOpenOverlayScope() {
+    const overlaySelectors = [
+      '[role="dialog"]',
+      '[role="menu"]',
+      '[role="listbox"]',
+      '[aria-modal="true"]',
+      '[data-testid*="modal"]',
+      '[data-testid*="dropdown"]',
+      '[data-testid*="popover"]',
+      '[data-testid*="catalog"]',
+      '.web_ui__Modal__modal',
+      '.c-modal',
+      '.portal-content',
+      '.vinted-box',
+    ];
+
+    const candidates = [];
+    for (const sel of overlaySelectors) {
+      const els = Array.from(document.querySelectorAll(sel));
+      for (const el of els) {
+        if (
+          isElementVisible(el) &&
+          !el.closest("nav, header, footer, sidebar")
+        ) {
+          candidates.push(el);
+        }
+      }
+    }
+
+    if (candidates.length > 0) {
+      return candidates[candidates.length - 1];
+    }
+
+    return null;
+  }
+
+  // Safely close open overlay without clicking body or random elements
+  async function closeOverlaySafely(overlayScope) {
+    if (!overlayScope || !isElementVisible(overlayScope)) return;
+
+    const closeBtn = overlayScope.querySelector(
+      'button[aria-label*="schließen" i], button[aria-label*="close" i], button[data-testid*="close"], .c-modal__close, button[class*="close" i]'
+    );
+    if (closeBtn && isSafeInteractiveElement(closeBtn)) {
+      closeBtn.click();
+      await delay(200);
+      return;
+    }
+
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Escape",
+        code: "Escape",
+        keyCode: 27,
+        bubbles: true,
+      })
+    );
+    await delay(200);
+  }
+
+  // Handle typing in overlay search inputs (e.g. for Brand / Size search)
+  async function handleOverlaySearchInput(overlayScope, searchValue, log) {
+    if (!overlayScope || !searchValue) return false;
+
+    const searchInput = overlayScope.querySelector(
+      'input[type="search"], input[placeholder*="suchen" i], input[placeholder*="search" i], input[data-testid*="search" i], input[type="text"]'
+    );
+
+    if (searchInput && isSafeInteractiveElement(searchInput)) {
+      log(`  🔍 Suche im Dropdown/Modal nach: "${searchValue}"`);
+      searchInput.focus();
+      setNativeInputValue(searchInput, searchValue);
+      await delay(400); // Wait for filtered options to render
+      return true;
+    }
+
+    return false;
+  }
+
+  // Find matching option element ONLY within the open overlay scope
+  function findMatchingOptionInOverlay(overlayScope, desiredValue) {
+    if (!overlayScope || !desiredValue) return null;
+
+    const targetLower = desiredValue.trim().toLowerCase();
+
+    const optionSelectors = [
+      '[role="option"]',
+      '[role="menuitem"]',
+      '[role="treeitem"]',
+      "li",
+      "button",
+      'div[class*="option" i]',
+      'div[class*="item" i]',
+      'div[class*="cell" i]',
+      "label",
+      "span",
+    ];
+
+    const optionEls = Array.from(
+      overlayScope.querySelectorAll(optionSelectors.join(", "))
+    );
+
+    // Pass 1: Exact text match
+    for (const opt of optionEls) {
+      if (!isSafeInteractiveElement(opt)) continue;
+      if (!overlayScope.contains(opt)) continue;
+
+      const text = opt.textContent?.trim().toLowerCase() || "";
+      if (text === targetLower) {
+        return opt;
+      }
+    }
+
+    // Pass 2: Clean normalized partial/substring match
+    for (const opt of optionEls) {
+      if (!isSafeInteractiveElement(opt)) continue;
+      if (!overlayScope.contains(opt)) continue;
+
+      const text = opt.textContent?.trim().toLowerCase() || "";
+      if (
+        text.length < 60 &&
+        (text.includes(targetLower) || targetLower.includes(text))
+      ) {
+        return opt;
+      }
+    }
+
+    return null;
+  }
+
+  // Build category hierarchy step sequence based on category string & gender
+  function getCategoryPathSequence(categoryStr, genderStr) {
+    if (!categoryStr) return [];
+
+    // If delimited by >, /, -> or ,
+    if (/[>\/,-]/.test(categoryStr) && categoryStr.includes(" ")) {
+      const parts = categoryStr
+        .split(/[>\/]/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (parts.length > 1) return parts;
+    }
+
+    const catLower = categoryStr.trim().toLowerCase();
+    const genderLower = (genderStr || "").trim().toLowerCase();
+
+    let genderLabel = "";
+    if (
+      genderLower.includes("herren") ||
+      genderLower.includes("men") ||
+      genderLower.includes("männlich")
+    ) {
+      genderLabel = "Herren";
+    } else if (
+      genderLower.includes("damen") ||
+      genderLower.includes("women") ||
+      genderLower.includes("weiblich")
+    ) {
+      genderLabel = "Damen";
+    } else if (
+      genderLower.includes("kinder") ||
+      genderLower.includes("kids")
+    ) {
+      genderLabel = "Kinder";
+    }
+
+    if (catLower === "jeans") {
+      if (genderLabel === "Herren") return ["Herren", "Kleidung", "Hosen", "Jeans"];
+      if (genderLabel === "Damen") return ["Damen", "Kleidung", "Hosen", "Jeans"];
+      if (genderLabel === "Kinder") return ["Kinder", "Kleidung", "Hosen", "Jeans"];
+      return ["Kleidung", "Hosen", "Jeans"];
+    }
+
+    if (catLower === "hosen" || catLower === "pants") {
+      if (genderLabel === "Herren") return ["Herren", "Kleidung", "Hosen"];
+      if (genderLabel === "Damen") return ["Damen", "Kleidung", "Hosen"];
+      return ["Kleidung", "Hosen"];
+    }
+
+    if (genderLabel) {
+      return [genderLabel, categoryStr.trim()];
+    }
+
+    return [categoryStr.trim()];
+  }
+
+  // Check if field value displays the expected value after selection
+  function verifyFieldValue(triggerEl, expectedValue, log) {
+    if (!expectedValue) return false;
+    const targetLower = expectedValue.trim().toLowerCase();
+
+    let container = triggerEl;
+    for (let depth = 0; depth < 3 && container; depth++) {
+      const text = container.textContent?.trim().toLowerCase() || "";
+      if (text.includes(targetLower)) {
+        return true;
+      }
+      container = container.parentElement;
+    }
+
+    return false;
+  }
+
+  // Multi-step Category Selector Helper
+  async function selectVintedCategory(formContainer, draftCategory, draftGender, log) {
+    log(`Versuche Kategorie "${draftCategory}" zu setzen...`);
+
+    const categoryPath = getCategoryPathSequence(draftCategory, draftGender);
+    log(`  Kategorie-Pfad: ${categoryPath.join(" → ")}`);
+
+    const triggerEl = findFieldTrigger(formContainer, "category", [
+      "kategorie",
+      "category",
+      "catalog",
+    ]);
+
+    if (!triggerEl) {
+      log("✗ Kategorie-Trigger im Formular nicht gefunden.");
+      return { success: false, reason: "Kategorie-Trigger nicht gefunden" };
+    }
+
+    triggerEl.click();
+    await delay(400);
+
+    let stepSuccess = false;
+
+    for (let i = 0; i < categoryPath.length; i++) {
+      const currentStep = categoryPath[i];
+      const overlayScope = getOpenOverlayScope();
+
+      if (!overlayScope) {
+        log(`⚠ Kein geöffnetes Kategorie-Modal für Schritt "${currentStep}" gefunden.`);
+        break;
+      }
+
+      let matchedOption = findMatchingOptionInOverlay(overlayScope, currentStep);
+
+      // Fallback check at step 0: Maybe target leaf category is already directly visible
+      if (!matchedOption && i === 0 && categoryPath.length > 1) {
+        const finalCategory = categoryPath[categoryPath.length - 1];
+        matchedOption = findMatchingOptionInOverlay(overlayScope, finalCategory);
+      }
+
+      if (matchedOption) {
+        log(`  ✓ Kategorie-Schritt ${i + 1}/${categoryPath.length}: "${currentStep}" geklickt`);
+        matchedOption.click();
+        await delay(400);
+
+        const nextOverlay = getOpenOverlayScope();
+        if (!nextOverlay) {
+          log("  ✓ Kategorie-Modal geschlossen. Auswahl abgeschlossen.");
+          stepSuccess = true;
+          break;
+        } else {
+          stepSuccess = true;
+        }
+      } else {
+        log(`✗ Kategorie-Schritt "${currentStep}" in der Auswahlliste nicht gefunden.`);
+        break;
+      }
+    }
+
+    const remainingOverlay = getOpenOverlayScope();
+    if (remainingOverlay) {
+      await closeOverlaySafely(remainingOverlay);
+    }
+
+    const verified = verifyFieldValue(triggerEl, draftCategory, log);
+    if (verified || stepSuccess) {
+      log(`✓ Kategorie erfolgreich ausgewählt: "${draftCategory}"`);
+      return { success: true };
+    } else {
+      log(`✗ Kategorie "${draftCategory}" konnte nicht verifiziert werden.`);
+      return {
+        success: false,
+        reason: `Kategorie "${draftCategory}" konnte nicht gesetzt/verifiziert werden`,
+      };
+    }
+  }
+
+  // Single Dropdown Option Selector Helper (Marke, Größe, Farbe, Zustand)
+  async function selectVintedOption(
+    formContainer,
+    fieldName,
+    fieldKeywords,
+    desiredValue,
+    log
+  ) {
+    log(`Versuche Dropdown "${fieldName}" auf "${desiredValue}" zu setzen...`);
+
+    try {
+      if (!desiredValue) {
+        return { success: false, reason: "Kein Zielwert angegeben" };
+      }
+
+      const triggerEl = findFieldTrigger(formContainer, fieldName, fieldKeywords);
+
+      if (!triggerEl) {
+        log(`✗ Dropdown-Element für "${fieldName}" nicht gefunden.`);
+        return { success: false, reason: `Dropdown-Element für "${fieldName}" nicht gefunden` };
+      }
+
+      triggerEl.click();
+      await delay(400);
+
+      const overlayScope = getOpenOverlayScope();
+      if (!overlayScope) {
+        log(`✗ Kein geöffnetes Dropdown/Modal für "${fieldName}" gefunden.`);
+        return { success: false, reason: `Overlay für "${fieldName}" nicht geöffnet` };
+      }
+
+      // Check search input inside overlay
+      await handleOverlaySearchInput(overlayScope, desiredValue, log);
+
+      let matchedOption = null;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        matchedOption = findMatchingOptionInOverlay(overlayScope, desiredValue);
+        if (matchedOption) break;
+        await delay(200);
+      }
+
+      if (matchedOption) {
+        matchedOption.click();
+        await delay(400);
+
+        const remainingOverlay = getOpenOverlayScope();
+        if (remainingOverlay) {
+          await closeOverlaySafely(remainingOverlay);
+        }
+
+        const verified = verifyFieldValue(triggerEl, desiredValue, log);
+        if (verified) {
+          log(`✓ Dropdown "${fieldName}" auf "${desiredValue}" gesetzt und verifiziert.`);
+        } else {
+          log(`✓ Dropdown "${fieldName}" auf "${desiredValue}" geklickt.`);
+        }
+        return { success: true };
+      } else {
+        log(`✗ Keine Option für "${desiredValue}" in Dropdown "${fieldName}" gefunden.`);
+        await closeOverlaySafely(overlayScope);
+        return {
+          success: false,
+          reason: `Option "${desiredValue}" nicht in Auswahlliste gefunden`,
+        };
+      }
+    } catch (err) {
+      log(`✗ Fehler in selectVintedOption (${fieldName}): ${err.message}`);
+      return { success: false, reason: err.message };
+    }
+  }
+
   // Main Form Filling Controller
   async function fillVintedForm(draft, debugMode) {
     const logs = [];
@@ -107,6 +638,8 @@
     };
 
     log(`Starte das Befüllen für Entwurf: "${draft.title || draft.artikelnummer}"`);
+
+    const formContainer = getFormContainer();
 
     const results = {
       title: { success: false },
@@ -125,7 +658,7 @@
       const titleVal = formatVintedTitle(draft.title, draft.artikelnummer);
 
       if (titleVal) {
-        const titleEl = findInputField(["title", "titel", "heading", "name"]);
+        const titleEl = findInputField(formContainer, ["title", "titel", "heading", "name"]);
         if (titleEl) {
           setNativeInputValue(titleEl, titleVal);
           results.title = { success: true };
@@ -145,7 +678,7 @@
     // 2. Fill Description
     try {
       if (draft.description) {
-        const descEl = findTextareaField([
+        const descEl = findTextareaField(formContainer, [
           "description",
           "beschreibung",
           "details",
@@ -171,7 +704,7 @@
     try {
       if (draft.price !== undefined && draft.price !== null) {
         const priceVal = String(draft.price);
-        const priceEl = findInputField([
+        const priceEl = findInputField(formContainer, [
           "price",
           "preis",
           "amount",
@@ -195,10 +728,10 @@
 
     // 4. Dropdowns (Kategorie, Marke, Größe, Farbe, Zustand)
     if (draft.category) {
-      results.category = await selectVintedOption(
-        "category",
-        ["kategorie", "category"],
+      results.category = await selectVintedCategory(
+        formContainer,
         draft.category,
+        draft.gender,
         log
       );
     } else {
@@ -207,6 +740,7 @@
 
     if (draft.brand) {
       results.brand = await selectVintedOption(
+        formContainer,
         "brand",
         ["marke", "brand"],
         draft.brand,
@@ -218,6 +752,7 @@
 
     if (draft.size) {
       results.size = await selectVintedOption(
+        formContainer,
         "size",
         ["größe", "grosse", "size"],
         draft.size,
@@ -229,6 +764,7 @@
 
     if (draft.color) {
       results.color = await selectVintedOption(
+        formContainer,
         "color",
         ["farbe", "color", "colour"],
         draft.color,
@@ -240,8 +776,9 @@
 
     if (draft.condition) {
       results.condition = await selectVintedOption(
+        formContainer,
         "condition",
-        ["zustand", "condition"],
+        ["zustand", "condition", "status"],
         draft.condition,
         log
       );
@@ -253,7 +790,7 @@
     try {
       if (draft.images && draft.images.length > 0) {
         log(`Versuche ${draft.images.length} Bilder einzufügen...`);
-        const fileInput = document.querySelector('input[type="file"]');
+        const fileInput = formContainer.querySelector('input[type="file"]') || document.querySelector('input[type="file"]');
 
         if (!fileInput) {
           results.images = {
@@ -283,7 +820,6 @@
             const dataTransfer = new DataTransfer();
             files.forEach((f) => dataTransfer.items.add(f));
 
-            // Try setting files on input
             try {
               fileInput.files = dataTransfer.files;
               fileInput.dispatchEvent(new Event("change", { bubbles: true }));
@@ -315,177 +851,5 @@
 
     log("Formular-Befüllung abgeschlossen. Nicht automatisch veröffentlicht!");
     return { results, logs };
-  }
-
-  // Robust Input Finder
-  function findInputField(keywords) {
-    // 1. Check exact/partial name or id attributes
-    for (const kw of keywords) {
-      const el = document.querySelector(
-        `input[name*="${kw}" i], input[id*="${kw}" i], input[data-testid*="${kw}" i], input[placeholder*="${kw}" i]`
-      );
-      if (el && isElementVisible(el)) return el;
-    }
-
-    // 2. Check labels with matching text
-    const inputs = Array.from(document.querySelectorAll("input"));
-    for (const input of inputs) {
-      if (!isElementVisible(input)) continue;
-
-      // Label element
-      if (input.id) {
-        const label = document.querySelector(`label[for="${input.id}"]`);
-        if (label && matchesKeywords(label.textContent, keywords)) {
-          return input;
-        }
-      }
-
-      // Parent label/container
-      let parent = input.parentElement;
-      for (let depth = 0; depth < 3 && parent; depth++) {
-        if (matchesKeywords(parent.textContent, keywords)) {
-          return input;
-        }
-        parent = parent.parentElement;
-      }
-    }
-
-    return null;
-  }
-
-  // Robust Textarea Finder
-  function findTextareaField(keywords) {
-    for (const kw of keywords) {
-      const el = document.querySelector(
-        `textarea[name*="${kw}" i], textarea[id*="${kw}" i], textarea[data-testid*="${kw}" i], textarea[placeholder*="${kw}" i]`
-      );
-      if (el && isElementVisible(el)) return el;
-    }
-
-    const textareas = Array.from(document.querySelectorAll("textarea"));
-    for (const ta of textareas) {
-      if (!isElementVisible(ta)) continue;
-      let parent = ta.parentElement;
-      for (let depth = 0; depth < 3 && parent; depth++) {
-        if (matchesKeywords(parent.textContent, keywords)) {
-          return ta;
-        }
-        parent = parent.parentElement;
-      }
-    }
-
-    return null;
-  }
-
-  // Check element visibility
-  function isElementVisible(el) {
-    if (!el) return false;
-    const style = window.getComputedStyle(el);
-    return (
-      style.display !== "none" &&
-      style.visibility !== "hidden" &&
-      style.opacity !== "0" &&
-      el.offsetWidth > 0 &&
-      el.offsetHeight > 0
-    );
-  }
-
-  function matchesKeywords(text, keywords) {
-    if (!text) return false;
-    const lower = text.toLowerCase();
-    return keywords.some((kw) => lower.includes(kw.toLowerCase()));
-  }
-
-  // Robust Dropdown Selector Helper
-  async function selectVintedOption(fieldName, fieldKeywords, desiredValue, log) {
-    log(`Versuche Dropdown "${fieldName}" auf "${desiredValue}" zu setzen...`);
-
-    try {
-      if (!desiredValue) {
-        return { success: false, reason: "Kein Zielwert angegeben" };
-      }
-
-      // 1. Find trigger container or element for the dropdown
-      let triggerEl = null;
-
-      // Find by selector or label matching
-      for (const kw of fieldKeywords) {
-        triggerEl = document.querySelector(
-          `[data-testid*="${kw}" i], [name*="${kw}" i], [id*="${kw}" i], [aria-label*="${kw}" i]`
-        );
-        if (triggerEl && isElementVisible(triggerEl)) break;
-      }
-
-      if (!triggerEl) {
-        // Search visible text/labels
-        const candidates = Array.from(
-          document.querySelectorAll("button, div[role='button'], input, label, div")
-        );
-
-        for (const cand of candidates) {
-          if (!isElementVisible(cand)) continue;
-          const txt = cand.textContent?.trim() || "";
-          if (matchesKeywords(txt, fieldKeywords) && txt.length < 50) {
-            triggerEl = cand;
-            break;
-          }
-        }
-      }
-
-      if (!triggerEl) {
-        log(`✗ Dropdown-Element für "${fieldName}" nicht gefunden.`);
-        return { success: false, reason: "Dropdown-Element nicht gefunden" };
-      }
-
-      // 2. Open Dropdown
-      triggerEl.click();
-      triggerEl.focus?.();
-      await delay(300);
-
-      // 3. Search options menu for matching option
-      const targetLower = desiredValue.trim().toLowerCase();
-      let matchedOption = null;
-
-      // Wait briefly for popup menu items
-      for (let attempt = 0; attempt < 5; attempt++) {
-        const optionEls = Array.from(
-          document.querySelectorAll(
-            '[role="option"], [role="menuitem"], li, button, div[class*="option" i], div[class*="item" i]'
-          )
-        );
-
-        for (const opt of optionEls) {
-          if (!isElementVisible(opt)) continue;
-          const optText = opt.textContent?.trim().toLowerCase() || "";
-
-          // Exact match or clean substring match
-          if (optText === targetLower || (optText.length < 40 && optText.includes(targetLower))) {
-            matchedOption = opt;
-            break;
-          }
-        }
-
-        if (matchedOption) break;
-        await delay(200);
-      }
-
-      if (matchedOption) {
-        matchedOption.click();
-        await delay(200);
-        log(`✓ Dropdown "${fieldName}" auf "${desiredValue}" gesetzt.`);
-        return { success: true };
-      } else {
-        log(`✗ Keine eindeutige Option für "${desiredValue}" in Dropdown "${fieldName}" gefunden.`);
-        // Close dropdown if opened, avoid clicking random incorrect option
-        document.body.click();
-        return {
-          success: false,
-          reason: `Option "${desiredValue}" nicht in Auswahlliste gefunden`,
-        };
-      }
-    } catch (err) {
-      log(`✗ Fehler in selectVintedOption (${fieldName}): ${err.message}`);
-      return { success: false, reason: err.message };
-    }
   }
 })();
