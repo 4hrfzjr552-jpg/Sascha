@@ -1,4 +1,4 @@
-import { PantItem, VintedDraftData, VintedDraftPayload } from "../types";
+import { PantItem, VintedDraftData, VintedDraftPayload, VintedDraftListItem } from "../types";
 import {
   getAllVintedDrafts,
   saveVintedDraft,
@@ -170,10 +170,34 @@ export async function clearVintedDraftsFromStorage(): Promise<void> {
 }
 
 /**
+ * Converts VintedDraftData list to lightweight VintedDraftListItem array without base64 images.
+ */
+export function getVintedDraftListSummary(
+  drafts: VintedDraftData[]
+): VintedDraftListItem[] {
+  return drafts.map((d) => ({
+    id: d.id,
+    pantId: d.pantId,
+    artikelnummer: d.artikelnummer,
+    title: d.title,
+    price: d.price,
+    brand: d.brand,
+    size: d.size,
+    color: d.color,
+    condition: d.condition,
+    category: d.category,
+    imageCount: d.imageIds?.length || d.imageRefs?.length || 0,
+  }));
+}
+
+/**
  * Setup Window postMessage Event Listener for Content Script Chrome/Edge Extensions.
  * Message protocol:
- * Incoming: { source: "sascha-ai-extension", type: "GET_VINTED_DRAFT", draftId?: string }
- * Outgoing: { source: "sascha-ai", type: "VINTED_DRAFT_DATA", draftId?: string, payload: ... }
+ * Incoming 1: { source: "sascha-ai-extension", type: "LIST_VINTED_DRAFTS" }
+ * Outgoing 1: { source: "sascha-ai", type: "VINTED_DRAFT_LIST", payload: VintedDraftListItem[] }
+ *
+ * Incoming 2: { source: "sascha-ai-extension", type: "GET_VINTED_DRAFT", draftId?: string }
+ * Outgoing 2: { source: "sascha-ai", type: "VINTED_DRAFT_DATA", draftId?: string, payload: VintedDraftPayload }
  */
 export function setupVintedExtensionBridge(): () => void {
   if (typeof window === "undefined") return () => {};
@@ -182,69 +206,95 @@ export function setupVintedExtensionBridge(): () => void {
     if (!event.data || typeof event.data !== "object") return;
     const { source, type, draftId } = event.data;
 
-    if (source === "sascha-ai-extension" && type === "GET_VINTED_DRAFT") {
-      try {
-        const drafts = await getAllVintedDrafts();
-        const allPants = await getAllPants();
-        const pantsMap = new Map<string, PantItem>(
-          allPants.map((p) => [p.id, p])
-        );
+    if (source === "sascha-ai-extension") {
+      if (type === "LIST_VINTED_DRAFTS") {
+        try {
+          const drafts = await getAllVintedDrafts();
+          const summaryList = getVintedDraftListSummary(drafts);
 
-        if (draftId) {
-          const targetDraft = drafts.find(
-            (d) => d.id === draftId || d.pantId === draftId
+          window.postMessage(
+            {
+              source: "sascha-ai",
+              type: "VINTED_DRAFT_LIST",
+              payload: summaryList,
+            },
+            "*"
           );
-          if (!targetDraft) {
+        } catch (err: any) {
+          window.postMessage(
+            {
+              source: "sascha-ai",
+              type: "VINTED_DRAFT_LIST",
+              payload: [],
+              error: err?.message || "Fehler beim Laden der Entwurfsliste.",
+            },
+            "*"
+          );
+        }
+      } else if (type === "GET_VINTED_DRAFT") {
+        try {
+          const drafts = await getAllVintedDrafts();
+          const allPants = await getAllPants();
+          const pantsMap = new Map<string, PantItem>(
+            allPants.map((p) => [p.id, p])
+          );
+
+          if (draftId) {
+            const targetDraft = drafts.find(
+              (d) => d.id === draftId || d.pantId === draftId
+            );
+            if (!targetDraft) {
+              window.postMessage(
+                {
+                  source: "sascha-ai",
+                  type: "VINTED_DRAFT_DATA",
+                  draftId,
+                  payload: null,
+                  error: "Draft nicht gefunden.",
+                },
+                "*"
+              );
+              return;
+            }
+            const pant = pantsMap.get(targetDraft.pantId);
+            const payload = getVintedDraftPayload(targetDraft, pant);
+
             window.postMessage(
               {
                 source: "sascha-ai",
                 type: "VINTED_DRAFT_DATA",
                 draftId,
-                payload: null,
-                error: "Draft nicht gefunden.",
+                payload,
               },
               "*"
             );
-            return;
-          }
-          const pant = pantsMap.get(targetDraft.pantId);
-          const payload = getVintedDraftPayload(targetDraft, pant);
+          } else {
+            const payloads = drafts.map((d) => {
+              const pant = pantsMap.get(d.pantId);
+              return getVintedDraftPayload(d, pant);
+            });
 
+            window.postMessage(
+              {
+                source: "sascha-ai",
+                type: "VINTED_DRAFT_DATA",
+                payload: payloads,
+              },
+              "*"
+            );
+          }
+        } catch (err: any) {
           window.postMessage(
             {
               source: "sascha-ai",
               type: "VINTED_DRAFT_DATA",
               draftId,
-              payload,
-            },
-            "*"
-          );
-        } else {
-          const payloads = drafts.map((d) => {
-            const pant = pantsMap.get(d.pantId);
-            return getVintedDraftPayload(d, pant);
-          });
-
-          window.postMessage(
-            {
-              source: "sascha-ai",
-              type: "VINTED_DRAFT_DATA",
-              payload: payloads,
+              payload: null,
+              error: err?.message || "Fehler beim Laden des Entwurfs.",
             },
             "*"
           );
         }
-      } catch (err: any) {
-        window.postMessage(
-          {
-            source: "sascha-ai",
-            type: "VINTED_DRAFT_DATA",
-            draftId,
-            payload: null,
-            error: err?.message || "Fehler beim Laden des Entwurfs.",
-          },
-          "*"
-        );
       }
     }
   };

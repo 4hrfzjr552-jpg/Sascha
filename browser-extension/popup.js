@@ -20,7 +20,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnClearDraft = document.getElementById("btnClearDraft");
 
   const statusBox = document.getElementById("statusBox");
-  const statusSummaryTitle = document.getElementById("statusSummaryTitle");
   const statusList = document.getElementById("statusList");
 
   const debugToggle = document.getElementById("debugToggle");
@@ -38,23 +37,15 @@ document.addEventListener("DOMContentLoaded", () => {
     debugLog.scrollTop = debugLog.scrollHeight;
   }
 
-  function clearDebugLog() {
-    debugLog.textContent = "";
-  }
-
-  // Load saved state
+  // Load saved state (lightweight metadata list)
   chrome.storage.local.get(["savedDrafts", "selectedDraftId", "debugMode"], (res) => {
     if (res.debugMode) {
       debugToggle.checked = true;
       debugLogContainer.style.display = "block";
     }
 
-    if (res.savedDrafts) {
-      if (Array.isArray(res.savedDrafts)) {
-        draftsList = res.savedDrafts;
-      } else {
-        draftsList = [res.savedDrafts];
-      }
+    if (res.savedDrafts && Array.isArray(res.savedDrafts)) {
+      draftsList = res.savedDrafts;
     }
 
     if (draftsList.length > 0) {
@@ -75,7 +66,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Render current selected draft
+  // Render current selected draft (lightweight metadata)
   function renderCurrentDraft(draft) {
     currentDraft = draft;
 
@@ -100,7 +91,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Price & Images
     draftPrice.textContent = draft.price !== undefined ? `${draft.price} €` : "-- €";
-    const imgCount = draft.images ? draft.images.length : 0;
+    const imgCount = draft.imageCount !== undefined ? draft.imageCount : (draft.images ? draft.images.length : 0);
     draftImageCount.textContent = `${imgCount} Bild${imgCount === 1 ? "" : "er"}`;
 
     // Meta details
@@ -118,7 +109,8 @@ document.addEventListener("DOMContentLoaded", () => {
         const opt = document.createElement("option");
         opt.value = d.id;
         const art = d.artikelnummer ? `#${d.artikelnummer} - ` : "";
-        opt.textContent = `${art}${d.title || "Entwurf"} (${d.price || 0}€)`;
+        const cnt = d.imageCount !== undefined ? d.imageCount : 0;
+        opt.textContent = `${art}${d.title || "Entwurf"} (${d.price || 0}€ - ${cnt} Bilder)`;
         if (d.id === draft.id) {
           opt.selected = true;
         }
@@ -142,37 +134,61 @@ document.addEventListener("DOMContentLoaded", () => {
     selectDraftById(e.target.value);
   });
 
-  // 1. Import draft from Sascha AI
+  // Helper check for Sascha AI domain
+  function isSaschaUrl(url) {
+    if (!url) return false;
+    return (
+      url.includes("sascha-omega.vercel.app") ||
+      url.includes("localhost") ||
+      url.includes("127.0.0.1")
+    );
+  }
+
+  function isVintedUrl(url) {
+    if (!url) return false;
+    return url.includes("vinted.de") || url.includes("vinted.at");
+  }
+
+  // Find open Sascha AI tab
+  async function findSaschaTab() {
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    let activeTab = tabs[0];
+
+    if (activeTab && isSaschaUrl(activeTab.url)) {
+      return activeTab;
+    }
+
+    const allSaschaTabs = await chrome.tabs.query({
+      url: ["https://sascha-omega.vercel.app/*", "http://localhost/*", "http://127.0.0.1/*"],
+    });
+
+    if (allSaschaTabs && allSaschaTabs.length > 0) {
+      return allSaschaTabs[0];
+    }
+
+    return null;
+  }
+
+  // 1. Import lightweight draft list from Sascha AI
   btnImport.addEventListener("click", async () => {
-    logDebug("Versuche Entwurf aus Sascha AI zu übernehmen...");
+    logDebug("Versuche Entwurfsliste aus Sascha AI zu übernehmen...");
     btnImport.disabled = true;
 
     try {
-      // Query active tab or any Sascha AI tab
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      let activeTab = tabs[0];
+      const saschaTab = await findSaschaTab();
 
-      // Check if active tab is Sascha AI or find one
-      let saschaTab = activeTab;
-      if (!activeTab || !isSaschaUrl(activeTab.url)) {
-        const allSaschaTabs = await chrome.tabs.query({
-          url: ["https://sascha-omega.vercel.app/*", "http://localhost/*", "http://127.0.0.1/*"],
-        });
-        if (allSaschaTabs && allSaschaTabs.length > 0) {
-          saschaTab = allSaschaTabs[0];
-        } else {
-          alert("Bitte öffne Sascha AI in einem Tab, um einen Entwurf zu übernehmen.");
-          logDebug("Fehler: Kein Sascha AI Tab gefunden.");
-          btnImport.disabled = false;
-          return;
-        }
+      if (!saschaTab) {
+        alert("Bitte Sascha AI in einem Tab öffnen, um Entwürfe zu übernehmen.");
+        logDebug("Fehler: Kein Sascha AI Tab gefunden.");
+        btnImport.disabled = false;
+        return;
       }
 
-      logDebug(`Sende Anfrage an Tab ${saschaTab.id} (${saschaTab.url})...`);
+      logDebug(`Sende FETCH_DRAFT_LIST_FROM_SASCHA an Tab ${saschaTab.id}...`);
 
       chrome.tabs.sendMessage(
         saschaTab.id,
-        { type: "REQUEST_VINTED_DRAFT_FROM_SASCHA" },
+        { type: "FETCH_DRAFT_LIST_FROM_SASCHA" },
         (response) => {
           btnImport.disabled = false;
 
@@ -184,34 +200,29 @@ document.addEventListener("DOMContentLoaded", () => {
 
           if (!response || !response.success) {
             logDebug(`Fehler-Antwort: ${response?.error || "Keine Daten empfangen."}`);
-            alert(`Entwurf konnte nicht geladen werden: ${response?.error || "Keine Daten vorhanden"}`);
+            alert(`Entwürfe konnten nicht geladen werden: ${response?.error || "Keine Daten vorhanden"}`);
             return;
           }
 
-          const payload = response.payload;
-          logDebug("Entwurf-Daten erfolgreich empfangen.");
+          const payloadList = response.payload;
+          logDebug(`Entwurfsliste erfolgreich empfangen (${payloadList ? payloadList.length : 0} Einträge).`);
 
-          if (Array.isArray(payload)) {
-            if (payload.length === 0) {
-              alert("Keine Vinted-Entwürfe in Sascha AI gefunden.");
-              return;
-            }
-            draftsList = payload;
-          } else if (payload) {
-            draftsList = [payload];
-          } else {
-            alert("Keine Entwurfsdaten in Sascha AI verfügbar.");
+          if (!Array.isArray(payloadList) || payloadList.length === 0) {
+            alert("Keine vorbereiteten Vinted-Entwürfe in Sascha AI gefunden.");
             return;
           }
 
+          // Save strictly lightweight metadata list
+          draftsList = payloadList;
           const activeDraft = draftsList[0];
+
           chrome.storage.local.set({
             savedDrafts: draftsList,
             selectedDraftId: activeDraft.id,
           });
 
           renderCurrentDraft(activeDraft);
-          logDebug(`Entwurf #${activeDraft.artikelnummer || activeDraft.id} geladen.`);
+          logDebug(`Entwurf #${activeDraft.artikelnummer || activeDraft.id} ausgewählt.`);
         }
       );
     } catch (err) {
@@ -221,23 +232,13 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Helper check for Sascha AI domain
-  function isSaschaUrl(url) {
-    if (!url) return false;
-    return (
-      url.includes("sascha-omega.vercel.app") ||
-      url.includes("localhost") ||
-      url.includes("127.0.0.1")
-    );
-  }
-
-  // 2. Open Vinted
+  // 2. Open Vinted (Preserves existing Sascha AI tab)
   btnOpenVinted.addEventListener("click", () => {
-    logDebug("Öffne Vinted Verkaufsseite...");
+    logDebug("Öffne Vinted Verkaufsseite in neuem Tab...");
     chrome.tabs.create({ url: "https://www.vinted.de/items/new" });
   });
 
-  // 3. Fill Vinted Form
+  // 3. Fill Vinted Form (Fetches full draft with images on-demand from Sascha AI tab)
   btnFillVinted.addEventListener("click", async () => {
     if (!currentDraft) {
       alert("Bitte zuerst einen Entwurf aus Sascha AI übernehmen.");
@@ -249,8 +250,8 @@ document.addEventListener("DOMContentLoaded", () => {
     statusBox.style.display = "none";
 
     try {
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      const activeTab = tabs[0];
+      const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      const activeTab = activeTabs[0];
 
       if (!activeTab || !isVintedUrl(activeTab.url)) {
         alert("Bitte wechsle zum Vinted-Tab (z. B. www.vinted.de/items/new), um den Entwurf einzufügen.");
@@ -259,33 +260,70 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      logDebug(`Sende Befehl FILL_VINTED_FORM an Tab ${activeTab.id}...`);
+      // Check for open Sascha AI tab to fetch full image payload on demand
+      const saschaTab = await findSaschaTab();
+      if (!saschaTab) {
+        alert("Bitte Sascha AI in einem Tab öffnen, damit die Bilder und Entwurfsdaten geladen werden können.");
+        logDebug("Fehler: Sascha AI Tab nicht geöffnet.");
+        btnFillVinted.disabled = false;
+        return;
+      }
 
+      logDebug(`Rufe vollständigen Entwurf #${currentDraft.id} aus Sascha AI Tab ${saschaTab.id} ab...`);
+
+      // Fetch full draft with images dynamically from Sascha AI
       chrome.tabs.sendMessage(
-        activeTab.id,
+        saschaTab.id,
         {
-          type: "FILL_VINTED_FORM",
-          draft: currentDraft,
-          debugMode: debugToggle.checked,
+          type: "REQUEST_VINTED_DRAFT_FROM_SASCHA",
+          draftId: currentDraft.id,
         },
         (response) => {
-          btnFillVinted.disabled = false;
-
           if (chrome.runtime.lastError) {
-            logDebug(`Runtime Error: ${chrome.runtime.lastError.message}`);
-            alert("Konnte Vinted Content Script nicht erreichen. Bitte lade die Vinted-Seite neu.");
+            logDebug(`Runtime Error beim Abrufen des Entwurfs: ${chrome.runtime.lastError.message}`);
+            alert("Konnte Entwurfsdaten aus Sascha AI nicht abrufen. Bitte stelle sicher, dass der Sascha-AI-Tab geladen ist.");
+            btnFillVinted.disabled = false;
             return;
           }
 
-          if (response && response.results) {
-            logDebug("Formular-Ausfüllung beendet.");
-            displayFillResults(response.results, response.logs);
-          } else if (response && response.error) {
-            logDebug(`Fehler beim Ausfüllen: ${response.error}`);
-            alert(`Fehler beim Ausfüllen: ${response.error}`);
-          } else {
-            logDebug("Keine Rückmeldung vom Vinted-Script erhalten.");
+          if (!response || !response.success || !response.payload) {
+            logDebug(`Fehler beim Abrufen des Entwurfs: ${response?.error || "Kein Payload"}`);
+            alert(`Vollständige Entwurfsdaten konnten nicht geladen werden: ${response?.error || "Fehler"}`);
+            btnFillVinted.disabled = false;
+            return;
           }
+
+          const fullPayload = response.payload;
+          logDebug(`Vollständigen Entwurf geladen (${fullPayload.images ? fullPayload.images.length : 0} Bilder). Sende an Vinted...`);
+
+          // Send full payload to Vinted content script
+          chrome.tabs.sendMessage(
+            activeTab.id,
+            {
+              type: "FILL_VINTED_FORM",
+              draft: fullPayload,
+              debugMode: debugToggle.checked,
+            },
+            (fillResponse) => {
+              btnFillVinted.disabled = false;
+
+              if (chrome.runtime.lastError) {
+                logDebug(`Runtime Error auf Vinted Tab: ${chrome.runtime.lastError.message}`);
+                alert("Konnte Vinted Content Script nicht erreichen. Bitte lade die Vinted-Seite neu.");
+                return;
+              }
+
+              if (fillResponse && fillResponse.results) {
+                logDebug("Formular-Ausfüllung beendet.");
+                displayFillResults(fillResponse.results, fillResponse.logs);
+              } else if (fillResponse && fillResponse.error) {
+                logDebug(`Fehler beim Ausfüllen: ${fillResponse.error}`);
+                alert(`Fehler beim Ausfüllen: ${fillResponse.error}`);
+              } else {
+                logDebug("Keine Rückmeldung vom Vinted-Script erhalten.");
+              }
+            }
+          );
         }
       );
     } catch (err) {
@@ -294,11 +332,6 @@ document.addEventListener("DOMContentLoaded", () => {
       alert(`Fehler beim Einfügen: ${err.message}`);
     }
   });
-
-  function isVintedUrl(url) {
-    if (!url) return false;
-    return url.includes("vinted.de") || url.includes("vinted.at");
-  }
 
   // Display results checklist in popup
   function displayFillResults(results, logs) {
@@ -339,12 +372,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 4. Clear Draft
   btnClearDraft.addEventListener("click", () => {
-    if (confirm("Möchtest du den gespeicherten Entwurf aus der Extension löschen?")) {
+    if (confirm("Möchtest du die gespeicherten Entwurfs-Metadaten aus der Extension löschen?")) {
       chrome.storage.local.remove(["savedDrafts", "selectedDraftId"], () => {
         draftsList = [];
         renderCurrentDraft(null);
         statusBox.style.display = "none";
-        logDebug("Gespeicherte Entwürfe gelöscht.");
+        logDebug("Gespeicherte Entwurfs-Metadaten gelöscht.");
       });
     }
   });

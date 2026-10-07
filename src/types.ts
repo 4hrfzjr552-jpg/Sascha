@@ -152,3 +152,17 @@ export interface VintedDraftPayload {
   category?: string;
   images: { id: string; dataUrl: string; name?: string }[];
 }
+
+export interface VintedDraftListItem {
+  id: string;
+  pantId: string;
+  artikelnummer?: string;
+  title: string;
+  price?: number;
+  brand?: string;
+  size?: string;
+  color?: string;
+  condition?: string;
+  category?: string;
+  imageCount: number;
+}

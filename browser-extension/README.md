@@ -8,6 +8,7 @@ Sie wurde primär für den **Orion Browser auf iPhone/iPad (iOS)** entwickelt, i
 
 ## 🎯 Hauptmerkmale & Sicherheit
 
+* **Leichtgewichtige Speicherung**: Es werden nur kleine Metadaten der Entwürfe im Browser-Speicher abgelegt. Große Base64-Bilddaten werden erst direkt beim Einfügen geladen und nicht dauerhaft gespeichert.
 * **Kein automatisches Veröffentlichen**: Artikel werden niemals ohne deine ausdrückliche Bestätigung auf Vinted veröffentlicht.
 * **Sicher & Datenschutzkonform**: Es werden keine Session-Cookies, Login-Token oder Passwörter ausgelesen, gespeichert oder übertragen.
 * **Keine API-Bypasses**: Die Extension arbeitet ausschließlich über die normale sichtbare Webseite im Browser.
@@ -66,18 +67,18 @@ browser-extension/
 
 ## 🚀 Nutzung im Alltag
 
-### 1. Entwurf aus Sascha AI übernehmen
+### 1. Entwurfsliste aus Sascha AI übernehmen
 1. Öffne **Sascha AI** im Browser.
-2. Bereite deine Hosen-Analyse vor, bis ein Vinted-Entwurf generiert wurde.
+2. Bereite deine Hosen-Analysen vor, sodass Vinted-Entwürfe existieren.
 3. Öffne das **Extension-Popup** über die Menüleiste des Browsers.
 4. Tippe auf den Button **[Entwurf aus Sascha AI übernehmen]**.
-5. Der Entwurf (Artikelnummer, Titel, Preis, Marke, Größe, Farbe, Zustand, Kategorie, Bilder) wird lokal in der Extension gespeichert und im Popup angezeigt.
+5. Die leichtgewichtige Liste aller vorbereiteten Entwürfe (Artikelnummer, Titel, Preis, Marke, Größe, Farbe, Zustand, Kategorie, Bildanzahl) wird aus Sascha AI abgerufen und gespeichert.
 
 ### 2. Vinted öffnen & Felder automatisch befüllen
-1. Tippe im Popup auf **[Vinted öffnen]** (oder navigiere manuell zu `https://www.vinted.de/items/new`).
-2. Sobald die Vinted-Verkaufsmaske geladen ist, öffne das Extension-Popup erneut.
+1. Tippe im Popup auf **[Vinted öffnen]** (öffne Vinted in einem neuen Tab, ohne den Sascha-AI-Tab zu schließen).
+2. Sobald die Vinted-Verkaufsmaske (`https://www.vinted.de/items/new`) geladen ist, öffne das Extension-Popup erneut.
 3. Tippe auf **[In Vinted einfügen]**.
-4. Die Extension befüllt automatisch:
+4. Die Extension ruft die vollständigen Daten (inklusive Bilder) dynamisch aus dem geöffneten Sascha-AI-Tab ab und befüllt:
    * **Titel**
    * **Beschreibung**
    * **Preis**
@@ -87,6 +88,9 @@ browser-extension/
    * **Zustand**
    * **Kategorie**
    * **Bilder** *(sofern vom Browser unterstützt)*
+
+> **Hinweis**: Falls der Sascha-AI-Tab geschlossen ist, wenn du auf „In Vinted einfügen“ klickst, wirst du aufgefordert:
+> *„Bitte Sascha AI in einem Tab öffnen, damit die Bilder und Entwurfsdaten geladen werden können.“*
 
 ### 3. Ergebnis prüfen & selbst speichern
 Nach dem Ausfüllen zeigt das Popup eine Checkliste der befüllten Felder an (z. B. `✓ Titel`, `✓ Preis`, `✓ Marke` ...).
