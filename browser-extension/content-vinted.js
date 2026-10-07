@@ -502,14 +502,15 @@
     triggerEl.click();
     await delay(400);
 
-    let stepSuccess = false;
+    let completedSteps = 0;
+    let allStepsCompleted = false;
 
     for (let i = 0; i < categoryPath.length; i++) {
       const currentStep = categoryPath[i];
       const overlayScope = getOpenOverlayScope();
 
       if (!overlayScope) {
-        log(`⚠ Kein geöffnetes Kategorie-Modal für Schritt "${currentStep}" gefunden.`);
+        log(`✗ Kein geöffnetes Kategorie-Modal für Schritt ${i + 1}/${categoryPath.length} ("${currentStep}") gefunden.`);
         break;
       }
 
@@ -519,23 +520,28 @@
       if (!matchedOption && i === 0 && categoryPath.length > 1) {
         const finalCategory = categoryPath[categoryPath.length - 1];
         matchedOption = findMatchingOptionInOverlay(overlayScope, finalCategory);
+        if (matchedOption) {
+          log(`  ✓ Direktes Ziel "${finalCategory}" in Schritt 1 gefunden und wird geklickt.`);
+        }
       }
 
       if (matchedOption) {
         log(`  ✓ Kategorie-Schritt ${i + 1}/${categoryPath.length}: "${currentStep}" geklickt`);
         matchedOption.click();
+        completedSteps++;
         await delay(400);
 
         const nextOverlay = getOpenOverlayScope();
         if (!nextOverlay) {
-          log("  ✓ Kategorie-Modal geschlossen. Auswahl abgeschlossen.");
-          stepSuccess = true;
+          log("  ✓ Kategorie-Modal geschlossen. Pfadbeendigung erreicht.");
+          allStepsCompleted = true;
           break;
-        } else {
-          stepSuccess = true;
+        } else if (i === categoryPath.length - 1) {
+          allStepsCompleted = true;
         }
       } else {
-        log(`✗ Kategorie-Schritt "${currentStep}" in der Auswahlliste nicht gefunden.`);
+        log(`✗ Kategorie-Schritt ${i + 1}/${categoryPath.length} ("${currentStep}") in Auswahlliste nicht gefunden.`);
+        allStepsCompleted = false;
         break;
       }
     }
@@ -546,14 +552,16 @@
     }
 
     const verified = verifyFieldValue(triggerEl, draftCategory, log);
-    if (verified || stepSuccess) {
+
+    if (allStepsCompleted || verified) {
       log(`✓ Kategorie erfolgreich ausgewählt: "${draftCategory}"`);
       return { success: true };
     } else {
-      log(`✗ Kategorie "${draftCategory}" konnte nicht verifiziert werden.`);
+      const failedStepName = categoryPath[completedSteps] || draftCategory;
+      log(`✗ Kategorie-Auswahl bei Schritt "${failedStepName}" gescheitert. Nicht vollständig durchlaufen oder verifiziert.`);
       return {
         success: false,
-        reason: `Kategorie "${draftCategory}" konnte nicht gesetzt/verifiziert werden`,
+        reason: `Kategorie-Auswahl bei Schritt "${failedStepName}" gescheitert`,
       };
     }
   }
