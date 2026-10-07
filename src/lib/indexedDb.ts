@@ -1,10 +1,11 @@
-import { PantItem } from "../types";
+import { PantItem, VintedDraftData } from "../types";
 
 const DB_NAME = "vinted_ai_db";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_PANTS = "pants";
 const STORE_SETTINGS = "settings";
 const STORE_BULK = "bulk_images";
+const STORE_VINTED_DRAFTS = "vinted_drafts";
 
 /**
  * A staged bulk-upload image. The full compressed `dataUrl` lives ONLY in
@@ -57,6 +58,9 @@ function openDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORE_BULK)) {
         db.createObjectStore(STORE_BULK, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(STORE_VINTED_DRAFTS)) {
+        db.createObjectStore(STORE_VINTED_DRAFTS, { keyPath: "id" });
       }
     };
 
@@ -286,6 +290,104 @@ export async function getAllBulkMeta(): Promise<BulkImageMeta[]> {
     };
     req.onerror = () => reject(req.error);
   });
+}
+
+/* ------------------------------------------------------------------ *
+ * Vinted Drafts Object Store (STORE_VINTED_DRAFTS)
+ * ------------------------------------------------------------------ */
+
+export async function getAllVintedDrafts(): Promise<VintedDraftData[]> {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_VINTED_DRAFTS, "readonly");
+      const store = transaction.objectStore(STORE_VINTED_DRAFTS);
+      const request = store.getAll();
+
+      request.onsuccess = () => {
+        const list = (request.result || []) as VintedDraftData[];
+        list.sort((a, b) => b.createdAt - a.createdAt);
+        resolve(list);
+      };
+
+      request.onerror = () => {
+        reject(request.error);
+      };
+    });
+  } catch (err) {
+    console.error("Failed to load Vinted drafts from IndexedDB:", err);
+    return [];
+  }
+}
+
+export async function saveVintedDraft(draft: VintedDraftData): Promise<void> {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_VINTED_DRAFTS, "readwrite");
+      const store = transaction.objectStore(STORE_VINTED_DRAFTS);
+      const request = store.put(draft);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  } catch (err) {
+    console.error("Failed to save Vinted draft to IndexedDB:", err);
+  }
+}
+
+export async function saveMultipleVintedDrafts(
+  drafts: VintedDraftData[]
+): Promise<void> {
+  if (drafts.length === 0) return;
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_VINTED_DRAFTS, "readwrite");
+      const store = transaction.objectStore(STORE_VINTED_DRAFTS);
+
+      drafts.forEach((draft) => {
+        store.put(draft);
+      });
+
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+  } catch (err) {
+    console.error("Failed to save multiple Vinted drafts to IndexedDB:", err);
+  }
+}
+
+export async function deleteVintedDraft(draftId: string): Promise<void> {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_VINTED_DRAFTS, "readwrite");
+      const store = transaction.objectStore(STORE_VINTED_DRAFTS);
+      const request = store.delete(draftId);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  } catch (err) {
+    console.error("Failed to delete Vinted draft from IndexedDB:", err);
+  }
+}
+
+export async function clearVintedDrafts(): Promise<void> {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_VINTED_DRAFTS, "readwrite");
+      const store = transaction.objectStore(STORE_VINTED_DRAFTS);
+      const request = store.clear();
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  } catch (err) {
+    console.error("Failed to clear Vinted drafts from IndexedDB:", err);
+  }
 }
 
 /** Fetch full records (with dataUrl) for a set of ids, preserving id order. */

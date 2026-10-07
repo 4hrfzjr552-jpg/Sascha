@@ -103,3 +103,52 @@ export interface ExpenseItem {
   notes?: string;
   createdAt: number;
 }
+
+export type VintedDraftStatus = "prepared" | "opened" | "saved" | "error";
+
+export interface VintedDraftImageRef {
+  id: string;
+  name?: string;
+}
+
+export interface VintedDraftData {
+  id: string;
+  pantId: string;
+  artikelnummer?: string;
+  title: string;
+  description: string;
+  price?: number;
+  brand?: string;
+  model?: string;
+  size?: string;
+  gender?: string;
+  color?: string;
+  fit?: string;
+  material?: string;
+  condition?: string;
+  category?: string;
+  imageIds: string[];
+  imageRefs?: VintedDraftImageRef[];
+  status: VintedDraftStatus;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface VintedDraftPayload {
+  id: string;
+  pantId: string;
+  artikelnummer?: string;
+  title: string;
+  description: string;
+  price?: number;
+  brand?: string;
+  model?: string;
+  size?: string;
+  gender?: string;
+  color?: string;
+  fit?: string;
+  material?: string;
+  condition?: string;
+  category?: string;
+  images: { id: string; dataUrl: string; name?: string }[];
+}
