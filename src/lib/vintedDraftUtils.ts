@@ -325,8 +325,3 @@ export function setupVintedExtensionBridge(): () => void {
     window.removeEventListener("message", handleMessage);
   };
 }
-
-// Auto-initialize extension bridge in client environment
-if (typeof window !== "undefined") {
-  setupVintedExtensionBridge();
-}

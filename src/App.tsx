@@ -19,6 +19,7 @@ import {
   saveVintedDraftsToStorage,
   deleteVintedDraftFromStorage,
   isPantEligibleForVintedDraft,
+  setupVintedExtensionBridge,
 } from "./lib/vintedDraftUtils";
 import { DEFAULT_VINTED_PROMPT } from "./lib/defaultPrompt";
 import { exportPantsAsJson, exportPantsAsCsv, parseImportedJson } from "./lib/exportUtils";
@@ -140,6 +141,14 @@ export default function App() {
       setToastMessage(null);
     }, 4000);
   };
+
+  // Initialize Vinted Browser Extension bridge on app mount
+  useEffect(() => {
+    const cleanup = setupVintedExtensionBridge();
+    return () => {
+      cleanup();
+    };
+  }, []);
 
   // 1. Initial Auth Session check & subscription
   useEffect(() => {
