@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "Sascha AI -> Vinted Assistant",
+  "version": "1.0.0",
+  "description": "Überträgt Vinted-Entwürfe aus Sascha AI direkt in die Verkaufsmaske von Vinted.",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://www.vinted.de/*",
+    "https://www.vinted.at/*",
+    "https://sascha-omega.vercel.app/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Sascha AI -> Vinted"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://sascha-omega.vercel.app/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": ["content-sascha.js"],
+      "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "https://www.vinted.de/*",
+        "https://www.vinted.at/*"
+      ],
+      "js": ["content-vinted.js"],
+      "run_at": "document_end"
+    }
+  ]
+}
