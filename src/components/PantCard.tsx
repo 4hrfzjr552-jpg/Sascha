@@ -45,6 +45,7 @@ interface PantCardProps {
   isAnalyzingAny: boolean;
   onArticleNumberFocus?: (id: string) => void;
   onArticleNumberBlur?: (id: string) => void;
+  onPrepareVintedDraft?: (pant: PantItem) => void;
 }
 
 export const PantCard: React.FC<PantCardProps> = ({
@@ -61,6 +62,7 @@ export const PantCard: React.FC<PantCardProps> = ({
   isAnalyzingAny,
   onArticleNumberFocus,
   onArticleNumberBlur,
+  onPrepareVintedDraft,
 }) => {
   const duplicatePantNumbers = getDuplicatePantNumbers(pant, allPants);
   const isDuplicateArticleNumber = duplicatePantNumbers.length > 0;
@@ -871,41 +873,63 @@ export const PantCard: React.FC<PantCardProps> = ({
             />
           </div>
 
-          {/* Section 4: Action Buttons (Anzeige erstellen) */}
+          {/* Section 4: Action Buttons (Anzeige erstellen & Vinted-Entwurf vorbereiten) */}
           <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-            <button
-              id={`analyze-pant-btn-${pant.id}`}
-              type="button"
-              disabled={pant.images.length === 0 || isAnalyzing}
-              onClick={() => onAnalyze(pant)}
-              className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm transition-all min-h-[44px] ${
-                pant.status === "error"
-                  ? "bg-rose-600 hover:bg-rose-700 text-white"
-                  : "bg-stone-900 dark:bg-stone-100 hover:bg-stone-800 dark:hover:bg-stone-200 text-white dark:text-stone-900 shadow-xs"
-              } disabled:opacity-40 disabled:pointer-events-none`}
-            >
-              {isAnalyzing ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Wird analysiert...
-                </>
-              ) : pant.status === "error" ? (
-                <>
-                  <RefreshCw className="h-4 w-4" />
-                  Erneut versuchen
-                </>
-              ) : pant.status === "done" ? (
-                <>
-                  <RefreshCw className="h-4 w-4" />
-                  Neu generieren
-                </>
-              ) : (
-                <>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                id={`analyze-pant-btn-${pant.id}`}
+                type="button"
+                disabled={pant.images.length === 0 || isAnalyzing}
+                onClick={() => onAnalyze(pant)}
+                className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm transition-all min-h-[44px] ${
+                  pant.status === "error"
+                    ? "bg-rose-600 hover:bg-rose-700 text-white"
+                    : "bg-stone-900 dark:bg-stone-100 hover:bg-stone-800 dark:hover:bg-stone-200 text-white dark:text-stone-900 shadow-xs"
+                } disabled:opacity-40 disabled:pointer-events-none`}
+              >
+                {isAnalyzing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Wird analysiert...
+                  </>
+                ) : pant.status === "error" ? (
+                  <>
+                    <RefreshCw className="h-4 w-4" />
+                    Erneut versuchen
+                  </>
+                ) : pant.status === "done" ? (
+                  <>
+                    <RefreshCw className="h-4 w-4" />
+                    Neu generieren
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4" />
+                    Anzeige erstellen
+                  </>
+                )}
+              </button>
+
+              {/* Button: Vinted-Entwurf vorbereiten */}
+              {pant.status === "done" && (
+                <button
+                  id={`prepare-vinted-draft-btn-${pant.id}`}
+                  type="button"
+                  disabled={
+                    pant.status !== "done" ||
+                    !pant.result ||
+                    !pant.images ||
+                    pant.images.length === 0
+                  }
+                  onClick={() => onPrepareVintedDraft?.(pant)}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm bg-teal-700 hover:bg-teal-800 dark:bg-teal-600 dark:hover:bg-teal-500 text-white transition-all shadow-xs disabled:opacity-40 disabled:pointer-events-none min-h-[44px]"
+                  title="Vinted-Entwurf aus diesem Ergebnis vorbereiten"
+                >
                   <Sparkles className="h-4 w-4" />
-                  Anzeige erstellen
-                </>
+                  <span>Vinted-Entwurf vorbereiten</span>
+                </button>
               )}
-            </button>
+            </div>
 
             {copyFeedback && (
               <div

@@ -21,6 +21,7 @@ import {
   Receipt,
   LogOut,
   User,
+  ShoppingBag,
 } from "lucide-react";
 
 interface HeaderProps {
@@ -47,6 +48,8 @@ interface HeaderProps {
   onImportJson: (file: File) => void;
   onExportCsv: () => void;
   onOpenDeleteProject: () => void;
+  vintedDraftsCount?: number;
+  onOpenVintedDraftsModal?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -73,6 +76,8 @@ export const Header: React.FC<HeaderProps> = ({
   onImportJson,
   onExportCsv,
   onOpenDeleteProject,
+  vintedDraftsCount,
+  onOpenVintedDraftsModal,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isMoreOpen, setIsMoreOpen] = useState(false);
@@ -149,6 +154,26 @@ export const Header: React.FC<HeaderProps> = ({
               <BarChart2 className="h-4 w-4 text-stone-700 dark:text-stone-200" />
               <span>Statistiken</span>
             </button>
+
+            {/* Vinted Entwürfe Button */}
+            {onOpenVintedDraftsModal && (
+              <button
+                id="open-vinted-drafts-btn"
+                type="button"
+                onClick={onOpenVintedDraftsModal}
+                className="inline-flex h-9 sm:h-10 items-center justify-center gap-1.5 px-2.5 sm:px-3 rounded-xl border border-teal-300 dark:border-teal-800 bg-teal-50 dark:bg-teal-950/60 text-teal-800 dark:text-teal-300 hover:bg-teal-100 dark:hover:bg-teal-900/60 transition-colors shadow-xs font-semibold text-xs min-h-[44px]"
+                title="Vinted Entwürfe anzeigen"
+                aria-label="Vinted Entwürfe"
+              >
+                <ShoppingBag className="h-4 w-4 text-teal-700 dark:text-teal-300" />
+                <span>Vinted Entwürfe</span>
+                {vintedDraftsCount !== undefined && vintedDraftsCount > 0 && (
+                  <span className="ml-0.5 px-1.5 py-0.2 rounded-full bg-teal-700 text-white dark:bg-teal-400 dark:text-stone-900 text-[10px] font-black">
+                    {vintedDraftsCount}
+                  </span>
+                )}
+              </button>
+            )}
 
             {/* Dark Mode Toggle */}
             <button

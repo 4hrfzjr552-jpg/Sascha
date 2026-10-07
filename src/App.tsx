@@ -10,7 +10,14 @@ import {
   ExpenseItem,
   SaleStatus,
   PantImage,
+  VintedDraftData,
 } from "./types";
+import {
+  createVintedDraftFromPant,
+  loadVintedDraftsFromStorage,
+  saveVintedDraftsToStorage,
+  isPantEligibleForVintedDraft,
+} from "./lib/vintedDraftUtils";
 import { DEFAULT_VINTED_PROMPT } from "./lib/defaultPrompt";
 import { exportPantsAsJson, exportPantsAsCsv, parseImportedJson } from "./lib/exportUtils";
 import {
@@ -40,6 +47,7 @@ import { StatsModal } from "./components/StatsModal";
 import { ExpenseModal } from "./components/ExpenseModal";
 import { SoldModal } from "./components/SoldModal";
 import { BatchSelectionModal } from "./components/BatchSelectionModal";
+import { VintedDraftsModal } from "./components/VintedDraftsModal";
 import {
   Plus,
   Sparkles,
@@ -73,6 +81,7 @@ export default function App() {
   // App data state
   const [pants, setPants] = useState<PantItem[]>([]);
   const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
+  const [vintedDrafts, setVintedDrafts] = useState<VintedDraftData[]>([]);
   const [customPrompt, setCustomPrompt] = useState<string>(DEFAULT_VINTED_PROMPT);
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
 
@@ -96,6 +105,7 @@ export default function App() {
   const [isAddMultipleOpen, setIsAddMultipleOpen] = useState(false);
   const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
   const [isDeleteProjectOpen, setIsDeleteProjectOpen] = useState(false);
+  const [isVintedDraftsOpen, setIsVintedDraftsOpen] = useState(false);
   const [pantToDeleteId, setPantToDeleteId] = useState<string | null>(null);
   const [pantForSaleModalId, setPantForSaleModalId] = useState<string | null>(null);
 
@@ -150,6 +160,10 @@ export default function App() {
   useEffect(() => {
     const savedPrompt = localStorage.getItem(PROMPT_STORAGE_KEY);
     if (savedPrompt) setCustomPrompt(savedPrompt);
+
+    loadVintedDraftsFromStorage().then((loadedDrafts) => {
+      setVintedDrafts(loadedDrafts);
+    });
 
     const savedDarkMode = localStorage.getItem(DARK_MODE_STORAGE_KEY);
     if (savedDarkMode !== null) {
@@ -219,6 +233,102 @@ export default function App() {
       document.documentElement.classList.add("dark");
     } else {
       document.documentElement.classList.remove("dark");
+    }
+  };
+
+  // Vinted Draft Handlers
+  const handleUpdateVintedDraft = (updatedDraft: VintedDraftData) => {
+    setVintedDrafts((prev) => {
+      const next = prev.map((d) => (d.id === updatedDraft.id ? updatedDraft : d));
+      saveVintedDraftsToStorage(next);
+      return next;
+    });
+  };
+
+  const handleRemoveVintedDraft = (draftId: string) => {
+    setVintedDrafts((prev) => {
+      const next = prev.filter((d) => d.id !== draftId);
+      saveVintedDraftsToStorage(next);
+      return next;
+    });
+    showToast("Vinted-Entwurf aus der Warteschlange entfernt.", "info");
+  };
+
+  const handlePrepareSingleVintedDraft = (pant: PantItem) => {
+    if (!isPantEligibleForVintedDraft(pant)) {
+      showToast(
+        "Diese Hose ist nicht für einen Vinted-Entwurf bereit (Ergebnis oder Fotos fehlen).",
+        "error"
+      );
+      return;
+    }
+
+    const existing = vintedDrafts.find((d) => d.pantId === pant.id);
+    const draft = createVintedDraftFromPant(pant, existing?.id);
+    if (!draft) {
+      showToast("Vinted-Entwurf konnte nicht erstellt werden.", "error");
+      return;
+    }
+
+    setVintedDrafts((prev) => {
+      const existsIndex = prev.findIndex((d) => d.id === draft.id || d.pantId === draft.pantId);
+      let next: VintedDraftData[];
+      if (existsIndex >= 0) {
+        next = [...prev];
+        next[existsIndex] = draft;
+      } else {
+        next = [draft, ...prev];
+      }
+      saveVintedDraftsToStorage(next);
+      return next;
+    });
+
+    showToast(`Vinted-Entwurf für Hose #${pant.number} vorbereitet!`, "success");
+  };
+
+  const handlePrepareMultipleVintedDrafts = () => {
+    const selectedPants = pants.filter((p) => selectedPantIds.has(p.id));
+    if (selectedPants.length === 0) {
+      showToast("Keine Hosen ausgewählt.", "info");
+      return;
+    }
+
+    let createdCount = 0;
+    let skippedCount = 0;
+    const newDraftsMap = new Map(vintedDrafts.map((d) => [d.pantId, d]));
+
+    for (const pant of selectedPants) {
+      if (isPantEligibleForVintedDraft(pant)) {
+        const existing = newDraftsMap.get(pant.id);
+        const draft = createVintedDraftFromPant(pant, existing?.id);
+        if (draft) {
+          newDraftsMap.set(pant.id, draft);
+          createdCount++;
+        } else {
+          skippedCount++;
+        }
+      } else {
+        skippedCount++;
+      }
+    }
+
+    const updatedDraftsList = Array.from(newDraftsMap.values());
+    setVintedDrafts(updatedDraftsList);
+    saveVintedDraftsToStorage(updatedDraftsList);
+
+    if (createdCount > 0) {
+      let msg = `${createdCount} ${
+        createdCount === 1 ? "Vinted-Entwurf" : "Vinted-Entwürfe"
+      } vorbereitet!`;
+      if (skippedCount > 0) {
+        msg += ` (${skippedCount} ungültige Hosen übersprungen)`;
+      }
+      showToast(msg, "success");
+    } else {
+      showToast(
+        "Keine der ausgewählten Hosen war bereit für einen Vinted-Entwurf (nicht generiert oder ohne Bilder).",
+        "error"
+      );
     }
   };
 
@@ -1235,6 +1345,8 @@ export default function App() {
         onImportJson={handleImportJson}
         onExportCsv={handleExportCsv}
         onOpenDeleteProject={() => setIsDeleteProjectOpen(true)}
+        vintedDraftsCount={vintedDrafts.length}
+        onOpenVintedDraftsModal={() => setIsVintedDraftsOpen(true)}
       />
 
       {/* Sync indicator */}
@@ -1370,16 +1482,29 @@ export default function App() {
               </span>
             </div>
 
-            <button
-              id="generate-selected-btn"
-              type="button"
-              disabled={selectedPantIds.size === 0 || isBatchRunning}
-              onClick={() => handleStartBatch("selected")}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:bg-stone-200 dark:disabled:bg-stone-800 text-white disabled:text-stone-400 text-xs font-bold transition-all shadow-xs disabled:shadow-none min-h-[38px] disabled:pointer-events-none"
-            >
-              <Sparkles className="w-4 h-4" />
-              <span>Ausgewählte generieren ({selectedPantIds.size})</span>
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                id="generate-selected-btn"
+                type="button"
+                disabled={selectedPantIds.size === 0 || isBatchRunning}
+                onClick={() => handleStartBatch("selected")}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:bg-stone-200 dark:disabled:bg-stone-800 text-white disabled:text-stone-400 text-xs font-bold transition-all shadow-xs disabled:shadow-none min-h-[38px] disabled:pointer-events-none"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>Ausgewählte generieren ({selectedPantIds.size})</span>
+              </button>
+
+              <button
+                id="prepare-selected-vinted-drafts-btn"
+                type="button"
+                disabled={selectedPantIds.size === 0}
+                onClick={handlePrepareMultipleVintedDrafts}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 disabled:bg-stone-200 dark:disabled:bg-stone-800 text-white disabled:text-stone-400 text-xs font-bold transition-all shadow-xs disabled:shadow-none min-h-[38px] disabled:pointer-events-none"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>Vinted-Entwürfe vorbereiten ({selectedPantIds.size})</span>
+              </button>
+            </div>
           </div>
         )}
 
@@ -1469,6 +1594,7 @@ export default function App() {
               isAnalyzingAny={isBatchRunning}
               onArticleNumberFocus={(id) => setEditingArticleNumberPantId(id)}
               onArticleNumberBlur={() => setEditingArticleNumberPantId(null)}
+              onPrepareVintedDraft={handlePrepareSingleVintedDraft}
             />
           ))}
         </div>
@@ -1489,6 +1615,15 @@ export default function App() {
           {toastMessage.text}
         </div>
       )}
+
+      {/* Vinted Drafts Modal */}
+      <VintedDraftsModal
+        isOpen={isVintedDraftsOpen}
+        drafts={vintedDrafts}
+        onClose={() => setIsVintedDraftsOpen(false)}
+        onUpdateDraft={handleUpdateVintedDraft}
+        onRemoveDraft={handleRemoveVintedDraft}
+      />
 
       {/* Batch Selection Modal */}
       <BatchSelectionModal
