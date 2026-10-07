@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sascha AI -> Vinted</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <h1>Sascha AI &#8594; Vinted</h1>
+    <div class="subtitle">Entwurf-Assistent für Orion & WebExtension</div>
+  </header>
+
+  <main>
+    <!-- Draft Card -->
+    <section class="card">
+      <div class="card-title">Aktiver Entwurf</div>
+
+      <select id="draftSelect" class="draft-select" style="display: none;">
+        <!-- Populated dynamically if multiple drafts -->
+      </select>
+
+      <div id="draftDetails" class="draft-info">
+        <div class="no-draft-notice" id="noDraftMessage">
+          Kein Entwurf geladen.<br>Öffne Sascha AI und klicke auf "Entwurf übernehmen".
+        </div>
+
+        <div id="draftContent" style="display: none;">
+          <div class="draft-header-line" id="draftHeaderTitle">#--- – ---</div>
+          <div class="draft-meta">
+            <div>Preis: <strong id="draftPrice">-- €</strong></div>
+            <div class="draft-badge" id="draftImageCount">0 Bilder</div>
+          </div>
+          <div class="draft-details-grid">
+            <div>Marke: <span id="draftBrand">-</span></div>
+            <div>Größe: <span id="draftSize">-</span></div>
+            <div>Farbe: <span id="draftColor">-</span></div>
+            <div>Zustand: <span id="draftCondition">-</span></div>
+            <div style="grid-column: span 2;">Kategorie: <span id="draftCategory">-</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Buttons -->
+    <section class="button-group">
+      <button id="btnImport" class="btn btn-primary">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Entwurf aus Sascha AI übernehmen
+      </button>
+
+      <button id="btnOpenVinted" class="btn btn-secondary">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        Vinted öffnen
+      </button>
+
+      <button id="btnFillVinted" class="btn btn-success" disabled>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+        In Vinted einfügen
+      </button>
+
+      <button id="btnClearDraft" class="btn btn-danger-link" style="display: none;">
+        Entwurf vergessen
+      </button>
+    </section>
+
+    <!-- Fill Status Results -->
+    <section id="statusBox" class="status-box" style="display: none;">
+      <div style="font-weight: 600; margin-bottom: 4px;" id="statusSummaryTitle">Vinted ausgefüllt</div>
+      <ul id="statusList" class="status-list"></ul>
+      <div style="font-size: 11px; color: var(--text-muted); margin-top: 8px;">
+        Bitte alles prüfen und selbst speichern.
+      </div>
+    </section>
+
+    <!-- Debug Section -->
+    <section class="debug-section">
+      <div class="debug-header">
+        <label class="toggle-label">
+          <input type="checkbox" id="debugToggle">
+          Debug-Modus
+        </label>
+      </div>
+      <div id="debugLogContainer" style="display: none;">
+        <div id="debugLog" class="debug-log">Bereit...</div>
+      </div>
+    </section>
+  </main>
+
+  <script src="popup.js"></script>
+</body>
+</html>
