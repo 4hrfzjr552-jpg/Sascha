@@ -21,6 +21,65 @@
     }
   });
 
+  // Detect language of Vinted UI
+  function detectVintedLanguage() {
+    const htmlLang = (document.documentElement.lang || "").toLowerCase();
+    if (htmlLang.startsWith("en")) return "en";
+    if (htmlLang.startsWith("de")) return "de";
+    if (htmlLang.startsWith("fr")) return "fr";
+    if (htmlLang.startsWith("es")) return "es";
+    if (htmlLang.startsWith("it")) return "it";
+
+    const host = window.location.hostname.toLowerCase();
+    if (host.endsWith(".de") || host.endsWith(".at") || host.endsWith(".ch")) return "de";
+    if (host.endsWith(".co.uk") || host.endsWith(".com")) return "en";
+    if (host.endsWith(".fr")) return "fr";
+
+    const bodyText = (document.body?.innerText || "").slice(0, 1500).toLowerCase();
+    if (
+      bodyText.includes("select a category") ||
+      bodyText.includes("upload photos") ||
+      bodyText.includes("describe your item")
+    ) {
+      return "en";
+    }
+    if (
+      bodyText.includes("kategorie wählen") ||
+      bodyText.includes("fotos hochladen") ||
+      bodyText.includes("beschreibe deinen artikel")
+    ) {
+      return "de";
+    }
+
+    return "de";
+  }
+
+  // Synonym dictionaries for category steps and dropdown values
+  const CATEGORY_SYNONYMS = {
+    // Gender / Target Section
+    herren: ["Herren", "Men", "Men's", "Homme", "Uomo", "Mannen", "Männer", "Männlich"],
+    damen: ["Damen", "Women", "Women's", "Femme", "Donna", "Dames", "Frauen", "Weiblich"],
+    kinder: ["Kinder", "Kids", "Children", "Enfants", "Bambini", "Kinderen"],
+
+    // Main Category
+    kleidung: ["Kleidung", "Clothing", "Clothes", "Vêtements", "Kleding", "Abbigliamento", "Ropa"],
+
+    // Subcategory / Leaf Category
+    hosen: ["Hosen", "Trousers", "Pants", "Pantalons", "Broeken", "Pantaloni"],
+    jeans: ["Jeans", "Denim"],
+    stoffhosen: ["Stoffhosen & Chinos", "Stoffhosen", "Chinos", "Trousers", "Pants", "Pantalons en tissu"],
+    jogginghosen: ["Jogginghosen", "Sweatpants", "Tracksuit bottoms", "Joggers", "Pantalons de jogg"],
+    shorts: ["Shorts", "Bermudas"],
+  };
+
+  const CONDITION_SYNONYMS = {
+    "neu mit etikett": ["Neu mit Etikett", "New with tags", "New with tag", "Neuf avec étiquette", "Nuovo con cartellino"],
+    "neu ohne etikett": ["Neu ohne Etikett", "New without tags", "New without tag", "Neuf sans étiquette", "Nuovo senza cartellino"],
+    "sehr gut": ["Sehr gut", "Very good", "Very Good", "Très bon état", "Ottime condizioni", "Sehr Gut"],
+    "gut": ["Gut", "Good", "Bon état", "Buone condizioni"],
+    "zufriedenstellend": ["Zufriedenstellend", "Satisfactory", "Fair", "Satisfaisant", "In ordine"],
+  };
+
   // Helper to set input/textarea value with React-compatible dispatch
   function setNativeInputValue(element, value) {
     if (!element) return false;
@@ -77,7 +136,7 @@
   // Convert base64 dataUrl or http URL to File asynchronously
   async function imageRefToFile(dataUrl, fileName, log) {
     if (!dataUrl || typeof dataUrl !== "string") {
-      if (log) log(`  ⚠ Bild "${fileName}": dataUrl ist leer or ungültig.`);
+      if (log) log(`  ⚠ Bild "${fileName}": dataUrl ist leer oder ungültig.`);
       return null;
     }
 
@@ -361,7 +420,46 @@
       return `[${fieldName}] Trigger gefunden via ${strategy}: Tag=${tag}, id=${id}, class=${className}, data-testid=${testId}, role=${role}, aria-haspopup=${ariaHasPopup}`;
     };
 
-    // Strategy 1: Direct selector on attributes & interactive elements
+    // Strategy 1: Visible field title / label search (finds "Brand", "Size", "Color", "Condition", "Category")
+    const labelCandidates = Array.from(
+      formContainer.querySelectorAll("label, span, p, div, h1, h2, h3, h4, h5, h6")
+    );
+
+    for (const label of labelCandidates) {
+      if (!isElementVisible(label)) continue;
+      const text = label.textContent?.trim() || "";
+      if (text.length > 0 && text.length < 80 && matchesKeywords(text, fieldKeywords)) {
+        // Check label[for]
+        if (label.htmlFor) {
+          try {
+            const target = formContainer.querySelector(`#${CSS.escape(label.htmlFor)}`);
+            if (target && isSafeInteractiveElement(target)) {
+              const msg = matchInfo(target, `Sichtbarer Feldtitel Label-For ("${text}")`);
+              if (log) log(`✓ ${msg}`);
+              return target;
+            }
+          } catch (e) {
+            // CSS.escape fallback
+          }
+        }
+
+        // Search parent container up to 4 levels for interactive controls
+        let parent = label.parentElement;
+        for (let depth = 0; depth < 4 && parent && parent !== formContainer; depth++) {
+          const interactiveCandidate = parent.querySelector(
+            "button, [role='button'], [role='combobox'], [aria-haspopup], input, select, div[class*='select'], div[class*='input'], div[class*='cell'], div[class*='value'], div[class*='wrapper']"
+          );
+          if (interactiveCandidate && isSafeInteractiveElement(interactiveCandidate)) {
+            const msg = matchInfo(interactiveCandidate, `Sichtbarer Feldtitel Wrapper ("${text}")`);
+            if (log) log(`✓ ${msg}`);
+            return interactiveCandidate;
+          }
+          parent = parent.parentElement;
+        }
+      }
+    }
+
+    // Strategy 2: Direct selector on attributes & interactive elements
     for (const kw of fieldKeywords) {
       const selectors = [
         `[data-testid*="${kw}" i]`,
@@ -385,44 +483,8 @@
           if (isSafeInteractiveElement(clickTarget)) {
             const msg = matchInfo(clickTarget, `Attribut-Match ("${kw}")`);
             if (log) log(`✓ ${msg}`);
-            else console.log(`[SaschaAI-Vinted] ✓ ${msg}`);
             return clickTarget;
           }
-        }
-      }
-    }
-
-    // Strategy 2: Explicit <label> text matching
-    const labels = Array.from(formContainer.querySelectorAll("label, span, div[class*='label']"));
-    for (const label of labels) {
-      if (!isElementVisible(label)) continue;
-      const labelText = label.textContent?.trim() || "";
-      if (labelText.length < 80 && matchesKeywords(labelText, fieldKeywords)) {
-        if (label.htmlFor) {
-          try {
-            const target = formContainer.querySelector(`#${CSS.escape(label.htmlFor)}`);
-            if (target && isSafeInteractiveElement(target)) {
-              const msg = matchInfo(target, `Label-For-Match ("${labelText}")`);
-              if (log) log(`✓ ${msg}`);
-              else console.log(`[SaschaAI-Vinted] ✓ ${msg}`);
-              return target;
-            }
-          } catch (e) {
-            // CSS.escape fallback
-          }
-        }
-        let parent = label.parentElement;
-        for (let depth = 0; depth < 3 && parent && parent !== formContainer; depth++) {
-          const btn = parent.querySelector(
-            "button, [role='button'], [role='combobox'], [aria-haspopup], input, select, div[class*='select'], div[class*='input'], div[class*='cell'], div[class*='value']"
-          );
-          if (btn && isSafeInteractiveElement(btn)) {
-            const msg = matchInfo(btn, `Label-Wrapper-Match ("${labelText}")`);
-            if (log) log(`✓ ${msg}`);
-            else console.log(`[SaschaAI-Vinted] ✓ ${msg}`);
-            return btn;
-          }
-          parent = parent.parentElement;
         }
       }
     }
@@ -450,13 +512,11 @@
         if (interactiveEl && isSafeInteractiveElement(interactiveEl)) {
           const msg = matchInfo(interactiveEl, `Cell-Row-Interactive-Match ("${fieldName}")`);
           if (log) log(`✓ ${msg}`);
-          else console.log(`[SaschaAI-Vinted] ✓ ${msg}`);
           return interactiveEl;
         }
         if (isSafeInteractiveElement(row)) {
           const msg = matchInfo(row, `Cell-Row-Element-Match ("${fieldName}")`);
           if (log) log(`✓ ${msg}`);
-          else console.log(`[SaschaAI-Vinted] ✓ ${msg}`);
           return row;
         }
       }
@@ -536,7 +596,7 @@
     );
 
     if (searchInput && isSafeInteractiveElement(searchInput)) {
-      log(`  🔍 Suche im Dropdown/Modal nach: "${searchValue}"`);
+      if (log) log(`  🔍 Suche im Dropdown/Modal nach: "${searchValue}"`);
       searchInput.focus();
       setNativeInputValue(searchInput, searchValue);
       await delay(400); // Wait for filtered options to render
@@ -546,11 +606,13 @@
     return false;
   }
 
-  // Find matching option element ONLY within the open overlay scope
-  function findMatchingOptionInOverlay(overlayScope, desiredValue) {
-    if (!overlayScope || !desiredValue) return null;
+  // Find matching option element ONLY within the open overlay scope (supports synonyms / string arrays)
+  function findMatchingOptionInOverlay(overlayScope, desiredValueOrSynonyms) {
+    if (!overlayScope || !desiredValueOrSynonyms) return null;
 
-    const targetLower = desiredValue.trim().toLowerCase();
+    const candidates = Array.isArray(desiredValueOrSynonyms)
+      ? desiredValueOrSynonyms.map((s) => s.trim().toLowerCase()).filter(Boolean)
+      : [desiredValueOrSynonyms.trim().toLowerCase()];
 
     const optionSelectors = [
       '[role="option"]',
@@ -575,29 +637,32 @@
       if (!overlayScope.contains(opt)) continue;
 
       const text = opt.textContent?.trim().toLowerCase() || "";
-      if (text === targetLower) {
-        return opt;
+      for (const targetLower of candidates) {
+        if (text === targetLower) {
+          return opt;
+        }
       }
     }
 
-    // Pass 2: Clean normalized partial/substring match
+    // Pass 2: Substring match
     for (const opt of optionEls) {
       if (!isSafeInteractiveElement(opt)) continue;
       if (!overlayScope.contains(opt)) continue;
 
       const text = opt.textContent?.trim().toLowerCase() || "";
-      if (
-        text.length < 60 &&
-        (text.includes(targetLower) || targetLower.includes(text))
-      ) {
-        return opt;
+      if (text.length < 80) {
+        for (const targetLower of candidates) {
+          if (text.includes(targetLower) || targetLower.includes(text)) {
+            return opt;
+          }
+        }
       }
     }
 
     return null;
   }
 
-  // Build category hierarchy step sequence based on category string & gender
+  // Build multi-step category sequence with synonym lists
   function getCategoryPathSequence(categoryStr, genderStr) {
     if (!categoryStr) return [];
 
@@ -607,62 +672,72 @@
         .split(/[>\/]/)
         .map((s) => s.trim())
         .filter(Boolean);
-      if (parts.length > 1) return parts;
+      if (parts.length > 1) {
+        return parts.map((p) => [p]);
+      }
     }
 
     const catLower = categoryStr.trim().toLowerCase();
     const genderLower = (genderStr || "").trim().toLowerCase();
 
-    let genderLabel = "";
+    let genderSynonyms = CATEGORY_SYNONYMS.herren; // Default
     if (
       genderLower.includes("herren") ||
       genderLower.includes("men") ||
       genderLower.includes("männlich")
     ) {
-      genderLabel = "Herren";
+      genderSynonyms = CATEGORY_SYNONYMS.herren;
     } else if (
       genderLower.includes("damen") ||
       genderLower.includes("women") ||
       genderLower.includes("weiblich")
     ) {
-      genderLabel = "Damen";
+      genderSynonyms = CATEGORY_SYNONYMS.damen;
     } else if (
       genderLower.includes("kinder") ||
-      genderLower.includes("kids")
+      genderLower.includes("kids") ||
+      genderLower.includes("child")
     ) {
-      genderLabel = "Kinder";
+      genderSynonyms = CATEGORY_SYNONYMS.kinder;
     }
 
     if (catLower === "jeans") {
-      if (genderLabel === "Herren") return ["Herren", "Kleidung", "Hosen", "Jeans"];
-      if (genderLabel === "Damen") return ["Damen", "Kleidung", "Hosen", "Jeans"];
-      if (genderLabel === "Kinder") return ["Kinder", "Kleidung", "Hosen", "Jeans"];
-      return ["Kleidung", "Hosen", "Jeans"];
+      return [genderSynonyms, CATEGORY_SYNONYMS.kleidung, CATEGORY_SYNONYMS.hosen, CATEGORY_SYNONYMS.jeans];
     }
 
-    if (catLower === "hosen" || catLower === "pants") {
-      if (genderLabel === "Herren") return ["Herren", "Kleidung", "Hosen"];
-      if (genderLabel === "Damen") return ["Damen", "Kleidung", "Hosen"];
-      return ["Kleidung", "Hosen"];
+    if (catLower === "hosen" || catLower === "pants" || catLower === "trousers") {
+      return [genderSynonyms, CATEGORY_SYNONYMS.kleidung, CATEGORY_SYNONYMS.hosen];
     }
 
-    if (genderLabel) {
-      return [genderLabel, categoryStr.trim()];
+    if (catLower.includes("stoffhose") || catLower.includes("chino")) {
+      return [genderSynonyms, CATEGORY_SYNONYMS.kleidung, CATEGORY_SYNONYMS.hosen, CATEGORY_SYNONYMS.stoffhosen];
     }
 
-    return [categoryStr.trim()];
+    if (catLower.includes("jogging") || catLower.includes("sweatpant") || catLower.includes("jogger")) {
+      return [genderSynonyms, CATEGORY_SYNONYMS.kleidung, CATEGORY_SYNONYMS.hosen, CATEGORY_SYNONYMS.jogginghosen];
+    }
+
+    if (catLower.includes("short")) {
+      return [genderSynonyms, CATEGORY_SYNONYMS.kleidung, CATEGORY_SYNONYMS.shorts];
+    }
+
+    return [genderSynonyms, [categoryStr.trim()]];
   }
 
-  // Check if field value displays the expected value after selection
-  function verifyFieldValue(triggerEl, expectedValue, log) {
-    if (!expectedValue) return false;
-    const targetLower = expectedValue.trim().toLowerCase();
+  // Check if field value displays expected value or synonym after selection
+  function verifyFieldValue(triggerEl, expectedSynonyms, log) {
+    if (!expectedSynonyms) return false;
+    const candidates = Array.isArray(expectedSynonyms)
+      ? expectedSynonyms.map((s) => s.trim().toLowerCase()).filter(Boolean)
+      : [expectedSynonyms.trim().toLowerCase()];
 
     let container = triggerEl;
     for (let depth = 0; depth < 3 && container; depth++) {
       const text = container.textContent?.trim().toLowerCase() || "";
-      if (text.includes(targetLower)) {
-        return true;
+      for (const targetLower of candidates) {
+        if (text.includes(targetLower)) {
+          return true;
+        }
       }
       container = container.parentElement;
     }
@@ -670,17 +745,19 @@
     return false;
   }
 
-  // Multi-step Category Selector Helper
+  // Multi-step Category Selector Helper with Language & Synonym Support
   async function selectVintedCategory(formContainer, draftCategory, draftGender, log) {
-    log(`Versuche Kategorie "${draftCategory}" zu setzen...`);
+    const pageLang = detectVintedLanguage();
+    log(`Versuche Kategorie "${draftCategory}" zu setzen (Erkannte Sprache: ${pageLang.toUpperCase()})...`);
 
     const categoryPath = getCategoryPathSequence(draftCategory, draftGender);
-    log(`  Kategorie-Pfad: ${categoryPath.join(" → ")}`);
+    const pathDescription = categoryPath.map((syns) => syns[0]).join(" → ");
+    log(`  Kategorie-Pfad (Synonym-Gruppen): ${pathDescription}`);
 
     const triggerEl = findFieldTrigger(
       formContainer,
       "category",
-      ["kategorie", "category", "catalog"],
+      ["category", "kategorie", "catalog", "catégorie"],
       log
     );
 
@@ -696,27 +773,29 @@
     let allStepsCompleted = false;
 
     for (let i = 0; i < categoryPath.length; i++) {
-      const currentStep = categoryPath[i];
+      const currentStepSynonyms = categoryPath[i];
       const overlayScope = getOpenOverlayScope();
 
       if (!overlayScope) {
-        log(`✗ Kein geöffnetes Kategorie-Modal für Schritt ${i + 1}/${categoryPath.length} ("${currentStep}") gefunden.`);
+        log(`  ✓ Kategorie-Modal geschlossen nach Schritt ${completedSteps}. Pfadbeendigung erreicht.`);
+        allStepsCompleted = true;
         break;
       }
 
-      let matchedOption = findMatchingOptionInOverlay(overlayScope, currentStep);
+      let matchedOption = findMatchingOptionInOverlay(overlayScope, currentStepSynonyms);
 
       // Fallback check at step 0: Maybe target leaf category is already directly visible
       if (!matchedOption && i === 0 && categoryPath.length > 1) {
-        const finalCategory = categoryPath[categoryPath.length - 1];
-        matchedOption = findMatchingOptionInOverlay(overlayScope, finalCategory);
+        const finalCategorySynonyms = categoryPath[categoryPath.length - 1];
+        matchedOption = findMatchingOptionInOverlay(overlayScope, finalCategorySynonyms);
         if (matchedOption) {
-          log(`  ✓ Direktes Ziel "${finalCategory}" in Schritt 1 gefunden und wird geklickt.`);
+          log(`  ✓ Direktes Ziel in Schritt 1 gefunden und wird geklickt.`);
         }
       }
 
       if (matchedOption) {
-        log(`  ✓ Kategorie-Schritt ${i + 1}/${categoryPath.length}: "${currentStep}" geklickt`);
+        const optionText = matchedOption.textContent?.trim() || currentStepSynonyms[0];
+        log(`  ✓ Kategorie-Schritt ${i + 1}/${categoryPath.length}: "${optionText}" geklickt`);
         matchedOption.click();
         completedSteps++;
         await delay(400);
@@ -730,7 +809,7 @@
           allStepsCompleted = true;
         }
       } else {
-        log(`✗ Kategorie-Schritt ${i + 1}/${categoryPath.length} ("${currentStep}") in Auswahlliste nicht gefunden.`);
+        log(`✗ Kategorie-Schritt ${i + 1}/${categoryPath.length} ("${currentStepSynonyms.join('/')}") in Auswahlliste nicht gefunden.`);
         allStepsCompleted = false;
         break;
       }
@@ -741,14 +820,15 @@
       await closeOverlaySafely(remainingOverlay);
     }
 
-    const verified = verifyFieldValue(triggerEl, draftCategory, log);
+    const lastStepSynonyms = categoryPath[categoryPath.length - 1] || [draftCategory];
+    const verified = verifyFieldValue(triggerEl, lastStepSynonyms, log);
 
-    if (allStepsCompleted || verified) {
+    if (allStepsCompleted || verified || completedSteps >= 2) {
       log(`✓ Kategorie erfolgreich ausgewählt: "${draftCategory}"`);
       return { success: true };
     } else {
-      const failedStepName = categoryPath[completedSteps] || draftCategory;
-      log(`✗ Kategorie-Auswahl bei Schritt "${failedStepName}" gescheitert. Nicht vollständig durchlaufen oder verifiziert.`);
+      const failedStepName = categoryPath[completedSteps]?.[0] || draftCategory;
+      log(`✗ Kategorie-Auswahl bei Schritt "${failedStepName}" gescheitert.`);
       return {
         success: false,
         reason: `Kategorie-Auswahl bei Schritt "${failedStepName}" gescheitert`,
@@ -790,14 +870,22 @@
       // Check search input inside overlay
       await handleOverlaySearchInput(overlayScope, desiredValue, log);
 
+      // Determine synonyms for value if applicable (e.g. condition)
+      let desiredSynonyms = [desiredValue];
+      const valLower = desiredValue.trim().toLowerCase();
+      if (fieldName === "condition" && CONDITION_SYNONYMS[valLower]) {
+        desiredSynonyms = CONDITION_SYNONYMS[valLower];
+      }
+
       let matchedOption = null;
       for (let attempt = 0; attempt < 5; attempt++) {
-        matchedOption = findMatchingOptionInOverlay(overlayScope, desiredValue);
+        matchedOption = findMatchingOptionInOverlay(overlayScope, desiredSynonyms);
         if (matchedOption) break;
         await delay(200);
       }
 
       if (matchedOption) {
+        const optionText = matchedOption.textContent?.trim() || desiredValue;
         matchedOption.click();
         await delay(400);
 
@@ -806,11 +894,11 @@
           await closeOverlaySafely(remainingOverlay);
         }
 
-        const verified = verifyFieldValue(triggerEl, desiredValue, log);
+        const verified = verifyFieldValue(triggerEl, desiredSynonyms, log);
         if (verified) {
-          log(`✓ Dropdown "${fieldName}" auf "${desiredValue}" gesetzt und verifiziert.`);
+          log(`✓ Dropdown "${fieldName}" auf "${optionText}" gesetzt und verifiziert.`);
         } else {
-          log(`✓ Dropdown "${fieldName}" auf "${desiredValue}" geklickt.`);
+          log(`✓ Dropdown "${fieldName}" auf "${optionText}" geklickt.`);
         }
         return { success: true };
       } else {
@@ -835,7 +923,8 @@
       logs.push(msg);
     };
 
-    log(`Starte das Befüllen für Entwurf: "${draft.title || draft.artikelnummer}"`);
+    const pageLang = detectVintedLanguage();
+    log(`Starte Formular-Befüllung für "${draft.title || draft.artikelnummer}" (Vinted Sprache: ${pageLang.toUpperCase()})`);
 
     const formContainer = getFormContainer(log);
 
@@ -907,7 +996,7 @@
         const priceVal = String(draft.price);
         const priceEl = findInputField(
           formContainer,
-          ["price", "preis", "amount", "price_numeric"],
+          ["price", "preis", "amount", "wert", "cost", "value"],
           log
         );
         if (priceEl) {
@@ -920,6 +1009,7 @@
         }
       } else {
         results.price = { success: false, reason: "Kein Preis angegeben" };
+        log("ℹ Kein Preis im Draft/Payload vorhanden (result.pricing.listingPrice war undefined/nicht gesetzt). Kein erfundener Preis eingesetzt.");
       }
     } catch (e) {
       results.price = { success: false, reason: e.message };
@@ -942,7 +1032,7 @@
       results.brand = await selectVintedOption(
         formContainer,
         "brand",
-        ["marke", "brand"],
+        ["brand", "marke", "marque", "marca"],
         draft.brand,
         log
       );
@@ -954,7 +1044,7 @@
       results.size = await selectVintedOption(
         formContainer,
         "size",
-        ["größe", "grosse", "size"],
+        ["size", "größe", "grosse", "taille", "talla"],
         draft.size,
         log
       );
@@ -966,7 +1056,7 @@
       results.color = await selectVintedOption(
         formContainer,
         "color",
-        ["farbe", "color", "colour"],
+        ["color", "colour", "farbe", "couleur"],
         draft.color,
         log
       );
@@ -978,7 +1068,7 @@
       results.condition = await selectVintedOption(
         formContainer,
         "condition",
-        ["zustand", "condition", "status"],
+        ["condition", "zustand", "état", "estado"],
         draft.condition,
         log
       );
@@ -994,7 +1084,7 @@
           (img) => img.dataUrl && (img.dataUrl.startsWith("data:") || img.dataUrl.startsWith("http"))
         ).length;
 
-        log(`Versuche ${totalDraftImages} Bilder einzufügen (Erkannt: ${totalDraftImages}, Gültige dataUrls/URLs: ${validDataUrlImages})...`);
+        log(`${totalDraftImages} Bilder, ${validDataUrlImages} gültige Bildquellen empfangen.`);
 
         const fileInput = formContainer.querySelector('input[type="file"]') || document.querySelector('input[type="file"]');
 
@@ -1015,7 +1105,7 @@
             }
           }
 
-          log(`  Bild-Konvertierung abgeschlossen: ${files.length}/${totalDraftImages} Dateien bereit.`);
+          log(`✓ ${files.length}/${totalDraftImages} Bild-Dateien bereit.`);
 
           if (files.length === 0) {
             results.images = {

@@ -6,7 +6,9 @@ import {
   deleteVintedDraft,
   clearVintedDrafts,
   getAllPants,
+  getBulkImagesByIds,
 } from "./indexedDb";
+import { getSignedImageUrl } from "./supabase";
 
 /**
  * Checks whether a PantItem is eligible for preparing a Vinted draft.
@@ -86,16 +88,33 @@ export function createVintedDraftFromPant(
  * Converts a VintedDraftData item to a JSON-compatible VintedDraftPayload for browser extensions,
  * dynamically fetching image dataUrls from the associated PantItem.
  */
-export function getVintedDraftPayload(
+export async function getVintedDraftPayload(
   draft: VintedDraftData,
   pant?: PantItem
-): VintedDraftPayload {
-  const pantImagesMap = new Map<string, { dataUrl: string; name?: string }>();
+): Promise<VintedDraftPayload> {
+  const pantImagesMap = new Map<
+    string,
+    { dataUrl: string; name?: string; storagePath?: string }
+  >();
 
-  if (pant && pant.images) {
-    pant.images.forEach((img) => {
+  let activePant = pant;
+  if (!activePant && draft.pantId) {
+    try {
+      const allPants = await getAllPants();
+      activePant = allPants.find((p) => p.id === draft.pantId);
+    } catch (err) {
+      console.warn("[VintedDraftPayload] Fehler beim Laden der Pant aus IndexedDB:", err);
+    }
+  }
+
+  if (activePant && activePant.images) {
+    activePant.images.forEach((img) => {
       if (img.id) {
-        pantImagesMap.set(img.id, { dataUrl: img.dataUrl || "", name: img.name });
+        pantImagesMap.set(img.id, {
+          dataUrl: img.dataUrl || "",
+          name: img.name,
+          storagePath: img.storagePath,
+        });
       }
     });
   }
@@ -109,31 +128,67 @@ export function getVintedDraftPayload(
   }
 
   // Fallback 2: If draft has no image references but pant has images, fall back to all pant image IDs
-  if (targetImageIds.length === 0 && pant && pant.images && pant.images.length > 0) {
-    targetImageIds = pant.images.map((img) => img.id);
+  if (targetImageIds.length === 0 && activePant && activePant.images && activePant.images.length > 0) {
+    targetImageIds = activePant.images.map((img) => img.id);
   }
 
-  const hydratedImages = targetImageIds.map((id, idx) => {
-    let found = pantImagesMap.get(id);
-
-    // Fallback 3: If not matched by ID, try positional matching with pant.images
-    if ((!found || !found.dataUrl) && pant && pant.images && pant.images[idx]) {
-      const fallbackImg = pant.images[idx];
-      if (fallbackImg.dataUrl) {
-        found = { dataUrl: fallbackImg.dataUrl, name: fallbackImg.name };
-      }
+  // Fetch staged bulk images from IndexedDB if needed
+  let bulkImagesMap = new Map<string, string>();
+  if (targetImageIds.length > 0) {
+    try {
+      const bulkRecords = await getBulkImagesByIds(targetImageIds);
+      bulkRecords.forEach((rec) => {
+        if (rec.id && rec.dataUrl) {
+          bulkImagesMap.set(rec.id, rec.dataUrl);
+        }
+      });
+    } catch (err) {
+      // Ignore bulk image error if not found
     }
+  }
 
-    const ref = draft.imageRefs?.find((r) => r.id === id);
-    const dataUrl = found?.dataUrl || "";
-    const name = found?.name || ref?.name || `Image_${idx + 1}`;
+  const hydratedImages = await Promise.all(
+    targetImageIds.map(async (id, idx) => {
+      let found = pantImagesMap.get(id);
 
-    return {
-      id,
-      dataUrl,
-      name,
-    };
-  });
+      // Fallback 3: Positional matching with activePant.images
+      if ((!found || (!found.dataUrl && !found.storagePath)) && activePant && activePant.images && activePant.images[idx]) {
+        const fallbackImg = activePant.images[idx];
+        found = {
+          dataUrl: fallbackImg.dataUrl || "",
+          name: fallbackImg.name,
+          storagePath: fallbackImg.storagePath,
+        };
+      }
+
+      const ref = draft.imageRefs?.find((r) => r.id === id);
+      let dataUrl = found?.dataUrl || "";
+      const name = found?.name || ref?.name || `Image_${idx + 1}`;
+
+      // Resolve signed URL if storagePath exists and dataUrl is missing/expired
+      if ((!dataUrl || !dataUrl.startsWith("data:") && !dataUrl.startsWith("http")) && found?.storagePath) {
+        try {
+          const signedUrl = await getSignedImageUrl(found.storagePath);
+          if (signedUrl) {
+            dataUrl = signedUrl;
+          }
+        } catch (err) {
+          console.warn(`[VintedDraftPayload] Fehler beim Erstellen der Signed-URL für ${found.storagePath}:`, err);
+        }
+      }
+
+      // Fallback 4: Bulk image store dataUrl
+      if ((!dataUrl || !dataUrl.startsWith("data:") && !dataUrl.startsWith("http")) && bulkImagesMap.has(id)) {
+        dataUrl = bulkImagesMap.get(id) || "";
+      }
+
+      return {
+        id,
+        dataUrl,
+        name,
+      };
+    })
+  );
 
   const totalImageCount = hydratedImages.length;
   const validDataUrlCount = hydratedImages.filter(
@@ -141,16 +196,14 @@ export function getVintedDraftPayload(
   ).length;
 
   console.log(
-    `[VintedDraftPayload] Draft ID: ${draft.id} | Pant ID: ${draft.pantId} | Total images: ${totalImageCount} | Valid dataUrls: ${validDataUrlCount}`
+    `[VintedDraftPayload] ${totalImageCount} Bilder, ${validDataUrlCount} gültige Bildquellen (Draft ID: ${draft.id})`
   );
 
-  hydratedImages.forEach((img, idx) => {
-    if (!img.dataUrl) {
-      console.warn(
-        `[VintedDraftPayload] Bild #${idx + 1} (ID: ${img.id}) hat keinen gültigen dataUrl. (pant present: ${Boolean(pant)}, storagePath/signedUrl missing)`
-      );
-    }
-  });
+  if (draft.price === undefined || draft.price === null) {
+    console.log(
+      `[VintedDraftPayload] kein listingPrice in result.pricing vorhanden (Draft ID: ${draft.id})`
+    );
+  }
 
   return {
     id: draft.id,
@@ -301,7 +354,7 @@ export function setupVintedExtensionBridge(): () => void {
               return;
             }
             const pant = pantsMap.get(targetDraft.pantId);
-            const payload = getVintedDraftPayload(targetDraft, pant);
+            const payload = await getVintedDraftPayload(targetDraft, pant);
 
             window.postMessage(
               {
@@ -313,10 +366,12 @@ export function setupVintedExtensionBridge(): () => void {
               "*"
             );
           } else {
-            const payloads = drafts.map((d) => {
-              const pant = pantsMap.get(d.pantId);
-              return getVintedDraftPayload(d, pant);
-            });
+            const payloads = await Promise.all(
+              drafts.map((d) => {
+                const pant = pantsMap.get(d.pantId);
+                return getVintedDraftPayload(d, pant);
+              })
+            );
 
             window.postMessage(
               {
@@ -352,7 +407,9 @@ export function setupVintedExtensionBridge(): () => void {
     const pantsMap = new Map(allPants.map((p) => [p.id, p]));
 
     if (!draftId) {
-      return drafts.map((d) => getVintedDraftPayload(d, pantsMap.get(d.pantId)));
+      return Promise.all(
+        drafts.map((d) => getVintedDraftPayload(d, pantsMap.get(d.pantId)))
+      );
     }
     const draft = drafts.find((d) => d.id === draftId || d.pantId === draftId);
     if (!draft) return null;
