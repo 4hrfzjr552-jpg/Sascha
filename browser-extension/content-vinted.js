@@ -1249,41 +1249,53 @@
     debugInteractiveControls(activeRoot, log);
 
     // Dependent fields strictly mapped via visible UI text and order
-    const brandValue = draft.brand || "Diesel";
-    results.brand = await selectVintedOption(
-      getFormContainer(log),
-      "brand",
-      FIELD_KEYWORDS.brand,
-      brandValue,
-      log
-    );
+    if (draft.brand) {
+      results.brand = await selectVintedOption(
+        getFormContainer(log),
+        "brand",
+        FIELD_KEYWORDS.brand,
+        draft.brand,
+        log
+      );
+    } else {
+      results.brand = { success: false, reason: "Kein Wert" };
+    }
 
-    const sizeValue = draft.size || "W36";
-    results.size = await selectVintedOption(
-      getFormContainer(log),
-      "size",
-      FIELD_KEYWORDS.size,
-      sizeValue,
-      log
-    );
+    if (draft.size) {
+      results.size = await selectVintedOption(
+        getFormContainer(log),
+        "size",
+        FIELD_KEYWORDS.size,
+        draft.size,
+        log
+      );
+    } else {
+      results.size = { success: false, reason: "Kein Wert" };
+    }
 
-    const colorValue = draft.color || "Hellblau";
-    results.color = await selectVintedOption(
-      getFormContainer(log),
-      "color",
-      FIELD_KEYWORDS.color,
-      colorValue,
-      log
-    );
+    if (draft.color) {
+      results.color = await selectVintedOption(
+        getFormContainer(log),
+        "color",
+        FIELD_KEYWORDS.color,
+        draft.color,
+        log
+      );
+    } else {
+      results.color = { success: false, reason: "Kein Wert" };
+    }
 
-    const conditionValue = draft.condition || "Sehr gut";
-    results.condition = await selectVintedOption(
-      getFormContainer(log),
-      "condition",
-      FIELD_KEYWORDS.condition,
-      conditionValue,
-      log
-    );
+    if (draft.condition) {
+      results.condition = await selectVintedOption(
+        getFormContainer(log),
+        "condition",
+        FIELD_KEYWORDS.condition,
+        draft.condition,
+        log
+      );
+    } else {
+      results.condition = { success: false, reason: "Kein Wert" };
+    }
 
     // If category was previously unconfirmed, but at least one dependent field succeeded,
     // Vinted has accepted the category! Update category success status.
