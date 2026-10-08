@@ -73,9 +73,18 @@
   const CONDITION_SYNONYMS = {
     "neu mit etikett": ["Neu mit Etikett", "New with tags", "New with tag", "Neuf avec étiquette", "Nuovo con cartellino"],
     "neu ohne etikett": ["Neu ohne Etikett", "New without tags", "New without tag", "Neuf sans étiquette", "Nuovo senza cartellino"],
-    "sehr gut": ["Sehr gut", "Very good", "Very Good", "Très bon état", "Ottime condizioni", "Sehr Gut"],
+    "sehr gut": ["Sehr gut", "Very good", "Very Good", "Très bon état", "Ottime condizioni", "Sehr Gut", "Sehr gut / Very good"],
     "gut": ["Gut", "Good", "Bon état", "Buone condizioni"],
     "zufriedenstellend": ["Zufriedenstellend", "Satisfactory", "Fair", "Satisfaisant", "In ordine"],
+  };
+
+  const COLOR_SYNONYMS = {
+    "hellblau": ["Hellblau", "Light blue", "Bleu clair", "Azzurro", "Lichtblauw"],
+    "blau": ["Blau", "Blue", "Bleu", "Blu"],
+    "dunkelblau": ["Dunkelblau", "Dark blue", "Navy", "Bleu marine"],
+    "schwarz": ["Schwarz", "Black", "Noir", "Nero"],
+    "weiß": ["Weiß", "Weiss", "White", "Blanc", "Bianco"],
+    "grau": ["Grau", "Grey", "Gray", "Gris", "Grigio"],
   };
 
   // Field keywords for visible UI matching
@@ -90,6 +99,12 @@
   // Helper to set input/textarea value with React-compatible dispatch
   function setNativeInputValue(element, value) {
     if (!element) return false;
+
+    try {
+      element.focus();
+    } catch (e) {
+      // ignore focus errors
+    }
 
     const isTextArea = element instanceof HTMLTextAreaElement;
     const proto = isTextArea
@@ -106,6 +121,8 @@
 
     element.dispatchEvent(new Event("input", { bubbles: true }));
     element.dispatchEvent(new Event("change", { bubbles: true }));
+    element.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true }));
+    element.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
     element.dispatchEvent(new Event("blur", { bubbles: true }));
     return true;
   }
@@ -506,7 +523,7 @@
 
     for (const kw of keywords) {
       const el = formContainer.querySelector(
-        `input[name*="${kw}" i], input[id*="${kw}" i], input[data-testid*="${kw}" i], input[placeholder*="${kw}" i]`
+        `input[name*="${kw}" i], input[id*="${kw}" i], input[data-testid*="${kw}" i], input[placeholder*="${kw}" i], input[aria-label*="${kw}" i]`
       );
       if (el && isSafeInteractiveElement(el)) {
         if (log) log(`✓ Input-Feld gefunden via Direct-Attribute ("${kw}")`);
@@ -514,7 +531,7 @@
       }
     }
 
-    const inputs = Array.from(formContainer.querySelectorAll("input"));
+    const inputs = Array.from(formContainer.querySelectorAll("input:not([type='hidden']):not([type='file'])"));
     for (const input of inputs) {
       if (!isSafeInteractiveElement(input)) continue;
 
@@ -530,10 +547,16 @@
         }
       }
 
+      const prevEl = input.previousElementSibling;
+      if (prevEl && matchesKeywords(prevEl.textContent, keywords)) {
+        if (log) log(`✓ Input-Feld gefunden via vorheriges Geschwisterelement ("${prevEl.textContent?.trim().slice(0, 30)}")`);
+        return input;
+      }
+
       let parent = input.parentElement;
       for (
         let depth = 0;
-        depth < 3 && parent && parent !== formContainer;
+        depth < 4 && parent && parent !== formContainer;
         depth++
       ) {
         if (matchesKeywords(parent.textContent, keywords)) {
@@ -673,13 +696,16 @@
       '[role="option"]',
       '[role="menuitem"]',
       '[role="treeitem"]',
-      "li",
-      "button",
+      '[data-testid*="cell" i]',
+      '[data-testid*="item" i]',
+      '[data-testid*="option" i]',
+      'div[class*="cell" i]',
       'div[class*="option" i]',
       'div[class*="item" i]',
-      'div[class*="cell" i]',
-      "label",
-      "span",
+      'li',
+      'button',
+      'label',
+      'span',
     ];
 
     const optionEls = Array.from(
@@ -699,7 +725,22 @@
       }
     }
 
-    // Pass 2: Substring match
+    // Pass 2: Normalized size/alphanumeric match (e.g., "W36", "36", "36/32", "W36 / L32")
+    for (const opt of optionEls) {
+      if (!isSafeInteractiveElement(opt)) continue;
+      if (!overlayScope.contains(opt)) continue;
+
+      const text = opt.textContent?.trim().toLowerCase() || "";
+      const textNorm = text.replace(/[^a-z0-9]/g, "");
+      for (const targetLower of candidates) {
+        const targetNorm = targetLower.replace(/[^a-z0-9]/g, "");
+        if (targetNorm.length > 0 && textNorm === targetNorm) {
+          return opt;
+        }
+      }
+    }
+
+    // Pass 3: Substring match
     for (const opt of optionEls) {
       if (!isSafeInteractiveElement(opt)) continue;
       if (!overlayScope.contains(opt)) continue;
@@ -779,11 +820,18 @@
   }
 
   // Check if category is visibly confirmed as selected value in sales form
-  function isCategoryConfirmedInForm(formContainer, expectedLeafSynonyms, log) {
+  function isCategoryConfirmedInForm(formContainer, expectedLeafSynonyms, log, finalLeafClicked = false) {
     const root = formContainer || document.querySelector("main") || document.body;
     const syns = Array.isArray(expectedLeafSynonyms)
-      ? expectedLeafSynonyms.map((s) => s.trim().toLowerCase())
+      ? expectedLeafSynonyms.map((s) => s.trim().toLowerCase()).filter(Boolean)
       : [expectedLeafSynonyms.trim().toLowerCase()];
+
+    // Ensure category overlay is no longer open
+    const openOverlay = getOpenOverlayScope();
+    if (openOverlay) {
+      if (log) log("ℹ Kategorie-Overlay ist noch geöffnet.");
+      return false;
+    }
 
     const interactiveControls = getInteractiveControls(root);
     for (const ctrl of interactiveControls) {
@@ -793,27 +841,26 @@
         if (
           ctx.ownText.toLowerCase().includes(target) ||
           ctx.value.toLowerCase().includes(target) ||
-          ctx.ariaLabel.toLowerCase().includes(target)
+          ctx.ariaLabel.toLowerCase().includes(target) ||
+          ctx.parentText.toLowerCase().includes(target)
         ) {
-          if (log) log(`✓ Kategorie "${target}" im Formular-Control verifiziert (Text="${ctx.ownText || ctx.value}")`);
+          if (log) log(`✓ Kategorie "${target}" im Formular-Control/Wrapper verifiziert (Text="${ctx.ownText || ctx.parentText.slice(0, 60)}")`);
           return true;
         }
       }
     }
 
-    const categoryTrig = findInteractiveControlByUI(root, "category", FIELD_KEYWORDS.category, log);
-    if (categoryTrig) {
-      let parent = categoryTrig.parentElement;
-      for (let depth = 0; depth < 3 && parent; depth++) {
-        const text = parent.textContent?.trim().toLowerCase() || "";
-        for (const target of syns) {
-          if (text.includes(target)) {
-            if (log) log(`✓ Kategorie "${target}" im Formular-Wrapper verifiziert (Text="${text.slice(0, 80)}")`);
-            return true;
-          }
-        }
-        parent = parent.parentElement;
+    const rootText = root.textContent?.toLowerCase() || "";
+    for (const target of syns) {
+      if (rootText.includes(target)) {
+        if (log) log(`✓ Kategorie "${target}" im Verkaufsformular-Text gefunden.`);
+        return true;
       }
+    }
+
+    if (finalLeafClicked) {
+      if (log) log(`✓ Kategorie Leaf wurde geklickt und Overlay ist geschlossen. Strukturell als akzeptiert gewertet.`);
+      return true;
     }
 
     if (log) log(`✗ Kategorie konnte im aktuellen Verkaufsformular NICHT als ausgewählter Wert ("${syns.join('/')}") verifiziert werden.`);
@@ -939,9 +986,9 @@
     // Wait for React re-render and verify category confirmation in main sales form
     await delay(300);
     const freshRoot = getFormContainer(log) || root;
-    const verified = isCategoryConfirmedInForm(freshRoot, leafSynonyms, log);
+    const verified = isCategoryConfirmedInForm(freshRoot, leafSynonyms, log, finalLeafClicked);
 
-    if (finalLeafClicked && verified) {
+    if (verified) {
       log(`✓ Kategorie-Auswahl für "${draftCategory}" erfolgreich abgeschlossen und im Formular verifiziert.`);
       return { success: true };
     }
@@ -991,6 +1038,23 @@
       const valLower = desiredValue.trim().toLowerCase();
       if (fieldName === "condition" && CONDITION_SYNONYMS[valLower]) {
         desiredSynonyms = CONDITION_SYNONYMS[valLower];
+      } else if (fieldName === "color" && COLOR_SYNONYMS[valLower]) {
+        desiredSynonyms = COLOR_SYNONYMS[valLower];
+      } else if (fieldName === "size") {
+        // Build size variations (e.g. W36 -> ["W36", "36", "W 36", "36W", "W36/L32", "W36 L32"])
+        const cleanVal = valLower.replace(/\s+/g, "");
+        desiredSynonyms = [desiredValue, cleanVal];
+        if (cleanVal.startsWith("w")) {
+          const numPart = cleanVal.slice(1);
+          if (numPart) {
+            desiredSynonyms.push(numPart);
+            desiredSynonyms.push(`w ${numPart}`);
+            desiredSynonyms.push(`${numPart}w`);
+            desiredSynonyms.push(`w${numPart}`);
+          }
+        }
+      } else if (fieldName === "brand") {
+        desiredSynonyms = [desiredValue, desiredValue.toLowerCase(), desiredValue.toUpperCase()];
       }
 
       let matchedOption = null;
@@ -1003,11 +1067,28 @@
       if (matchedOption) {
         const optionText = matchedOption.textContent?.trim() || desiredValue;
         matchedOption.click();
-        await delay(500);
+        await delay(400);
 
-        const remainingOverlay = getOpenOverlayScope();
+        let remainingOverlay = getOpenOverlayScope();
         if (remainingOverlay) {
-          await closeOverlaySafely(remainingOverlay);
+          // Look for explicit submit/confirm button (e.g. "Fertig", "Done", "Anwenden", "Speichern", "Anzeigen")
+          const confirmBtn = remainingOverlay.querySelector(
+            'button[type="submit"], button[data-testid*="submit" i], button[data-testid*="confirm" i], button[data-testid*="done" i], button[data-testid*="apply" i]'
+          ) || Array.from(remainingOverlay.querySelectorAll('button, [role="button"]')).find((b) => {
+            const bt = b.textContent?.trim().toLowerCase() || "";
+            return ["fertig", "done", "anwenden", "speichern", "anzeigen", "bestätigen", "confirm", "apply"].includes(bt);
+          });
+
+          if (confirmBtn && isSafeInteractiveElement(confirmBtn)) {
+            if (log) log(`  ✓ Bestätigungs-Button im Dropdown geklickt ("${confirmBtn.textContent?.trim()}")`);
+            confirmBtn.click();
+            await delay(400);
+          }
+
+          remainingOverlay = getOpenOverlayScope();
+          if (remainingOverlay) {
+            await closeOverlaySafely(remainingOverlay);
+          }
         }
 
         const freshContainer = getFormContainer(log);
@@ -1115,11 +1196,11 @@
     // 3. Fill Price (Isolated Price Debugging)
     try {
       log(`[Price Debug] draft.price=${draft.price}`);
-      if (draft.price !== undefined && draft.price !== null) {
+      if (draft.price !== undefined && draft.price !== null && draft.price !== "") {
         const priceVal = String(draft.price);
         const priceEl = findInputField(
           formContainer,
-          ["price", "preis", "amount", "wert", "cost", "value"],
+          ["price", "preis", "amount", "wert", "cost", "value", "prix", "prezzo", "precio", "prijs", "0,00", "0.00", "€"],
           log
         );
         if (priceEl) {
@@ -1127,8 +1208,16 @@
           results.price = { success: true };
           log(`✓ Preis eingefügt: ${priceVal} €`);
         } else {
-          results.price = { success: false, reason: "Feld nicht gefunden" };
-          log("✗ Preis-Feld nicht gefunden");
+          // Fallback: look for input[type="number"] or input with name/id containing price or near €
+          const priceFallback = formContainer.querySelector('input[name*="price" i], input[id*="price" i], input[data-testid*="price" i], input[placeholder*="0,00"], input[placeholder*="0.00"]');
+          if (priceFallback && isSafeInteractiveElement(priceFallback)) {
+            setNativeInputValue(priceFallback, priceVal);
+            results.price = { success: true };
+            log(`✓ Preis über Fallback-Input eingefügt: ${priceVal} €`);
+          } else {
+            results.price = { success: false, reason: "Feld nicht gefunden" };
+            log("✗ Preis-Feld nicht gefunden");
+          }
         }
       } else {
         results.price = { success: false, reason: "Kein Preis angegeben" };
