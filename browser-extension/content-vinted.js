@@ -877,46 +877,56 @@
       }
     }
 
+    let finalLeafClicked = false;
+
     if (directOption) {
       const optionText = directOption.textContent?.trim() || draftCategory;
       log(`  ✓ Zielkategorie direkt gefunden und geklickt: "${optionText}"`);
       directOption.click();
+      finalLeafClicked = true;
       await delay(400);
 
       const remainingOverlay = getOpenOverlayScope();
-      if (remainingOverlay) {
-        await closeOverlaySafely(remainingOverlay);
-      }
-
       const verified = verifyFieldValue(triggerEl, leafSynonyms, log);
-      if (verified) {
-        log(`✓ Kategorie erfolgreich direkt verifiziert: "${draftCategory}"`);
+
+      if (verified || !remainingOverlay) {
+        if (remainingOverlay) {
+          await closeOverlaySafely(remainingOverlay);
+        }
+        log(`✓ Zielkategorie "${draftCategory}" erfolgreich verifiziert/ausgewählt.`);
         return { success: true };
       }
-      log(`✓ Zielkategorie "${draftCategory}" direkt ausgewählt.`);
-      return { success: true };
+
+      log(`⚠ Klick auf Zielkategorie "${draftCategory}" konnte nicht im Feld verifiziert werden und Modal ist noch offen.`);
+      await closeOverlaySafely(remainingOverlay);
+      diagnoseFieldDOM(remainingOverlay || formContainer, "category", leafSynonyms, log);
+      return {
+        success: false,
+        reason: `Zielkategorie "${draftCategory}" geklickt, aber im Feld nicht verifiziert`,
+      };
     }
 
     // Priority 2: Flexible hierarchical steps only if direct selection was not available
-    log(`  Hierarchy: Durchlaufe hierarchische Pfad-Schritte falls nötig...`);
-    let completedSteps = 0;
+    log(`  Hierarchy: Durchlaufe hierarchische Pfad-Schritte...`);
 
     for (let i = 0; i < categoryPath.length; i++) {
       const currentStepSynonyms = categoryPath[i];
       overlayScope = getOpenOverlayScope();
 
       if (!overlayScope) {
-        log(`  ⚠ Kategorie-Modal nach Schritt ${completedSteps}/${categoryPath.length} nicht mehr geöffnet.`);
+        log(`  ⚠ Kategorie-Modal vor Schritt ${i + 1}/${categoryPath.length} vorzeitig geschlossen.`);
         break;
       }
 
+      const isLastStep = i === categoryPath.length - 1;
+
       // Check if leaf category became available before taking current step
-      const earlyLeafOption = findMatchingOptionInOverlay(overlayScope, leafSynonyms);
-      if (earlyLeafOption) {
-        const leafText = earlyLeafOption.textContent?.trim() || draftCategory;
-        log(`  ✓ Zielkategorie während Hierarchie-Durchlauf gefunden: "${leafText}"`);
-        earlyLeafOption.click();
-        completedSteps = categoryPath.length;
+      const leafOption = findMatchingOptionInOverlay(overlayScope, leafSynonyms);
+      if (leafOption) {
+        const leafText = leafOption.textContent?.trim() || draftCategory;
+        log(`  ✓ Zielkategorie im Modal gefunden und geklickt: "${leafText}"`);
+        leafOption.click();
+        finalLeafClicked = true;
         await delay(400);
         break;
       }
@@ -927,29 +937,36 @@
         const optionText = matchedOption.textContent?.trim() || currentStepSynonyms[0];
         log(`  ✓ Kategorie-Schritt ${i + 1}/${categoryPath.length}: "${optionText}" geklickt`);
         matchedOption.click();
-        completedSteps++;
+        if (isLastStep) {
+          finalLeafClicked = true;
+        }
         await delay(400);
       } else {
-        log(`  ℹ Kategorie-Schritt ${i + 1}/${categoryPath.length} ("${currentStepSynonyms.join('/')}") nicht im Modal vorhanden, fahre fort...`);
+        log(`  ℹ Kategorie-Schritt ${i + 1}/${categoryPath.length} ("${currentStepSynonyms.join('/')}") nicht im Modal vorhanden.`);
       }
     }
 
     const remainingOverlay = getOpenOverlayScope();
+    const verified = verifyFieldValue(triggerEl, leafSynonyms, log);
+
+    // Success ONLY if final leaf category was clicked AND (verified OR modal closed by Vinted)
+    if (finalLeafClicked && (verified || !remainingOverlay)) {
+      if (remainingOverlay) {
+        await closeOverlaySafely(remainingOverlay);
+      }
+      log(`✓ Kategorie-Auswahl für "${draftCategory}" erfolgreich abgeschlossen und verifiziert.`);
+      return { success: true };
+    }
+
     if (remainingOverlay) {
       await closeOverlaySafely(remainingOverlay);
     }
 
-    const verified = verifyFieldValue(triggerEl, leafSynonyms, log);
-    if (verified || completedSteps > 0) {
-      log(`✓ Kategorie-Auswahl abgeschlossen für: "${draftCategory}"`);
-      return { success: true };
-    }
-
-    log(`✗ Kategorie-Auswahl für "${draftCategory}" gescheitert.`);
+    log(`✗ Kategorie-Auswahl für "${draftCategory}" gescheitert. Finale Leaf-Kategorie nicht gesichert.`);
     diagnoseFieldDOM(overlayScope || formContainer, "category", leafSynonyms, log);
     return {
       success: false,
-      reason: `Kategorie "${draftCategory}" konnte im Modal nicht ausgewählt werden`,
+      reason: `Kategorie "${draftCategory}" konnte nicht sicher im Feld verifiziert werden`,
     };
   }
 
