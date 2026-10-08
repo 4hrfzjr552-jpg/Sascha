@@ -604,17 +604,18 @@
     return null;
   }
 
-  // Get currently active dropdown or modal overlay element
-  function getOpenOverlayScope() {
+  // Get all visible overlay candidates in order
+  function getAllVisibleOverlays() {
     const overlaySelectors = [
       '[role="dialog"]',
       '[role="menu"]',
       '[role="listbox"]',
       '[aria-modal="true"]',
-      '[data-testid*="modal"]',
-      '[data-testid*="dropdown"]',
-      '[data-testid*="popover"]',
-      '[data-testid*="catalog"]',
+      '[data-testid*="modal" i]',
+      '[data-testid*="dropdown" i]',
+      '[data-testid*="popover" i]',
+      '[data-testid*="catalog" i]',
+      '[data-testid*="dialog" i]',
       '.web_ui__Modal__modal',
       '.c-modal',
       '.portal-content',
@@ -627,15 +628,120 @@
       for (const el of els) {
         if (
           isElementVisible(el) &&
-          !el.closest("nav, header, footer, sidebar")
+          !el.closest("nav, header, footer, sidebar") &&
+          !candidates.includes(el)
         ) {
           candidates.push(el);
         }
       }
     }
+    return candidates;
+  }
 
+  // Get currently active dropdown or modal overlay element
+  function getOpenOverlayScope() {
+    const candidates = getAllVisibleOverlays();
     if (candidates.length > 0) {
       return candidates[candidates.length - 1];
+    }
+    return null;
+  }
+
+  // Robustly find overlay associated with a clicked trigger element
+  function getOverlayForTrigger(triggerEl, overlaysBefore = [], log = null) {
+    if (!triggerEl) return getOpenOverlayScope();
+
+    // 1. Check aria-controls
+    const ariaControls = triggerEl.getAttribute("aria-controls");
+    if (ariaControls) {
+      try {
+        const controlledEl = document.getElementById(ariaControls);
+        if (controlledEl && isElementVisible(controlledEl)) {
+          if (log) log(`✓ Overlay via aria-controls="${ariaControls}" gefunden.`);
+          return controlledEl;
+        }
+      } catch (e) {
+        // ignore selector syntax errors
+      }
+    }
+
+    // 2. Detect newly appeared visible overlays
+    const overlaysAfter = getAllVisibleOverlays();
+    const newOverlays = overlaysAfter.filter((el) => !overlaysBefore.includes(el));
+
+    if (newOverlays.length === 1) {
+      if (log) log(`✓ Genau ein neues Overlay nach Klick erkannt (${newOverlays[0].tagName}, testid=${newOverlays[0].getAttribute("data-testid") || "none"}, role=${newOverlays[0].getAttribute("role") || "none"}).`);
+      return newOverlays[0];
+    } else if (newOverlays.length > 1) {
+      const chosen = newOverlays[newOverlays.length - 1];
+      if (log) log(`✓ Multiple (${newOverlays.length}) neue Overlays erkannt. Wähle das oberste/zuletzt erschienene.`);
+      return chosen;
+    }
+
+    // 3. Fallback: global open overlay scope
+    const fallbackOverlay = getOpenOverlayScope();
+    if (fallbackOverlay && log) {
+      log(`ℹ Kein neues Overlay erschienen, benutze bestehenden Fallback-OverlayScope.`);
+    }
+    return fallbackOverlay;
+  }
+
+  // Resolve actual clickable parent container for a text match element within overlayScope
+  function resolveClickableOption(matchEl, overlayScope) {
+    if (!matchEl) return null;
+    const scope = overlayScope || getOpenOverlayScope() || document.body;
+
+    if (!scope.contains(matchEl)) return null;
+
+    if (matchEl.tagName === "INPUT") {
+      const type = (matchEl.getAttribute("type") || "").toLowerCase();
+      if (type === "radio" || type === "checkbox") {
+        if (isSafeInteractiveElement(matchEl)) return matchEl;
+        if (matchEl.id) {
+          try {
+            const lbl = scope.querySelector(`label[for="${CSS.escape(matchEl.id)}"]`);
+            if (lbl && isSafeInteractiveElement(lbl)) return lbl;
+          } catch (e) {}
+        }
+      }
+    }
+
+    const clickableSelectors = [
+      '[role="option"]',
+      '[role="radio"]',
+      '[role="checkbox"]',
+      '[role="menuitem"]',
+      'button',
+      'label',
+      '[data-testid*="cell" i]',
+      '[data-testid*="item" i]',
+      '[data-testid*="option" i]',
+    ];
+
+    let current = matchEl;
+    while (current && current !== scope && scope.contains(current)) {
+      if (current.tagName === "A" || current.hasAttribute("href")) {
+        return null;
+      }
+
+      for (const sel of clickableSelectors) {
+        if (current.matches && current.matches(sel)) {
+          if (isSafeInteractiveElement(current)) {
+            return current;
+          }
+        }
+      }
+
+      const inputChild = current.querySelector('input[type="radio"], input[type="checkbox"]');
+      if (inputChild && isSafeInteractiveElement(inputChild)) {
+        return inputChild;
+      }
+
+      current = current.parentElement;
+    }
+
+    if (isSafeInteractiveElement(matchEl) && matchEl.tagName !== "A" && !matchEl.hasAttribute("href")) {
+      return matchEl;
     }
 
     return null;
@@ -682,6 +788,371 @@
     }
 
     return false;
+  }
+
+  // Normalize gender string into standard key
+  function normalizeGender(genderStr) {
+    if (!genderStr) return "unspecified";
+    const g = genderStr.trim().toLowerCase();
+    if (
+      g.includes("damen") ||
+      g.includes("women") ||
+      g.includes("female") ||
+      g.includes("weiblich") ||
+      g.includes("frau")
+    ) {
+      return "women";
+    }
+    if (
+      g.includes("herren") ||
+      g.includes("men") ||
+      g.includes("male") ||
+      g.includes("männlich") ||
+      g.includes("mann")
+    ) {
+      return "men";
+    }
+    return "unspecified";
+  }
+
+  // Extract waist number from size string (e.g. W36, W 36, Waist 36, 36W, W36/L32)
+  function extractWaistNumber(str) {
+    if (!str) return null;
+    const s = str.trim();
+
+    // Exclude explicit EU / US prefix
+    if (/\beu\s*\d+/i.test(s) || /\bus\s*\d+/i.test(s)) {
+      return null;
+    }
+
+    // Explicit W / Waist prefix: e.g., W36, W 36, Waist 36, W36/L32
+    const wMatch = s.match(/(?:^|\b)(?:w|waist)\s*(\d{2,3})\b/i);
+    if (wMatch) return parseInt(wMatch[1], 10);
+
+    // W suffix: 36W
+    const suffixMatch = s.match(/\b(\d{2,3})\s*w\b/i);
+    if (suffixMatch) return parseInt(suffixMatch[1], 10);
+
+    // Wxx / Lxx format: 36/32 or 36 / 32
+    const lengthMatch = s.match(/\b(\d{2,3})\s*[\/\-]\s*\d{2,3}\b/);
+    if (lengthMatch) return parseInt(lengthMatch[1], 10);
+
+    return null;
+  }
+
+  // Check if size string contains explicit length specification (e.g., L32, /32)
+  function hasExplicitLength(str) {
+    if (!str) return false;
+    return /\bl\s*\d{2,3}\b/i.test(str) || /\b\d{2,3}\s*[\/\-]\s*\d{2,3}\b/.test(str);
+  }
+
+  // Extract EU size number (e.g. EU 38, 38 EU)
+  function extractEUSizeNumber(str) {
+    if (!str) return null;
+    const m = str.match(/(?:^|\b)eu\s*(\d{2})\b/i) || str.match(/\b(\d{2})\s*eu\b/i);
+    if (m) return parseInt(m[1], 10);
+    return null;
+  }
+
+  // Extract US size number (e.g. US 8, 8 US)
+  function extractUSSizeNumber(str) {
+    if (!str) return null;
+    const m = str.match(/(?:^|\b)us\s*(\d{1,2})\b/i) || str.match(/\b(\d{1,2})\s*us\b/i);
+    if (m) return parseInt(m[1], 10);
+    return null;
+  }
+
+  // Conservative Women's W-size to Alpha conversion table
+  function mapWomenWToAlpha(waistNum) {
+    if (waistNum >= 23 && waistNum <= 26) return "XS";
+    if (waistNum >= 27 && waistNum <= 28) return "S";
+    if (waistNum >= 29 && waistNum <= 30) return "M";
+    if (waistNum >= 31 && waistNum <= 32) return "L";
+    if (waistNum >= 33 && waistNum <= 34) return "XL";
+    if (waistNum >= 35 && waistNum <= 36) return "XXL";
+    return null;
+  }
+
+  // Women's EU-size to Alpha conversion table
+  function mapWomenEUToAlpha(euNum) {
+    if (euNum === 32) return ["XXS", "XS"];
+    if (euNum === 34) return ["XS"];
+    if (euNum === 36) return ["S"];
+    if (euNum === 38) return ["M"];
+    if (euNum === 40) return ["L"];
+    if (euNum === 42) return ["XL"];
+    if (euNum === 44) return ["XXL"];
+    return null;
+  }
+
+  // Women's US-size to Alpha conversion table
+  function mapWomenUSToAlpha(usNum) {
+    if (usNum >= 0 && usNum <= 2) return ["XS"];
+    if (usNum >= 4 && usNum <= 6) return ["S"];
+    if (usNum >= 8 && usNum <= 10) return ["M"];
+    if (usNum >= 12 && usNum <= 14) return ["L"];
+    if (usNum >= 16 && usNum <= 18) return ["XL"];
+    return null;
+  }
+
+  // Get all visible candidate option elements inside an overlay
+  function getVisibleOptionElements(overlayScope) {
+    if (!overlayScope) return [];
+    const optionSelectors = [
+      '[role="option"]',
+      '[role="menuitem"]',
+      '[role="radio"]',
+      '[role="checkbox"]',
+      '[data-testid*="cell" i]',
+      '[data-testid*="item" i]',
+      '[data-testid*="option" i]',
+      'div[class*="cell" i]',
+      'div[class*="option" i]',
+      'div[class*="item" i]',
+      'li',
+      'button',
+      'label',
+    ];
+
+    const els = Array.from(overlayScope.querySelectorAll(optionSelectors.join(", ")));
+    const unique = [];
+    for (const el of els) {
+      if (isElementVisible(el) && overlayScope.contains(el) && !unique.includes(el)) {
+        unique.push(el);
+      }
+    }
+    return unique;
+  }
+
+  // Find best matching size element in overlay based on exact match and gender conversion rules
+  function findMatchingSizeElement(overlayScope, draftSize, draftGender, log) {
+    if (!overlayScope || !draftSize) return null;
+
+    const els = getVisibleOptionElements(overlayScope);
+    const options = els
+      .map((el) => ({ el, text: el.textContent?.trim() || "" }))
+      .filter((o) => o.text.length > 0 && o.text.length < 100);
+
+    if (log) {
+      const sampleTexts = options.map((o) => o.text).slice(0, 15).join(" | ");
+      log(`  📋 Size Overlay Optionen (${options.length}): ${sampleTexts}`);
+    }
+
+    const draftTrimmed = draftSize.trim();
+    const draftLower = draftTrimmed.toLowerCase();
+    const draftNorm = draftLower.replace(/[^a-z0-9]/g, "");
+
+    // Pass 1: Exact text match or exact normalized alphanumeric match
+    for (const opt of options) {
+      const t = opt.text.toLowerCase();
+      const tNorm = t.replace(/[^a-z0-9]/g, "");
+      if (t === draftLower || (draftNorm.length > 0 && tNorm === draftNorm)) {
+        return { element: opt.el, matchedText: opt.text, rule: "exact" };
+      }
+    }
+
+    // Pass 2: Semantic Waist match
+    const draftWaist = extractWaistNumber(draftTrimmed);
+    if (draftWaist !== null) {
+      const waistMatches = options.filter((o) => {
+        const optWaist = extractWaistNumber(o.text);
+        const optEU = extractEUSizeNumber(o.text);
+        return optWaist === draftWaist && optEU === null;
+      });
+
+      if (waistMatches.length === 1) {
+        return { element: waistMatches[0].el, matchedText: waistMatches[0].text, rule: "waist_exact" };
+      } else if (waistMatches.length > 1) {
+        const pureWaistMatches = waistMatches.filter((o) => !hasExplicitLength(o.text));
+        if (pureWaistMatches.length === 1) {
+          return { element: pureWaistMatches[0].el, matchedText: pureWaistMatches[0].text, rule: "waist_pure" };
+        } else if (pureWaistMatches.length > 1) {
+          return { ambiguous: true, reason: "Mehrere reine Waist-Größen vorhanden" };
+        } else {
+          if (hasExplicitLength(draftTrimmed)) {
+            const lengthMatches = waistMatches.filter((o) => o.text.toLowerCase().includes(draftLower));
+            if (lengthMatches.length === 1) {
+              return { element: lengthMatches[0].el, matchedText: lengthMatches[0].text, rule: "waist_length" };
+            }
+          }
+          return { ambiguous: true, reason: "Mehrere Größen mit gleicher Waist-Größe vorhanden" };
+        }
+      }
+    }
+
+    // Pass 3: Women's Fallback Conversions (Only if exact match / waist match NOT found and gender is Women)
+    const genderNorm = normalizeGender(draftGender);
+    if (genderNorm === "women") {
+      // A) Women W-Size -> Alpha
+      if (draftWaist !== null) {
+        const alphaFallback = mapWomenWToAlpha(draftWaist);
+        if (alphaFallback) {
+          if (log) log(`  👩 Damen W-Größe W${draftWaist} -> Versuche Fallback-Alpha "${alphaFallback}"...`);
+          const alphaMatch = options.find((o) => o.text.trim().toUpperCase() === alphaFallback);
+          if (alphaMatch) {
+            return {
+              element: alphaMatch.el,
+              matchedText: alphaMatch.text,
+              rule: "women_w_to_alpha",
+              alpha: alphaFallback,
+            };
+          } else {
+            return { failedConversion: true, reason: "Keine sichere Größenentsprechung gefunden" };
+          }
+        }
+      }
+
+      // B) Women EU-Size -> Alpha
+      const draftEU = extractEUSizeNumber(draftTrimmed) || (/^\d{2}$/.test(draftTrimmed) ? parseInt(draftTrimmed, 10) : null);
+      if (draftEU) {
+        const alphaList = mapWomenEUToAlpha(draftEU);
+        const euMatch = options.find((o) => extractEUSizeNumber(o.text) === draftEU);
+        if (euMatch) {
+          return { element: euMatch.el, matchedText: euMatch.text, rule: "women_eu_exact" };
+        }
+        if (alphaList) {
+          for (const alpha of alphaList) {
+            const m = options.find((o) => o.text.trim().toUpperCase() === alpha);
+            if (m) {
+              return { element: m.el, matchedText: m.text, rule: "women_eu_to_alpha", alpha };
+            }
+          }
+        }
+      }
+
+      // C) Women US-Size -> Alpha
+      const draftUS = extractUSSizeNumber(draftTrimmed);
+      if (draftUS) {
+        const alphaList = mapWomenUSToAlpha(draftUS);
+        const usMatch = options.find((o) => extractUSSizeNumber(o.text) === draftUS);
+        if (usMatch) {
+          return { element: usMatch.el, matchedText: usMatch.text, rule: "women_us_exact" };
+        }
+        if (alphaList) {
+          for (const alpha of alphaList) {
+            const m = options.find((o) => o.text.trim().toUpperCase() === alpha);
+            if (m) {
+              return { element: m.el, matchedText: m.text, rule: "women_us_to_alpha", alpha };
+            }
+          }
+        }
+      }
+    }
+
+    // Pass 4: Generic Alpha match (e.g. XS, S, M, L, XL, XXL)
+    const draftUpper = draftTrimmed.toUpperCase();
+    if (["XXS", "XS", "S", "M", "L", "XL", "XXL", "3XL", "4XL"].includes(draftUpper)) {
+      const alphaMatch = options.find((o) => o.text.trim().toUpperCase() === draftUpper);
+      if (alphaMatch) {
+        return { element: alphaMatch.el, matchedText: alphaMatch.text, rule: "alpha_exact" };
+      }
+    }
+
+    return null;
+  }
+
+  // Refactored Robust Size Selector Helper
+  async function selectVintedSize(formContainer, draftSize, draftGender, log) {
+    log(`Versuche Größe "${draftSize}" (Gender: ${draftGender || "nicht angegeben"}) zu setzen...`);
+
+    if (!draftSize) {
+      return { success: false, reason: "Kein Wert" };
+    }
+
+    const activeContainer = getFormContainer(log) || formContainer;
+    const triggerEl = findInteractiveControlByUI(activeContainer, "size", FIELD_KEYWORDS.size, log);
+
+    if (!triggerEl) {
+      log(`✗ Trigger-Element für "size" nicht gefunden.`);
+      return { success: false, reason: "Größe-Trigger nicht gefunden" };
+    }
+
+    const overlaysBefore = getAllVisibleOverlays();
+    triggerEl.click();
+    await delay(400);
+
+    const overlayScope = getOverlayForTrigger(triggerEl, overlaysBefore, log);
+    if (!overlayScope) {
+      log(`✗ Kein geöffnetes Overlay für "size" gefunden.`);
+      return { success: false, reason: "Größe-Overlay nicht geöffnet" };
+    }
+
+    log(`  🎯 Suche passende Größe in sichtbaren Optionen...`);
+    let sizeMatch = findMatchingSizeElement(overlayScope, draftSize, draftGender, log);
+
+    if (sizeMatch && sizeMatch.ambiguous) {
+      log(`✗ Abbruch: ${sizeMatch.reason}`);
+      await closeOverlaySafely(overlayScope);
+      return { success: false, reason: sizeMatch.reason };
+    }
+
+    if (sizeMatch && sizeMatch.failedConversion) {
+      log(`✗ Abbruch: ${sizeMatch.reason}`);
+      await closeOverlaySafely(overlayScope);
+      return { success: false, reason: sizeMatch.reason };
+    }
+
+    // Fallback: If no match found, check if overlay contains a strict search input
+    if (!sizeMatch || !sizeMatch.element) {
+      const strictSearchInput = overlayScope.querySelector(
+        'input[type="search"], input[placeholder*="suchen" i], input[placeholder*="search" i], input[data-testid*="search" i], input[aria-label*="suchen" i], input[aria-label*="search" i]'
+      );
+
+      if (strictSearchInput && isSafeInteractiveElement(strictSearchInput)) {
+        const draftWaist = extractWaistNumber(draftSize);
+        const searchTerm = draftWaist !== null ? String(draftWaist) : draftSize;
+        log(`  🔍 Suche im Größe-Modal nach: "${searchTerm}"`);
+        strictSearchInput.focus();
+        setNativeInputValue(strictSearchInput, searchTerm);
+        await delay(400);
+
+        sizeMatch = findMatchingSizeElement(overlayScope, draftSize, draftGender, log);
+      }
+    }
+
+    if (sizeMatch && sizeMatch.element) {
+      const clickableEl = resolveClickableOption(sizeMatch.element, overlayScope);
+      if (!clickableEl) {
+        log(`✗ Klickbares Element für Größe-Option "${sizeMatch.matchedText}" konnte nicht aufgelöst werden.`);
+        await closeOverlaySafely(overlayScope);
+        return { success: false, reason: "Kein klickbares Element für Größe gefunden" };
+      }
+
+      log(`  ✓ Größe-Option gematcht: "${sizeMatch.matchedText}" (Regel: ${sizeMatch.rule}). Klicke Element...`);
+      clickableEl.click();
+      await delay(400);
+
+      const remainingOverlay = getOpenOverlayScope();
+      if (remainingOverlay) {
+        await closeOverlaySafely(remainingOverlay);
+      }
+
+      // Verification
+      const freshContainer = getFormContainer(log);
+      const expectedValues = [
+        sizeMatch.matchedText,
+        sizeMatch.alpha,
+        draftSize,
+      ].filter(Boolean);
+
+      const verified = verifyFieldValue(
+        findInteractiveControlByUI(freshContainer, "size", FIELD_KEYWORDS.size, log) || triggerEl,
+        expectedValues,
+        log
+      );
+
+      if (verified) {
+        log(`✓ Größe "${sizeMatch.matchedText || draftSize}" erfolgreich gesetzt und im Formular verifiziert.`);
+        return { success: true };
+      } else {
+        log(`✗ Größe "${sizeMatch.matchedText || draftSize}" geklickt, aber nicht im Formular verifiziert.`);
+        return { success: false, reason: "Auswahl geklickt, aber nicht im Formular bestätigt" };
+      }
+    }
+
+    log(`✗ Keine passende Option für Größe "${draftSize}" gefunden.`);
+    await closeOverlaySafely(overlayScope);
+    return { success: false, reason: `Option "${draftSize}" nicht in Auswahlliste gefunden` };
   }
 
   // Find matching option element ONLY within open overlay scope
@@ -993,7 +1464,265 @@
     };
   }
 
-  // Single Dropdown Option Selector Helper (Marke, Größe, Farbe, Zustand)
+  // Refactored Robust Color Selector Helper
+  async function selectVintedColor(formContainer, draftColor, log) {
+    log(`Versuche Farbe "${draftColor}" zu setzen...`);
+
+    if (!draftColor) {
+      return { success: false, reason: "Kein Wert" };
+    }
+
+    const activeContainer = getFormContainer(log) || formContainer;
+    const triggerEl = findInteractiveControlByUI(activeContainer, "color", FIELD_KEYWORDS.color, log);
+
+    if (!triggerEl) {
+      log(`✗ Trigger-Element für "color" nicht gefunden.`);
+      return { success: false, reason: "Farbe-Trigger nicht gefunden" };
+    }
+
+    const overlaysBefore = getAllVisibleOverlays();
+    triggerEl.click();
+    await delay(400);
+
+    const overlayScope = getOverlayForTrigger(triggerEl, overlaysBefore, log);
+    if (!overlayScope) {
+      log(`✗ Kein geöffnetes Overlay für "color" gefunden.`);
+      return { success: false, reason: "Farbe-Overlay nicht geöffnet" };
+    }
+
+    const valLower = draftColor.trim().toLowerCase();
+    let colorSynonyms = COLOR_SYNONYMS[valLower] || [draftColor.trim()];
+
+    const els = getVisibleOptionElements(overlayScope);
+    const options = els
+      .map((el) => ({ el, text: el.textContent?.trim() || "" }))
+      .filter((o) => o.text.length > 0 && o.text.length < 100);
+
+    if (log) {
+      const sampleTexts = options.map((o) => o.text).slice(0, 15).join(" | ");
+      log(`  📋 Farbe Overlay Optionen (${options.length}): ${sampleTexts}`);
+      log(`  🎯 Ziel-Synonyme für Farbe: ${colorSynonyms.join(", ")}`);
+    }
+
+    let matchedOption = null;
+
+    // Pass 1: Exact text match with color synonyms
+    for (const syn of colorSynonyms) {
+      const synLower = syn.trim().toLowerCase();
+      for (const opt of options) {
+        const optLower = opt.text.toLowerCase();
+        if (optLower === synLower) {
+          matchedOption = { el: opt.el, text: opt.text, rule: "exact" };
+          break;
+        }
+      }
+      if (matchedOption) break;
+    }
+
+    // Pass 2: Word boundary prefix/contains match, avoiding bad overlap (e.g. "Blau" matching "Hellblau" or "Dunkelblau")
+    if (!matchedOption) {
+      for (const syn of colorSynonyms) {
+        const synLower = syn.trim().toLowerCase();
+        for (const opt of options) {
+          const optLower = opt.text.toLowerCase();
+
+          // Strict guard: if target is "blau" / "blue", exclude "hellblau" and "dunkelblau"
+          if (synLower === "blau" || synLower === "blue" || synLower === "bleu" || synLower === "blu") {
+            if (
+              optLower.includes("hell") ||
+              optLower.includes("dunkel") ||
+              optLower.includes("light") ||
+              optLower.includes("dark") ||
+              optLower.includes("navy") ||
+              optLower.includes("marine") ||
+              optLower.includes("clair")
+            ) {
+              continue;
+            }
+          }
+
+          const regex = new RegExp(`(?:^|\\b)${CSS.escape(synLower)}(?:$|\\b)`, "i");
+          if (regex.test(optLower)) {
+            matchedOption = { el: opt.el, text: opt.text, rule: "word_boundary" };
+            break;
+          }
+        }
+        if (matchedOption) break;
+      }
+    }
+
+    if (matchedOption && matchedOption.el) {
+      const clickableEl = resolveClickableOption(matchedOption.el, overlayScope);
+      if (!clickableEl) {
+        log(`✗ Klickbares Element für Farbe-Option "${matchedOption.text}" konnte nicht aufgelöst werden.`);
+        await closeOverlaySafely(overlayScope);
+        return { success: false, reason: "Kein klickbares Element für Farbe gefunden" };
+      }
+
+      log(`  ✓ Farbe-Option gematcht: "${matchedOption.text}" (Regel: ${matchedOption.rule}). Klicke Element...`);
+      clickableEl.click();
+      await delay(400);
+
+      // Look for confirm button strictly within THIS color overlay Scope
+      const confirmBtn = Array.from(overlayScope.querySelectorAll('button, [role="button"]')).find((b) => {
+        if (!isSafeInteractiveElement(b)) return false;
+        const bt = b.textContent?.trim().toLowerCase() || "";
+        return ["fertig", "done", "anwenden", "apply", "bestätigen", "confirm"].includes(bt);
+      });
+
+      if (confirmBtn) {
+        log(`  ✓ Bestätigungs-Button im Farb-Overlay geklickt ("${confirmBtn.textContent?.trim()}")`);
+        confirmBtn.click();
+        await delay(400);
+      }
+
+      const remainingOverlay = getOpenOverlayScope();
+      if (remainingOverlay) {
+        await closeOverlaySafely(remainingOverlay);
+      }
+
+      // Verification
+      const freshContainer = getFormContainer(log);
+      const verified = verifyFieldValue(
+        findInteractiveControlByUI(freshContainer, "color", FIELD_KEYWORDS.color, log) || triggerEl,
+        colorSynonyms,
+        log
+      );
+
+      if (verified) {
+        log(`✓ Farbe "${matchedOption.text || draftColor}" erfolgreich gesetzt und im Formular verifiziert.`);
+        return { success: true };
+      } else {
+        log(`✗ Farbe "${matchedOption.text || draftColor}" geklickt, aber nicht im Formular verifiziert.`);
+        return { success: false, reason: "Auswahl geklickt, aber nicht im Formular bestätigt" };
+      }
+    }
+
+    log(`✗ Keine passende Option für Farbe "${draftColor}" in Auswahlliste gefunden.`);
+    await closeOverlaySafely(overlayScope);
+    return { success: false, reason: `Option "${draftColor}" nicht in Auswahlliste gefunden` };
+  }
+
+  // Refactored Robust Condition Selector Helper
+  async function selectVintedCondition(formContainer, draftCondition, log) {
+    log(`Versuche Zustand "${draftCondition}" zu setzen...`);
+
+    if (!draftCondition) {
+      return { success: false, reason: "Kein Wert" };
+    }
+
+    const activeContainer = getFormContainer(log) || formContainer;
+    const triggerEl = findInteractiveControlByUI(activeContainer, "condition", FIELD_KEYWORDS.condition, log);
+
+    if (!triggerEl) {
+      log(`✗ Trigger-Element für "condition" nicht gefunden.`);
+      return { success: false, reason: "Zustand-Trigger nicht gefunden" };
+    }
+
+    const overlaysBefore = getAllVisibleOverlays();
+    triggerEl.click();
+    await delay(400);
+
+    const overlayScope = getOverlayForTrigger(triggerEl, overlaysBefore, log);
+    if (!overlayScope) {
+      log(`✗ Kein geöffnetes Overlay für "condition" gefunden.`);
+      return { success: false, reason: "Zustand-Overlay nicht geöffnet" };
+    }
+
+    const valLower = draftCondition.trim().toLowerCase();
+    let conditionSynonyms = CONDITION_SYNONYMS[valLower] || [draftCondition.trim()];
+
+    const els = getVisibleOptionElements(overlayScope);
+    const options = els
+      .map((el) => ({ el, text: el.textContent?.trim() || "" }))
+      .filter((o) => o.text.length > 0 && o.text.length < 150);
+
+    if (log) {
+      const sampleTexts = options.map((o) => o.text).slice(0, 15).join(" | ");
+      log(`  📋 Zustand Overlay Optionen (${options.length}): ${sampleTexts}`);
+      log(`  🎯 Ziel-Synonyme für Zustand: ${conditionSynonyms.join(", ")}`);
+    }
+
+    let matchedOption = null;
+
+    // Pass 1: Exact text match
+    for (const syn of conditionSynonyms) {
+      const synLower = syn.trim().toLowerCase();
+      for (const opt of options) {
+        const optLower = opt.text.toLowerCase();
+        if (optLower === synLower) {
+          matchedOption = { el: opt.el, text: opt.text, rule: "exact" };
+          break;
+        }
+      }
+      if (matchedOption) break;
+    }
+
+    // Pass 2: Desired condition at text start with clean word boundary (e.g. "Sehr gut - wenig getragen")
+    if (!matchedOption) {
+      for (const syn of conditionSynonyms) {
+        const synLower = syn.trim().toLowerCase();
+
+        for (const opt of options) {
+          const optLower = opt.text.toLowerCase();
+
+          // Strict guard: If target is "Gut" or "Good", exclude "Sehr gut" or "Very good"!
+          if (synLower === "gut" || synLower === "good" || synLower === "bon état" || synLower === "buone condizioni") {
+            if (optLower.includes("sehr") || optLower.includes("very") || optLower.includes("très") || optLower.includes("ottime")) {
+              continue;
+            }
+          }
+
+          const regex = new RegExp(`^\\s*${CSS.escape(synLower)}(?:$|[\\s\\.,\\-\\:\\/])`, "i");
+          if (regex.test(optLower)) {
+            matchedOption = { el: opt.el, text: opt.text, rule: "prefix_boundary" };
+            break;
+          }
+        }
+        if (matchedOption) break;
+      }
+    }
+
+    if (matchedOption && matchedOption.el) {
+      const clickableEl = resolveClickableOption(matchedOption.el, overlayScope);
+      if (!clickableEl) {
+        log(`✗ Klickbares Element für Zustand-Option "${matchedOption.text}" konnte nicht aufgelöst werden.`);
+        await closeOverlaySafely(overlayScope);
+        return { success: false, reason: "Kein klickbares Element für Zustand gefunden" };
+      }
+
+      log(`  ✓ Zustand-Option gematcht: "${matchedOption.text}" (Regel: ${matchedOption.rule}). Klicke Element...`);
+      clickableEl.click();
+      await delay(400);
+
+      const remainingOverlay = getOpenOverlayScope();
+      if (remainingOverlay) {
+        await closeOverlaySafely(remainingOverlay);
+      }
+
+      // Verification
+      const freshContainer = getFormContainer(log);
+      const verified = verifyFieldValue(
+        findInteractiveControlByUI(freshContainer, "condition", FIELD_KEYWORDS.condition, log) || triggerEl,
+        conditionSynonyms,
+        log
+      );
+
+      if (verified) {
+        log(`✓ Zustand "${matchedOption.text || draftCondition}" erfolgreich gesetzt und im Formular verifiziert.`);
+        return { success: true };
+      } else {
+        log(`✗ Zustand "${matchedOption.text || draftCondition}" geklickt, aber nicht im Formular verifiziert.`);
+        return { success: false, reason: "Auswahl geklickt, aber nicht im Formular bestätigt" };
+      }
+    }
+
+    log(`✗ Keine passende Option für Zustand "${draftCondition}" in Auswahlliste gefunden.`);
+    await closeOverlaySafely(overlayScope);
+    return { success: false, reason: `Option "${draftCondition}" nicht in Auswahlliste gefunden` };
+  }
+
+  // Single Dropdown Option Selector Helper (Brand)
   async function selectVintedOption(
     formContainer,
     fieldName,
@@ -1005,7 +1734,7 @@
 
     try {
       if (!desiredValue) {
-        return { success: false, reason: "Kein Zielwert angegeben" };
+        return { success: false, reason: "Kein Wert" };
       }
 
       const activeContainer = getFormContainer(log) || formContainer;
@@ -1016,39 +1745,21 @@
         return { success: false, reason: `Dropdown-Element für "${fieldName}" nicht gefunden` };
       }
 
+      const overlaysBefore = getAllVisibleOverlays();
       triggerEl.click();
       await delay(400);
 
-      const overlayScope = getOpenOverlayScope();
+      const overlayScope = getOverlayForTrigger(triggerEl, overlaysBefore, log);
       if (!overlayScope) {
         log(`✗ Kein geöffnetes Dropdown/Modal für "${fieldName}" gefunden.`);
         return { success: false, reason: `Overlay für "${fieldName}" nicht geöffnet` };
       }
 
-      await handleOverlaySearchInput(overlayScope, desiredValue, log);
-
-      let desiredSynonyms = [desiredValue];
-      const valLower = desiredValue.trim().toLowerCase();
-      if (fieldName === "condition" && CONDITION_SYNONYMS[valLower]) {
-        desiredSynonyms = CONDITION_SYNONYMS[valLower];
-      } else if (fieldName === "color" && COLOR_SYNONYMS[valLower]) {
-        desiredSynonyms = COLOR_SYNONYMS[valLower];
-      } else if (fieldName === "size") {
-        // Build size variations (e.g. W36 -> ["W36", "36", "W 36", "36W", "W36/L32", "W36 L32"])
-        const cleanVal = valLower.replace(/\s+/g, "");
-        desiredSynonyms = [desiredValue, cleanVal];
-        if (cleanVal.startsWith("w")) {
-          const numPart = cleanVal.slice(1);
-          if (numPart) {
-            desiredSynonyms.push(numPart);
-            desiredSynonyms.push(`w ${numPart}`);
-            desiredSynonyms.push(`${numPart}w`);
-            desiredSynonyms.push(`w${numPart}`);
-          }
-        }
-      } else if (fieldName === "brand") {
-        desiredSynonyms = [desiredValue, desiredValue.toLowerCase(), desiredValue.toUpperCase()];
+      if (fieldName === "brand") {
+        await handleOverlaySearchInput(overlayScope, desiredValue, log);
       }
+
+      let desiredSynonyms = [desiredValue, desiredValue.toLowerCase(), desiredValue.toUpperCase()];
 
       let matchedOption = null;
       for (let attempt = 0; attempt < 5; attempt++) {
@@ -1059,12 +1770,12 @@
 
       if (matchedOption) {
         const optionText = matchedOption.textContent?.trim() || desiredValue;
-        matchedOption.click();
+        const clickableEl = resolveClickableOption(matchedOption, overlayScope) || matchedOption;
+        clickableEl.click();
         await delay(400);
 
         let remainingOverlay = getOpenOverlayScope();
         if (remainingOverlay) {
-          // Look for explicit submit/confirm button (e.g. "Fertig", "Done", "Anwenden", "Speichern", "Anzeigen")
           const confirmBtn = remainingOverlay.querySelector(
             'button[type="submit"], button[data-testid*="submit" i], button[data-testid*="confirm" i], button[data-testid*="done" i], button[data-testid*="apply" i]'
           ) || Array.from(remainingOverlay.querySelectorAll('button, [role="button"]')).find((b) => {
@@ -1262,11 +1973,10 @@
     }
 
     if (draft.size) {
-      results.size = await selectVintedOption(
+      results.size = await selectVintedSize(
         getFormContainer(log),
-        "size",
-        FIELD_KEYWORDS.size,
         draft.size,
+        draft.gender,
         log
       );
     } else {
@@ -1274,10 +1984,8 @@
     }
 
     if (draft.color) {
-      results.color = await selectVintedOption(
+      results.color = await selectVintedColor(
         getFormContainer(log),
-        "color",
-        FIELD_KEYWORDS.color,
         draft.color,
         log
       );
@@ -1286,10 +1994,8 @@
     }
 
     if (draft.condition) {
-      results.condition = await selectVintedOption(
+      results.condition = await selectVintedCondition(
         getFormContainer(log),
-        "condition",
-        FIELD_KEYWORDS.condition,
         draft.condition,
         log
       );
