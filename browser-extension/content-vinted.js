@@ -815,7 +815,7 @@
 
   // Check if field value displays expected value or synonym after selection
   function verifyFieldValue(triggerEl, expectedSynonyms, log) {
-    if (!expectedSynonyms) return false;
+    if (!triggerEl || !expectedSynonyms) return false;
     const candidates = Array.isArray(expectedSynonyms)
       ? expectedSynonyms.map((s) => s.trim().toLowerCase()).filter(Boolean)
       : [expectedSynonyms.trim().toLowerCase()];
@@ -823,8 +823,18 @@
     let container = triggerEl;
     for (let depth = 0; depth < 3 && container; depth++) {
       const text = container.textContent?.trim().toLowerCase() || "";
+      const inputs = Array.from(container.querySelectorAll("input, select, textarea"));
+      const inputValues = inputs.map((i) => i.value?.trim().toLowerCase()).filter(Boolean);
+      const ariaLabel = container.getAttribute?.("aria-label")?.trim().toLowerCase() || "";
+      const testId = container.getAttribute?.("data-testid")?.trim().toLowerCase() || "";
+
       for (const targetLower of candidates) {
-        if (text.includes(targetLower)) {
+        if (
+          text.includes(targetLower) ||
+          inputValues.some((v) => v.includes(targetLower)) ||
+          ariaLabel.includes(targetLower) ||
+          testId.includes(targetLower)
+        ) {
           return true;
         }
       }
@@ -840,15 +850,15 @@
     log(`Versuche Kategorie "${draftCategory}" zu setzen (Erkannte Sprache: ${pageLang.toUpperCase()})...`);
 
     const triggerKeywords = ["category", "kategorie", "catalog", "catégorie"];
-    const triggerEl = findFieldTrigger(formContainer, "category", triggerKeywords, log);
+    const oldTriggerEl = findFieldTrigger(formContainer, "category", triggerKeywords, log);
 
-    if (!triggerEl) {
+    if (!oldTriggerEl) {
       log("✗ Kategorie-Trigger im Formular nicht gefunden.");
       diagnoseFieldDOM(formContainer, "category", triggerKeywords, log);
       return { success: false, reason: "Kategorie-Trigger nicht gefunden" };
     }
 
-    triggerEl.click();
+    oldTriggerEl.click();
     await delay(400);
 
     let overlayScope = getOpenOverlayScope();
@@ -884,10 +894,18 @@
       log(`  ✓ Zielkategorie direkt gefunden und geklickt: "${optionText}"`);
       directOption.click();
       finalLeafClicked = true;
-      await delay(400);
+      await delay(600); // Wait for React/UI update
 
       const remainingOverlay = getOpenOverlayScope();
-      const verified = verifyFieldValue(triggerEl, leafSynonyms, log);
+      const currentContainer = getFormContainer(log);
+      const freshTriggerEl = findFieldTrigger(currentContainer, "category", triggerKeywords, log) || oldTriggerEl;
+      const detachedOldTrigger = !document.body.contains(oldTriggerEl);
+
+      const textVal = freshTriggerEl?.textContent?.trim().replace(/\s+/g, " ") || "";
+      const inputVal = freshTriggerEl?.querySelector("input, select")?.value || freshTriggerEl?.value || "";
+      log(`Category after click: text="${textVal}", value="${inputVal}", detachedOldTrigger=${detachedOldTrigger}`);
+
+      const verified = verifyFieldValue(freshTriggerEl, leafSynonyms, log);
 
       if (verified || !remainingOverlay) {
         if (remainingOverlay) {
@@ -899,7 +917,7 @@
 
       log(`⚠ Klick auf Zielkategorie "${draftCategory}" konnte nicht im Feld verifiziert werden und Modal ist noch offen.`);
       await closeOverlaySafely(remainingOverlay);
-      diagnoseFieldDOM(remainingOverlay || formContainer, "category", leafSynonyms, log);
+      diagnoseFieldDOM(remainingOverlay || currentContainer, "category", leafSynonyms, log);
       return {
         success: false,
         reason: `Zielkategorie "${draftCategory}" geklickt, aber im Feld nicht verifiziert`,
@@ -927,7 +945,7 @@
         log(`  ✓ Zielkategorie im Modal gefunden und geklickt: "${leafText}"`);
         leafOption.click();
         finalLeafClicked = true;
-        await delay(400);
+        await delay(600); // Wait for React/UI update
         break;
       }
 
@@ -940,14 +958,22 @@
         if (isLastStep) {
           finalLeafClicked = true;
         }
-        await delay(400);
+        await delay(600); // Wait for React/UI update
       } else {
         log(`  ℹ Kategorie-Schritt ${i + 1}/${categoryPath.length} ("${currentStepSynonyms.join('/')}") nicht im Modal vorhanden.`);
       }
     }
 
     const remainingOverlay = getOpenOverlayScope();
-    const verified = verifyFieldValue(triggerEl, leafSynonyms, log);
+    const currentContainer = getFormContainer(log);
+    const freshTriggerEl = findFieldTrigger(currentContainer, "category", triggerKeywords, log) || oldTriggerEl;
+    const detachedOldTrigger = !document.body.contains(oldTriggerEl);
+
+    const textVal = freshTriggerEl?.textContent?.trim().replace(/\s+/g, " ") || "";
+    const inputVal = freshTriggerEl?.querySelector("input, select")?.value || freshTriggerEl?.value || "";
+    log(`Category after click: text="${textVal}", value="${inputVal}", detachedOldTrigger=${detachedOldTrigger}`);
+
+    const verified = verifyFieldValue(freshTriggerEl, leafSynonyms, log);
 
     // Success ONLY if final leaf category was clicked AND (verified OR modal closed by Vinted)
     if (finalLeafClicked && (verified || !remainingOverlay)) {
@@ -963,7 +989,7 @@
     }
 
     log(`✗ Kategorie-Auswahl für "${draftCategory}" gescheitert. Finale Leaf-Kategorie nicht gesichert.`);
-    diagnoseFieldDOM(overlayScope || formContainer, "category", leafSynonyms, log);
+    diagnoseFieldDOM(remainingOverlay || currentContainer, "category", leafSynonyms, log);
     return {
       success: false,
       reason: `Kategorie "${draftCategory}" konnte nicht sicher im Feld verifiziert werden`,
@@ -985,20 +1011,22 @@
         return { success: false, reason: "Kein Zielwert angegeben" };
       }
 
-      const triggerEl = findFieldTrigger(formContainer, fieldName, fieldKeywords, log);
+      const activeContainer = getFormContainer(log) || formContainer;
+      const oldTriggerEl = findFieldTrigger(activeContainer, fieldName, fieldKeywords, log);
 
-      if (!triggerEl) {
+      if (!oldTriggerEl) {
         log(`✗ Dropdown-Element für "${fieldName}" nicht gefunden.`);
+        diagnoseFieldDOM(activeContainer, fieldName, fieldKeywords, log);
         return { success: false, reason: `Dropdown-Element für "${fieldName}" nicht gefunden` };
       }
 
-      triggerEl.click();
+      oldTriggerEl.click();
       await delay(400);
 
       const overlayScope = getOpenOverlayScope();
       if (!overlayScope) {
         log(`✗ Kein geöffnetes Dropdown/Modal für "${fieldName}" gefunden.`);
-        diagnoseFieldDOM(formContainer, fieldName, fieldKeywords, log);
+        diagnoseFieldDOM(activeContainer, fieldName, fieldKeywords, log);
         return { success: false, reason: `Overlay für "${fieldName}" nicht geöffnet` };
       }
 
@@ -1022,14 +1050,17 @@
       if (matchedOption) {
         const optionText = matchedOption.textContent?.trim() || desiredValue;
         matchedOption.click();
-        await delay(400);
+        await delay(500); // Wait for React/UI re-render
 
         const remainingOverlay = getOpenOverlayScope();
         if (remainingOverlay) {
           await closeOverlaySafely(remainingOverlay);
         }
 
-        const verified = verifyFieldValue(triggerEl, desiredSynonyms, log);
+        const freshContainer = getFormContainer(log);
+        const freshTriggerEl = findFieldTrigger(freshContainer, fieldName, fieldKeywords, log) || oldTriggerEl;
+
+        const verified = verifyFieldValue(freshTriggerEl, desiredSynonyms, log);
         if (verified) {
           log(`✓ Dropdown "${fieldName}" auf "${optionText}" gesetzt und verifiziert.`);
         } else {
@@ -1128,6 +1159,7 @@
 
     // 3. Fill Price
     try {
+      log(`[Price Debug] draft.price=${draft.price}`);
       if (draft.price !== undefined && draft.price !== null) {
         const priceVal = String(draft.price);
         const priceEl = findInputField(
@@ -1151,14 +1183,14 @@
         }
       } else {
         results.price = { success: false, reason: "Kein Preis angegeben" };
-        log("ℹ Kein Preis im Draft/Payload vorhanden (result.pricing.listingPrice war undefined/nicht gesetzt). Kein erfundener Preis eingesetzt.");
+        log(`ℹ Kein Preis im Draft/Payload vorhanden (draft.price=${draft.price}). Kein erfundener Preis eingesetzt.`);
       }
     } catch (e) {
       results.price = { success: false, reason: e.message };
       log(`✗ Fehler bei Preis: ${e.message}`);
     }
 
-    // 4. Dropdowns (Kategorie, Marke, Größe, Farbe, Zustand)
+    // 4. Dropdowns in strict sequence: Category -> (wait for form update) -> Brand -> Size -> Color -> Condition
     if (draft.category) {
       results.category = await selectVintedCategory(
         formContainer,
@@ -1170,9 +1202,21 @@
       results.category = { success: false, reason: "Kein Wert" };
     }
 
+    // Wait for form update after category selection before attempting dependent fields
+    log("Warte 800 ms auf Formular-Update nach Kategorie-Auswahl...");
+    await delay(800);
+
+    // Re-evaluate formContainer from current DOM
+    let activeFormContainer = getFormContainer(log);
+
+    if (!results.category.success) {
+      log("⚠ Hinweis: Kategorie konnte nicht sicher verifiziert werden. Abhängige Felder (Marke, Größe, Farbe, Zustand) sind auf Vinted eventuell noch nicht eingeblendet.");
+    }
+
     if (draft.brand) {
+      activeFormContainer = getFormContainer(log);
       results.brand = await selectVintedOption(
-        formContainer,
+        activeFormContainer,
         "brand",
         ["brand", "marke", "marque", "marca"],
         draft.brand,
@@ -1183,8 +1227,9 @@
     }
 
     if (draft.size) {
+      activeFormContainer = getFormContainer(log);
       results.size = await selectVintedOption(
-        formContainer,
+        activeFormContainer,
         "size",
         ["size", "größe", "grosse", "taille", "talla"],
         draft.size,
@@ -1195,8 +1240,9 @@
     }
 
     if (draft.color) {
+      activeFormContainer = getFormContainer(log);
       results.color = await selectVintedOption(
-        formContainer,
+        activeFormContainer,
         "color",
         ["color", "colour", "farbe", "couleur"],
         draft.color,
@@ -1207,8 +1253,9 @@
     }
 
     if (draft.condition) {
+      activeFormContainer = getFormContainer(log);
       results.condition = await selectVintedOption(
-        formContainer,
+        activeFormContainer,
         "condition",
         ["condition", "zustand", "état", "estado"],
         draft.condition,

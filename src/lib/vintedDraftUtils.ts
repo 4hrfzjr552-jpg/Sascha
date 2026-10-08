@@ -217,6 +217,10 @@ export async function getVintedDraftPayload(
     }
   }
 
+  console.log(
+    `[VintedDraftPayload] Price debug (Draft ID: ${draft.id}): draft.price=${draft.price}, activePant.result.pricing?.listingPrice=${activePant?.result?.pricing?.listingPrice}, resolvedPrice=${resolvedPrice}`
+  );
+
   if (resolvedPrice === undefined || resolvedPrice === null) {
     console.log(
       `[VintedDraftPayload] kein listingPrice in result.pricing vorhanden (Draft ID: ${draft.id})`
