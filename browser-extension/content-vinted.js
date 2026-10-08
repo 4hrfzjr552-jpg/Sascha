@@ -22,9 +22,7 @@
   });
 
   // Detect language of Vinted UI
-  // Priority: 1. document.documentElement.lang -> 2. Visible UI text -> 3. Domain/Hostname fallback
   function detectVintedLanguage() {
-    // 1. Check document.documentElement.lang
     const htmlLang = (document.documentElement.lang || "").toLowerCase();
     if (htmlLang.startsWith("en")) return "en";
     if (htmlLang.startsWith("de")) return "de";
@@ -32,7 +30,6 @@
     if (htmlLang.startsWith("es")) return "es";
     if (htmlLang.startsWith("it")) return "it";
 
-    // 2. Check visible UI / body text (allows detecting English UI on vinted.de)
     const bodyText = (document.body?.innerText || "").slice(0, 2000).toLowerCase();
     if (
       bodyText.includes("select a category") ||
@@ -52,7 +49,6 @@
       return "de";
     }
 
-    // 3. Domain / Hostname fallback LAST
     const host = window.location.hostname.toLowerCase();
     if (host.endsWith(".co.uk") || host.endsWith(".com")) return "en";
     if (host.endsWith(".fr")) return "fr";
@@ -63,15 +59,10 @@
 
   // Synonym dictionaries for category steps and dropdown values
   const CATEGORY_SYNONYMS = {
-    // Gender / Target Section
     herren: ["Herren", "Men", "Men's", "Homme", "Uomo", "Mannen", "Männer", "Männlich"],
     damen: ["Damen", "Women", "Women's", "Femme", "Donna", "Dames", "Frauen", "Weiblich"],
     kinder: ["Kinder", "Kids", "Children", "Enfants", "Bambini", "Kinderen"],
-
-    // Main Category
     kleidung: ["Kleidung", "Clothing", "Clothes", "Vêtements", "Kleding", "Abbigliamento", "Ropa"],
-
-    // Subcategory / Leaf Category
     hosen: ["Hosen", "Trousers", "Pants", "Pantalons", "Broeken", "Pantaloni"],
     jeans: ["Jeans", "Denim"],
     stoffhosen: ["Stoffhosen & Chinos", "Stoffhosen", "Chinos", "Trousers", "Pants", "Pantalons en tissu"],
@@ -85,6 +76,15 @@
     "sehr gut": ["Sehr gut", "Very good", "Very Good", "Très bon état", "Ottime condizioni", "Sehr Gut"],
     "gut": ["Gut", "Good", "Bon état", "Buone condizioni"],
     "zufriedenstellend": ["Zufriedenstellend", "Satisfactory", "Fair", "Satisfaisant", "In ordine"],
+  };
+
+  // Field keywords for visible UI matching
+  const FIELD_KEYWORDS = {
+    category: ["Kategorie", "Category", "Select a category"],
+    brand: ["Marke", "Brand", "Marke auswählen", "Select brand"],
+    size: ["Größe", "Size", "Größe auswählen", "Select size"],
+    condition: ["Zustand", "Condition", "Zustand auswählen"],
+    color: ["Farbe", "Color", "Colour"],
   };
 
   // Helper to set input/textarea value with React-compatible dispatch
@@ -121,14 +121,12 @@
 
     const artNrTag = `#${artNr}`;
 
-    // Strip leading article number if present (e.g., "#42 Diesel...", "42 - Diesel...", "#42 - Diesel...")
     const escapedArtNr = artNr.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&");
     const leadingRegex = new RegExp(`^#?${escapedArtNr}\\b[\\s:-]*`, "i");
     if (leadingRegex.test(baseTitle)) {
       baseTitle = baseTitle.replace(leadingRegex, "").trim();
     }
 
-    // If title already contains the article tag (#42), do not duplicate
     if (baseTitle.includes(artNrTag)) {
       return baseTitle;
     }
@@ -184,12 +182,10 @@
     }
   }
 
-  // Helper to pause execution
   function delay(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  // Check element visibility
   function isElementVisible(el) {
     if (!el) return false;
     const style = window.getComputedStyle(el);
@@ -202,16 +198,13 @@
     );
   }
 
-  // Check if an element is safe to click (not link, no href, not navigation/sidebar/header)
   function isSafeInteractiveElement(el) {
     if (!el || !isElementVisible(el)) return false;
 
-    // Reject links or elements with href attribute
     if (el.tagName === "A" || el.hasAttribute("href") || el.closest("a")) {
       return false;
     }
 
-    // Reject elements inside navigation, header, footer, or sidebars
     if (
       el.closest(
         'nav, header, footer, [role="navigation"], sidebar, .sidebar, #sidebar, [data-testid*="header"], [data-testid*="footer"], [data-testid*="nav"]'
@@ -229,7 +222,6 @@
     return keywords.some((kw) => lower.includes(kw.toLowerCase()));
   }
 
-  // Count presence of selling fields inside container
   function countSellFieldsInContainer(container) {
     if (!container) return 0;
     const keywords = [
@@ -261,23 +253,12 @@
     return score;
   }
 
-  function logContainerSelection(el, reason, log) {
-    const tag = el && el.tagName ? el.tagName.toUpperCase() : "UNKNOWN";
-    const id = (el && el.id) || "(keine)";
-    const className = el && el.className && typeof el.className === "string" ? el.className.trim() : "(keine)";
-    const testId = el && el.getAttribute ? (el.getAttribute("data-testid") || "(keines)") : "(keines)";
-
-    const msg = `Formular-Container gewählt (${reason}): Tag=${tag}, id=${id}, class=${className}, data-testid=${testId}`;
-    if (log) {
-      log(`[FormContainer] ${msg}`);
-    } else {
-      console.log(`[SaschaAI-Vinted] [FormContainer] ${msg}`);
-    }
-  }
-
-  // Get the main Vinted seller form container
   function getFormContainer(log) {
     const mainEl = document.querySelector("main");
+    if (mainEl && isElementVisible(mainEl)) {
+      return mainEl;
+    }
+
     const specificSelectors = [
       '[data-testid*="item-form"]',
       '[data-testid*="sell-form"]',
@@ -287,49 +268,236 @@
       '.cell-form',
     ];
 
-    function evaluateContainer(el) {
-      if (!el || !isElementVisible(el)) return -1;
-      if (el.closest('nav, header, footer, [role="navigation"], sidebar, .sidebar, #sidebar')) {
-        return -1;
-      }
-      return countSellFieldsInContainer(el);
-    }
-
-    // 1. First check specific sell form selectors with fields
     for (const sel of specificSelectors) {
       const candidate = document.querySelector(sel);
-      if (candidate) {
-        const score = evaluateContainer(candidate);
-        if (score >= 1) {
-          logContainerSelection(candidate, "Spezifischer Verkaufs-Formular-Selector", log);
-          return candidate;
-        }
+      if (candidate && isElementVisible(candidate)) {
+        return candidate;
       }
     }
 
-    // 2. Check main element if available and contains selling fields
-    if (mainEl && isElementVisible(mainEl)) {
-      const score = evaluateContainer(mainEl);
-      if (score >= 1) {
-        logContainerSelection(mainEl, "Main-Element mit Verkaufsfeldern", log);
-        return mainEl;
-      }
-    }
-
-    // 3. Check generic forms, but ONLY if they actually contain selling fields (score >= 2)
     const forms = Array.from(document.querySelectorAll("form"));
     for (const form of forms) {
-      const score = evaluateContainer(form);
-      if (score >= 2) {
-        logContainerSelection(form, "Formular mit Verkaufsfeldern", log);
+      if (countSellFieldsInContainer(form) >= 2) {
         return form;
       }
     }
 
-    // 4. Fallback: Use main if available, otherwise document.body
-    const fallback = (mainEl && isElementVisible(mainEl)) ? mainEl : document.body;
-    logContainerSelection(fallback, "Sicherer Such-Root Fallback (main/body)", log);
-    return fallback;
+    return mainEl || document.body;
+  }
+
+  /**
+   * Gather visible interactive controls strictly within form container / main,
+   * excluding description textareas and description wrappers.
+   */
+  function getInteractiveControls(rootEl) {
+    const root = rootEl || document.querySelector("main") || document.body;
+
+    const descriptionAreas = Array.from(
+      root.querySelectorAll(
+        'textarea, [data-testid*="description" i], [name*="description" i], [id*="description" i]'
+      )
+    );
+
+    const candidateSelectors = [
+      "button",
+      "[role='button']",
+      "[role='combobox']",
+      "[aria-haspopup]",
+      "select",
+      "input:not([type='hidden']):not([type='file'])"
+    ];
+
+    let candidates = [];
+    try {
+      candidates = Array.from(root.querySelectorAll(candidateSelectors.join(", ")));
+    } catch (e) {
+      candidates = [];
+    }
+
+    return candidates.filter((el) => {
+      if (!isElementVisible(el)) return false;
+      if (!isSafeInteractiveElement(el)) return false;
+
+      // Exclude controls inside description container or textarea
+      for (const descArea of descriptionAreas) {
+        if (descArea.contains(el) || el === descArea) return false;
+      }
+
+      // Check parent tree up to 4 levels for description indicators
+      let p = el.parentElement;
+      for (let depth = 0; depth < 4 && p && p !== root; depth++) {
+        if (p.tagName === "TEXTAREA") return false;
+        const testId = p.getAttribute?.("data-testid") || "";
+        const name = p.getAttribute?.("name") || "";
+        const id = p.id || "";
+        if (
+          testId.toLowerCase().includes("description") ||
+          name.toLowerCase().includes("description") ||
+          id.toLowerCase().includes("description")
+        ) {
+          return false;
+        }
+        p = p.parentElement;
+      }
+
+      return true;
+    });
+  }
+
+  // Get text context surrounding an interactive control
+  function getControlTextContext(control) {
+    if (!control) return { ownText: "", ariaLabel: "", placeholder: "", value: "", labelText: "", parentText: "", prevText: "", nextText: "" };
+
+    const ownText = control.textContent?.trim().replace(/\s+/g, " ") || "";
+    const ariaLabel = control.getAttribute?.("aria-label")?.trim() || "";
+    const placeholder = control.getAttribute?.("placeholder")?.trim() || "";
+    const value = control.value?.trim() || "";
+
+    let labelText = "";
+    if (control.id) {
+      try {
+        const label = document.querySelector(`label[for="${CSS.escape(control.id)}"]`);
+        if (label) labelText = label.textContent?.trim().replace(/\s+/g, " ") || "";
+      } catch (e) {
+        // Fallback
+      }
+    }
+
+    let parentText = "";
+    const parentEl = control.parentElement;
+    if (parentEl) {
+      parentText = parentEl.textContent?.trim().replace(/\s+/g, " ") || "";
+    }
+
+    let prevText = "";
+    const prevEl = control.previousElementSibling;
+    if (prevEl) {
+      prevText = prevEl.textContent?.trim().replace(/\s+/g, " ") || "";
+    }
+
+    let nextText = "";
+    const nextEl = control.nextElementSibling;
+    if (nextEl) {
+      nextText = nextEl.textContent?.trim().replace(/\s+/g, " ") || "";
+    }
+
+    return {
+      ownText,
+      ariaLabel,
+      placeholder,
+      value,
+      labelText,
+      parentText,
+      prevText,
+      nextText,
+    };
+  }
+
+  /**
+   * Find an interactive control matching field keywords by visible UI text and surrounding context.
+   */
+  function findInteractiveControlByUI(root, fieldName, fieldKeywords, log) {
+    const controls = getInteractiveControls(root);
+
+    for (const ctrl of controls) {
+      const ctx = getControlTextContext(ctrl);
+
+      // 1. Text of button / control itself
+      if (matchesKeywords(ctx.ownText, fieldKeywords)) {
+        if (log) log(`✓ [${fieldName}] Control über Button-Text gefunden ("${ctx.ownText}")`);
+        return ctrl;
+      }
+
+      // 2. aria-label or placeholder
+      if (matchesKeywords(ctx.ariaLabel, fieldKeywords) || matchesKeywords(ctx.placeholder, fieldKeywords)) {
+        if (log) log(`✓ [${fieldName}] Control über aria-label/placeholder gefunden ("${ctx.ariaLabel || ctx.placeholder}")`);
+        return ctrl;
+      }
+
+      // 3. Label above/for control
+      if (matchesKeywords(ctx.labelText, fieldKeywords)) {
+        if (log) log(`✓ [${fieldName}] Control über Label-Text gefunden ("${ctx.labelText}")`);
+        return ctrl;
+      }
+
+      // 4. Previous sibling element text
+      if (matchesKeywords(ctx.prevText, fieldKeywords)) {
+        if (log) log(`✓ [${fieldName}] Control über vorheriges Geschwisterelement gefunden ("${ctx.prevText.slice(0, 40)}")`);
+        return ctrl;
+      }
+
+      // 5. Next sibling element text
+      if (matchesKeywords(ctx.nextText, fieldKeywords)) {
+        if (log) log(`✓ [${fieldName}] Control über nächstes Geschwisterelement gefunden ("${ctx.nextText.slice(0, 40)}")`);
+        return ctrl;
+      }
+
+      // 6. Parent container text (if not too large)
+      if (ctx.parentText.length < 200 && matchesKeywords(ctx.parentText, fieldKeywords)) {
+        if (log) log(`✓ [${fieldName}] Control über Parent-Container-Text gefunden ("${ctx.parentText.slice(0, 50)}")`);
+        return ctrl;
+      }
+    }
+
+    // Fallback search via direct element attributes if no text context matched
+    for (const ctrl of controls) {
+      const attrStr = `${ctrl.name || ""} ${ctrl.id || ""} ${ctrl.getAttribute?.("data-testid") || ""}`.toLowerCase();
+      if (fieldKeywords.some((kw) => attrStr.includes(kw.toLowerCase()))) {
+        if (log) log(`✓ [${fieldName}] Control über Fallback-Attribut gefunden`);
+        return ctrl;
+      }
+    }
+
+    if (log) log(`✗ [${fieldName}] Kein Control über sichtbare UI ("${fieldKeywords.join(', ')}") gefunden.`);
+    return null;
+  }
+
+  // Debug up to 30 visible interactive controls with full attributes
+  function debugInteractiveControls(root, log) {
+    const controls = getInteractiveControls(root);
+    log(`[CONTROL DEBUG] ${controls.length} interaktive Controls im Formular erfasst:`);
+
+    const limit = Math.min(controls.length, 30);
+    for (let i = 0; i < limit; i++) {
+      const ctrl = controls[i];
+      const tag = ctrl.tagName ? ctrl.tagName.toUpperCase() : "UNKNOWN";
+      let text = ctrl.textContent?.trim().replace(/\s+/g, " ") || "";
+      if (text.length > 60) text = text.slice(0, 57) + "...";
+
+      const ariaLabel = ctrl.getAttribute("aria-label") || "(keines)";
+      const ariaHasPopup = ctrl.getAttribute("aria-haspopup") || "(keines)";
+      const role = ctrl.getAttribute("role") || "(keine)";
+      const dataTestid = ctrl.getAttribute("data-testid") || "(keines)";
+      const name = ctrl.getAttribute("name") || "(keine)";
+      const id = ctrl.id || "(keine)";
+      const placeholder = ctrl.getAttribute("placeholder") || "(keiner)";
+
+      log(
+        `[CONTROL ${i}] tag=${tag} text="${text}" role=${role} aria-haspopup=${ariaHasPopup} data-testid=${dataTestid} name=${name} id=${id} placeholder=${placeholder}`
+      );
+    }
+  }
+
+  // Wait for new interactive controls to appear post category selection
+  async function waitForNewControls(root, initialCount, log) {
+    log(`Warte auf neue Controls nach Kategorie-Auswahl (vorher: ${initialCount} Controls)...`);
+    const maxWait = 2000;
+    const interval = 200;
+    let elapsed = 0;
+
+    while (elapsed < maxWait) {
+      await delay(interval);
+      elapsed += interval;
+
+      const currentControls = getInteractiveControls(root);
+      if (currentControls.length > initialCount) {
+        log(`✓ Neue Controls aufgetaucht nach ${elapsed}ms (jetzt ${currentControls.length} Controls).`);
+        return currentControls;
+      }
+    }
+
+    log(`ℹ Control-Anzahl nach ${maxWait}ms unverändert (${initialCount} Controls). Fahre fort.`);
+    return getInteractiveControls(root);
   }
 
   // Find input field restricted to form container
@@ -413,208 +581,6 @@
     return null;
   }
 
-  // Find trigger button/cell for a dropdown field within form container
-  function findFieldTrigger(formContainer, fieldName, fieldKeywords, log) {
-    if (!formContainer) formContainer = getFormContainer(log);
-
-    const matchInfo = (el, strategy) => {
-      const tag = el.tagName ? el.tagName.toUpperCase() : "UNKNOWN";
-      const id = el.id || "(keine)";
-      const className = el.className && typeof el.className === "string" ? el.className.trim() : "(keine)";
-      const testId = el.getAttribute ? (el.getAttribute("data-testid") || "(keines)") : "(keines)";
-      const role = el.getAttribute ? (el.getAttribute("role") || "(keine)") : "(keine)";
-      const ariaHasPopup = el.getAttribute ? (el.getAttribute("aria-haspopup") || "(keines)") : "(keines)";
-      return `[${fieldName}] Trigger gefunden via ${strategy}: Tag=${tag}, id=${id}, class=${className}, data-testid=${testId}, role=${role}, aria-haspopup=${ariaHasPopup}`;
-    };
-
-    // Strategy 1: Visible field title / label search (finds "Brand", "Size", "Color", "Condition", "Category")
-    const labelCandidates = Array.from(
-      formContainer.querySelectorAll("label, span, p, div, h1, h2, h3, h4, h5, h6")
-    );
-
-    for (const label of labelCandidates) {
-      if (!isElementVisible(label)) continue;
-      const text = label.textContent?.trim() || "";
-      if (text.length > 0 && text.length < 80 && matchesKeywords(text, fieldKeywords)) {
-        // Check label[for]
-        if (label.htmlFor) {
-          try {
-            const target = formContainer.querySelector(`#${CSS.escape(label.htmlFor)}`);
-            if (target && isSafeInteractiveElement(target)) {
-              const msg = matchInfo(target, `Sichtbarer Feldtitel Label-For ("${text}")`);
-              if (log) log(`✓ ${msg}`);
-              return target;
-            }
-          } catch (e) {
-            // CSS.escape fallback
-          }
-        }
-
-        // Search parent container up to 4 levels for interactive controls
-        let parent = label.parentElement;
-        for (let depth = 0; depth < 4 && parent && parent !== formContainer; depth++) {
-          const interactiveCandidate = parent.querySelector(
-            "button, [role='button'], [role='combobox'], [aria-haspopup], input, select, div[class*='select'], div[class*='input'], div[class*='cell'], div[class*='value'], div[class*='wrapper']"
-          );
-          if (interactiveCandidate && isSafeInteractiveElement(interactiveCandidate)) {
-            const msg = matchInfo(interactiveCandidate, `Sichtbarer Feldtitel Wrapper ("${text}")`);
-            if (log) log(`✓ ${msg}`);
-            return interactiveCandidate;
-          }
-          parent = parent.parentElement;
-        }
-      }
-    }
-
-    // Strategy 2: Direct selector on attributes & interactive elements
-    for (const kw of fieldKeywords) {
-      const selectors = [
-        `[data-testid*="${kw}" i]`,
-        `[name*="${kw}" i]`,
-        `[id*="${kw}" i]`,
-        `[aria-label*="${kw}" i]`,
-        `[placeholder*="${kw}" i]`,
-        `button[data-testid*="${kw}" i]`,
-        `[role="button"][data-testid*="${kw}" i]`,
-        `[role="combobox"][data-testid*="${kw}" i]`,
-        `[aria-haspopup="dialog"][data-testid*="${kw}" i]`,
-        `[aria-haspopup="listbox"][data-testid*="${kw}" i]`,
-      ];
-      for (const sel of selectors) {
-        const candidate = formContainer.querySelector(sel);
-        if (candidate && isSafeInteractiveElement(candidate)) {
-          const clickTarget =
-            candidate.querySelector(
-              "button, input, [role='button'], [role='combobox'], [aria-haspopup], div[class*='input'], div[class*='select']"
-            ) || candidate;
-          if (isSafeInteractiveElement(clickTarget)) {
-            const msg = matchInfo(clickTarget, `Attribut-Match ("${kw}")`);
-            if (log) log(`✓ ${msg}`);
-            return clickTarget;
-          }
-        }
-      }
-    }
-
-    // Strategy 3: Vinted row / cell / field wrappers
-    const candidateRows = Array.from(
-      formContainer.querySelectorAll(
-        '[data-testid*="cell"], [class*="cell"], [class*="row"], [class*="field"], [class*="item"], div[class*="wrapper"]'
-      )
-    );
-
-    for (const row of candidateRows) {
-      if (!isElementVisible(row)) continue;
-      const directText = Array.from(row.childNodes)
-        .filter((n) => n.nodeType === Node.TEXT_NODE)
-        .map((n) => n.textContent?.trim())
-        .filter(Boolean)
-        .join(" ");
-
-      const textToTest = directText || row.textContent?.trim() || "";
-      if (textToTest.length < 200 && matchesKeywords(textToTest, fieldKeywords)) {
-        const interactiveEl = row.querySelector(
-          "button, [role='button'], [role='combobox'], [aria-haspopup], input, select, div[class*='select'], div[class*='input'], div[class*='value']"
-        );
-        if (interactiveEl && isSafeInteractiveElement(interactiveEl)) {
-          const msg = matchInfo(interactiveEl, `Cell-Row-Interactive-Match ("${fieldName}")`);
-          if (log) log(`✓ ${msg}`);
-          return interactiveEl;
-        }
-        if (isSafeInteractiveElement(row)) {
-          const msg = matchInfo(row, `Cell-Row-Element-Match ("${fieldName}")`);
-          if (log) log(`✓ ${msg}`);
-          return row;
-        }
-      }
-    }
-
-    if (log) log(`✗ Dropdown-Trigger für "${fieldName}" nicht gefunden.`);
-    diagnoseFieldDOM(formContainer, fieldName, fieldKeywords, log);
-    return null;
-  }
-
-  // Compact DOM Diagnosis Helper for Form Fields / Dropdowns
-  function diagnoseFieldDOM(scopeEl, fieldName, fieldKeywords, log) {
-    if (!scopeEl) scopeEl = getFormContainer(log);
-    if (!log) log = (msg) => console.log(`[SaschaAI-Vinted] ${msg}`);
-
-    log(`[DOM-Diagnose ${fieldName}] Starte DOM-Diagnose für Feld "${fieldName}"...`);
-
-    const selectors = [
-      "label",
-      "button",
-      "input",
-      "select",
-      "[role='button']",
-      "[role='combobox']",
-      "[aria-haspopup]",
-      "[data-testid]",
-      "[class*='cell']",
-      "[class*='row']",
-      "[class*='field']",
-      "[class*='item']",
-      "[class*='select']",
-      "[class*='wrapper']",
-    ];
-
-    let candidateEls = [];
-    try {
-      candidateEls = Array.from(scopeEl.querySelectorAll(selectors.join(", ")));
-    } catch (e) {
-      candidateEls = Array.from(scopeEl.querySelectorAll("*"));
-    }
-
-    const seen = new Set();
-    const relevantCandidates = [];
-
-    for (const el of candidateEls) {
-      if (!isElementVisible(el)) continue;
-      if (seen.has(el)) continue;
-
-      const text = el.textContent?.trim().replace(/\s+/g, " ") || "";
-      const lowerText = text.toLowerCase();
-      const attrStr = `${el.id || ""} ${typeof el.className === "string" ? el.className : ""} ${el.getAttribute("data-testid") || ""} ${el.getAttribute("name") || ""} ${el.getAttribute("placeholder") || ""}`.toLowerCase();
-
-      const textMatches = matchesKeywords(lowerText, fieldKeywords);
-      const attrMatches = matchesKeywords(attrStr, fieldKeywords);
-
-      if (textMatches || attrMatches || el.getAttribute("aria-haspopup") || el.getAttribute("role") === "combobox") {
-        if (text.length < 150) {
-          seen.add(el);
-          relevantCandidates.push(el);
-        }
-      }
-    }
-
-    if (relevantCandidates.length === 0) {
-      log(`[DOM ${fieldName}] Keine relevanten Kandidaten im Container gefunden.`);
-      return;
-    }
-
-    const topCandidates = relevantCandidates.slice(0, 12);
-
-    for (const el of topCandidates) {
-      const tag = el.tagName ? el.tagName.toUpperCase() : "UNKNOWN";
-      const role = el.getAttribute("role") || "(keine)";
-      const ariaHasPopup = el.getAttribute("aria-haspopup") || "(keines)";
-      const testId = el.getAttribute("data-testid") || "(keines)";
-      const id = el.id || "(keine)";
-      const className = (typeof el.className === "string" ? el.className.trim() : "") || "(keine)";
-      const childBtn = Boolean(el.querySelector("button, [role='button']"));
-      const childInput = Boolean(el.querySelector("input, select, textarea"));
-
-      let textSnippet = el.textContent?.trim().replace(/\s+/g, " ") || "";
-      if (textSnippet.length > 50) {
-        textSnippet = textSnippet.slice(0, 47) + "...";
-      }
-
-      log(
-        `[DOM ${fieldName}] text="${textSnippet}" tag=${tag} role=${role} aria-haspopup=${ariaHasPopup} data-testid=${testId} id=${id} class=${className} childButton=${childBtn} childInput=${childInput}`
-      );
-    }
-  }
-
   // Get currently active dropdown or modal overlay element
   function getOpenOverlayScope() {
     const overlaySelectors = [
@@ -676,7 +642,7 @@
     await delay(200);
   }
 
-  // Handle typing in overlay search inputs (e.g. for Brand / Size search)
+  // Handle typing in overlay search inputs
   async function handleOverlaySearchInput(overlayScope, searchValue, log) {
     if (!overlayScope || !searchValue) return false;
 
@@ -688,14 +654,14 @@
       if (log) log(`  🔍 Suche im Dropdown/Modal nach: "${searchValue}"`);
       searchInput.focus();
       setNativeInputValue(searchInput, searchValue);
-      await delay(400); // Wait for filtered options to render
+      await delay(400);
       return true;
     }
 
     return false;
   }
 
-  // Find matching option element ONLY within the open overlay scope (supports synonyms / string arrays)
+  // Find matching option element ONLY within open overlay scope
   function findMatchingOptionInOverlay(overlayScope, desiredValueOrSynonyms) {
     if (!overlayScope || !desiredValueOrSynonyms) return null;
 
@@ -755,7 +721,6 @@
   function getCategoryPathSequence(categoryStr, genderStr) {
     if (!categoryStr) return [];
 
-    // If delimited by >, /, -> or ,
     if (/[>\/,-]/.test(categoryStr) && categoryStr.includes(" ")) {
       const parts = categoryStr
         .split(/[>\/]/)
@@ -769,7 +734,7 @@
     const catLower = categoryStr.trim().toLowerCase();
     const genderLower = (genderStr || "").trim().toLowerCase();
 
-    let genderSynonyms = CATEGORY_SYNONYMS.herren; // Default
+    let genderSynonyms = CATEGORY_SYNONYMS.herren;
     if (
       genderLower.includes("herren") ||
       genderLower.includes("men") ||
@@ -813,7 +778,49 @@
     return [genderSynonyms, [categoryStr.trim()]];
   }
 
-  // Check if field value displays expected value or synonym after selection
+  // Check if category is visibly confirmed as selected value in sales form
+  function isCategoryConfirmedInForm(formContainer, expectedLeafSynonyms, log) {
+    const root = formContainer || document.querySelector("main") || document.body;
+    const syns = Array.isArray(expectedLeafSynonyms)
+      ? expectedLeafSynonyms.map((s) => s.trim().toLowerCase())
+      : [expectedLeafSynonyms.trim().toLowerCase()];
+
+    const interactiveControls = getInteractiveControls(root);
+    for (const ctrl of interactiveControls) {
+      const ctx = getControlTextContext(ctrl);
+
+      for (const target of syns) {
+        if (
+          ctx.ownText.toLowerCase().includes(target) ||
+          ctx.value.toLowerCase().includes(target) ||
+          ctx.ariaLabel.toLowerCase().includes(target)
+        ) {
+          if (log) log(`✓ Kategorie "${target}" im Formular-Control verifiziert (Text="${ctx.ownText || ctx.value}")`);
+          return true;
+        }
+      }
+    }
+
+    const categoryTrig = findInteractiveControlByUI(root, "category", FIELD_KEYWORDS.category, log);
+    if (categoryTrig) {
+      let parent = categoryTrig.parentElement;
+      for (let depth = 0; depth < 3 && parent; depth++) {
+        const text = parent.textContent?.trim().toLowerCase() || "";
+        for (const target of syns) {
+          if (text.includes(target)) {
+            if (log) log(`✓ Kategorie "${target}" im Formular-Wrapper verifiziert (Text="${text.slice(0, 80)}")`);
+            return true;
+          }
+        }
+        parent = parent.parentElement;
+      }
+    }
+
+    if (log) log(`✗ Kategorie konnte im aktuellen Verkaufsformular NICHT als ausgewählter Wert ("${syns.join('/')}") verifiziert werden.`);
+    return false;
+  }
+
+  // Verify generic field value after selection
   function verifyFieldValue(triggerEl, expectedSynonyms, log) {
     if (!triggerEl || !expectedSynonyms) return false;
     const candidates = Array.isArray(expectedSynonyms)
@@ -844,41 +851,36 @@
     return false;
   }
 
-  // Refactored Category Selector Helper (Priority 1: Direct Search/Selection, Priority 2: Flexible Steps)
+  // Refactored Category Selector Helper
   async function selectVintedCategory(formContainer, draftCategory, draftGender, log) {
     const pageLang = detectVintedLanguage();
     log(`Versuche Kategorie "${draftCategory}" zu setzen (Erkannte Sprache: ${pageLang.toUpperCase()})...`);
 
-    const triggerKeywords = ["category", "kategorie", "catalog", "catégorie"];
-    const oldTriggerEl = findFieldTrigger(formContainer, "category", triggerKeywords, log);
+    const root = formContainer || getFormContainer(log);
+    const triggerEl = findInteractiveControlByUI(root, "category", FIELD_KEYWORDS.category, log);
 
-    if (!oldTriggerEl) {
+    if (!triggerEl) {
       log("✗ Kategorie-Trigger im Formular nicht gefunden.");
-      diagnoseFieldDOM(formContainer, "category", triggerKeywords, log);
       return { success: false, reason: "Kategorie-Trigger nicht gefunden" };
     }
 
-    oldTriggerEl.click();
+    triggerEl.click();
     await delay(400);
 
     let overlayScope = getOpenOverlayScope();
     if (!overlayScope) {
       log("✗ Kein geöffnetes Kategorie-Modal/Overlay gefunden.");
-      diagnoseFieldDOM(formContainer, "category", triggerKeywords, log);
       return { success: false, reason: "Kategorie-Overlay nicht geöffnet" };
     }
 
     const categoryPath = getCategoryPathSequence(draftCategory, draftGender);
     const leafSynonyms = categoryPath.length > 0 ? categoryPath[categoryPath.length - 1] : [draftCategory];
 
-    // Priority 1: Direct target category selection or direct search in modal
     log(`  🎯 Priorität 1: Versuche Zielkategorie "${draftCategory}" direkt auszuwählen oder zu suchen...`);
 
-    // Check direct option in current overlay
     let directOption = findMatchingOptionInOverlay(overlayScope, leafSynonyms);
 
     if (!directOption) {
-      // Try search input in modal if present
       const searched = await handleOverlaySearchInput(overlayScope, draftCategory, log);
       if (searched) {
         await delay(300);
@@ -894,105 +896,60 @@
       log(`  ✓ Zielkategorie direkt gefunden und geklickt: "${optionText}"`);
       directOption.click();
       finalLeafClicked = true;
-      await delay(600); // Wait for React/UI update
+      await delay(600); // Wait for React re-render
+    } else {
+      log(`  Hierarchy: Durchlaufe hierarchische Pfad-Schritte...`);
 
-      const remainingOverlay = getOpenOverlayScope();
-      const currentContainer = getFormContainer(log);
-      const freshTriggerEl = findFieldTrigger(currentContainer, "category", triggerKeywords, log) || oldTriggerEl;
-      const detachedOldTrigger = !document.body.contains(oldTriggerEl);
+      for (let i = 0; i < categoryPath.length; i++) {
+        const currentStepSynonyms = categoryPath[i];
+        overlayScope = getOpenOverlayScope();
 
-      const textVal = freshTriggerEl?.textContent?.trim().replace(/\s+/g, " ") || "";
-      const inputVal = freshTriggerEl?.querySelector("input, select")?.value || freshTriggerEl?.value || "";
-      log(`Category after click: text="${textVal}", value="${inputVal}", detachedOldTrigger=${detachedOldTrigger}`);
+        if (!overlayScope) break;
 
-      const verified = verifyFieldValue(freshTriggerEl, leafSynonyms, log);
-
-      if (verified || !remainingOverlay) {
-        if (remainingOverlay) {
-          await closeOverlaySafely(remainingOverlay);
-        }
-        log(`✓ Zielkategorie "${draftCategory}" erfolgreich verifiziert/ausgewählt.`);
-        return { success: true };
-      }
-
-      log(`⚠ Klick auf Zielkategorie "${draftCategory}" konnte nicht im Feld verifiziert werden und Modal ist noch offen.`);
-      await closeOverlaySafely(remainingOverlay);
-      diagnoseFieldDOM(remainingOverlay || currentContainer, "category", leafSynonyms, log);
-      return {
-        success: false,
-        reason: `Zielkategorie "${draftCategory}" geklickt, aber im Feld nicht verifiziert`,
-      };
-    }
-
-    // Priority 2: Flexible hierarchical steps only if direct selection was not available
-    log(`  Hierarchy: Durchlaufe hierarchische Pfad-Schritte...`);
-
-    for (let i = 0; i < categoryPath.length; i++) {
-      const currentStepSynonyms = categoryPath[i];
-      overlayScope = getOpenOverlayScope();
-
-      if (!overlayScope) {
-        log(`  ⚠ Kategorie-Modal vor Schritt ${i + 1}/${categoryPath.length} vorzeitig geschlossen.`);
-        break;
-      }
-
-      const isLastStep = i === categoryPath.length - 1;
-
-      // Check if leaf category became available before taking current step
-      const leafOption = findMatchingOptionInOverlay(overlayScope, leafSynonyms);
-      if (leafOption) {
-        const leafText = leafOption.textContent?.trim() || draftCategory;
-        log(`  ✓ Zielkategorie im Modal gefunden und geklickt: "${leafText}"`);
-        leafOption.click();
-        finalLeafClicked = true;
-        await delay(600); // Wait for React/UI update
-        break;
-      }
-
-      let matchedOption = findMatchingOptionInOverlay(overlayScope, currentStepSynonyms);
-
-      if (matchedOption) {
-        const optionText = matchedOption.textContent?.trim() || currentStepSynonyms[0];
-        log(`  ✓ Kategorie-Schritt ${i + 1}/${categoryPath.length}: "${optionText}" geklickt`);
-        matchedOption.click();
-        if (isLastStep) {
+        const leafOption = findMatchingOptionInOverlay(overlayScope, leafSynonyms);
+        if (leafOption) {
+          const leafText = leafOption.textContent?.trim() || draftCategory;
+          log(`  ✓ Zielkategorie im Modal gefunden und geklickt: "${leafText}"`);
+          leafOption.click();
           finalLeafClicked = true;
+          await delay(600);
+          break;
         }
-        await delay(600); // Wait for React/UI update
-      } else {
-        log(`  ℹ Kategorie-Schritt ${i + 1}/${categoryPath.length} ("${currentStepSynonyms.join('/')}") nicht im Modal vorhanden.`);
+
+        let matchedOption = findMatchingOptionInOverlay(overlayScope, currentStepSynonyms);
+        if (matchedOption) {
+          const optionText = matchedOption.textContent?.trim() || currentStepSynonyms[0];
+          log(`  ✓ Kategorie-Schritt ${i + 1}/${categoryPath.length}: "${optionText}" geklickt`);
+          matchedOption.click();
+          if (i === categoryPath.length - 1) {
+            finalLeafClicked = true;
+          }
+          await delay(600);
+        } else {
+          log(`  ℹ Kategorie-Schritt ${i + 1}/${categoryPath.length} ("${currentStepSynonyms.join('/')}") nicht im Modal vorhanden.`);
+        }
       }
     }
 
     const remainingOverlay = getOpenOverlayScope();
-    const currentContainer = getFormContainer(log);
-    const freshTriggerEl = findFieldTrigger(currentContainer, "category", triggerKeywords, log) || oldTriggerEl;
-    const detachedOldTrigger = !document.body.contains(oldTriggerEl);
-
-    const textVal = freshTriggerEl?.textContent?.trim().replace(/\s+/g, " ") || "";
-    const inputVal = freshTriggerEl?.querySelector("input, select")?.value || freshTriggerEl?.value || "";
-    log(`Category after click: text="${textVal}", value="${inputVal}", detachedOldTrigger=${detachedOldTrigger}`);
-
-    const verified = verifyFieldValue(freshTriggerEl, leafSynonyms, log);
-
-    // Success ONLY if final leaf category was clicked AND (verified OR modal closed by Vinted)
-    if (finalLeafClicked && (verified || !remainingOverlay)) {
-      if (remainingOverlay) {
-        await closeOverlaySafely(remainingOverlay);
-      }
-      log(`✓ Kategorie-Auswahl für "${draftCategory}" erfolgreich abgeschlossen und verifiziert.`);
-      return { success: true };
-    }
-
     if (remainingOverlay) {
       await closeOverlaySafely(remainingOverlay);
     }
 
-    log(`✗ Kategorie-Auswahl für "${draftCategory}" gescheitert. Finale Leaf-Kategorie nicht gesichert.`);
-    diagnoseFieldDOM(remainingOverlay || currentContainer, "category", leafSynonyms, log);
+    // Wait for React re-render and verify category confirmation in main sales form
+    await delay(300);
+    const freshRoot = getFormContainer(log) || root;
+    const verified = isCategoryConfirmedInForm(freshRoot, leafSynonyms, log);
+
+    if (finalLeafClicked && verified) {
+      log(`✓ Kategorie-Auswahl für "${draftCategory}" erfolgreich abgeschlossen und im Formular verifiziert.`);
+      return { success: true };
+    }
+
+    log(`✗ Kategorie-Auswahl für "${draftCategory}" gescheitert. Nicht im Formular verifiziert.`);
     return {
       success: false,
-      reason: `Kategorie "${draftCategory}" konnte nicht sicher im Feld verifiziert werden`,
+      reason: `Kategorie "${draftCategory}" nicht im Formular als ausgewählter Wert verifiziert`,
     };
   }
 
@@ -1012,28 +969,24 @@
       }
 
       const activeContainer = getFormContainer(log) || formContainer;
-      const oldTriggerEl = findFieldTrigger(activeContainer, fieldName, fieldKeywords, log);
+      const triggerEl = findInteractiveControlByUI(activeContainer, fieldName, fieldKeywords, log);
 
-      if (!oldTriggerEl) {
+      if (!triggerEl) {
         log(`✗ Dropdown-Element für "${fieldName}" nicht gefunden.`);
-        diagnoseFieldDOM(activeContainer, fieldName, fieldKeywords, log);
         return { success: false, reason: `Dropdown-Element für "${fieldName}" nicht gefunden` };
       }
 
-      oldTriggerEl.click();
+      triggerEl.click();
       await delay(400);
 
       const overlayScope = getOpenOverlayScope();
       if (!overlayScope) {
         log(`✗ Kein geöffnetes Dropdown/Modal für "${fieldName}" gefunden.`);
-        diagnoseFieldDOM(activeContainer, fieldName, fieldKeywords, log);
         return { success: false, reason: `Overlay für "${fieldName}" nicht geöffnet` };
       }
 
-      // Check search input inside overlay
       await handleOverlaySearchInput(overlayScope, desiredValue, log);
 
-      // Determine synonyms for value if applicable (e.g. condition)
       let desiredSynonyms = [desiredValue];
       const valLower = desiredValue.trim().toLowerCase();
       if (fieldName === "condition" && CONDITION_SYNONYMS[valLower]) {
@@ -1050,7 +1003,7 @@
       if (matchedOption) {
         const optionText = matchedOption.textContent?.trim() || desiredValue;
         matchedOption.click();
-        await delay(500); // Wait for React/UI re-render
+        await delay(500);
 
         const remainingOverlay = getOpenOverlayScope();
         if (remainingOverlay) {
@@ -1058,9 +1011,12 @@
         }
 
         const freshContainer = getFormContainer(log);
-        const freshTriggerEl = findFieldTrigger(freshContainer, fieldName, fieldKeywords, log) || oldTriggerEl;
+        const verified = verifyFieldValue(
+          findInteractiveControlByUI(freshContainer, fieldName, fieldKeywords, log) || triggerEl,
+          desiredSynonyms,
+          log
+        );
 
-        const verified = verifyFieldValue(freshTriggerEl, desiredSynonyms, log);
         if (verified) {
           log(`✓ Dropdown "${fieldName}" auf "${optionText}" gesetzt und verifiziert.`);
         } else {
@@ -1069,7 +1025,6 @@
         return { success: true };
       } else {
         log(`✗ Keine Option für "${desiredValue}" in Dropdown "${fieldName}" gefunden.`);
-        diagnoseFieldDOM(overlayScope, fieldName, desiredSynonyms, log);
         await closeOverlaySafely(overlayScope);
         return {
           success: false,
@@ -1157,7 +1112,7 @@
       log(`✗ Fehler bei Beschreibung: ${e.message}`);
     }
 
-    // 3. Fill Price
+    // 3. Fill Price (Isolated Price Debugging)
     try {
       log(`[Price Debug] draft.price=${draft.price}`);
       if (draft.price !== undefined && draft.price !== null) {
@@ -1174,12 +1129,6 @@
         } else {
           results.price = { success: false, reason: "Feld nicht gefunden" };
           log("✗ Preis-Feld nicht gefunden");
-          diagnoseFieldDOM(
-            formContainer,
-            "price",
-            ["price", "preis", "amount", "wert", "cost", "value"],
-            log
-          );
         }
       } else {
         results.price = { success: false, reason: "Kein Preis angegeben" };
@@ -1190,7 +1139,10 @@
       log(`✗ Fehler bei Preis: ${e.message}`);
     }
 
-    // 4. Dropdowns in strict sequence: Category -> (wait for form update) -> Brand -> Size -> Color -> Condition
+    // 4. Record initial count of interactive controls before category selection
+    const initialControlCount = getInteractiveControls(formContainer).length;
+
+    // 5. Category Selection FIRST & RELIABLY
     if (draft.category) {
       results.category = await selectVintedCategory(
         formContainer,
@@ -1199,73 +1151,75 @@
         log
       );
     } else {
-      results.category = { success: false, reason: "Kein Wert" };
+      results.category = { success: false, reason: "Kein Kategorie-Wert" };
     }
 
-    // Wait for form update after category selection before attempting dependent fields
-    log("Warte 800 ms auf Formular-Update nach Kategorie-Auswahl...");
-    await delay(800);
-
-    // Re-evaluate formContainer from current DOM
-    let activeFormContainer = getFormContainer(log);
-
+    // Check category confirmation status
     if (!results.category.success) {
-      log("⚠ Hinweis: Kategorie konnte nicht sicher verifiziert werden. Abhängige Felder (Marke, Größe, Farbe, Zustand) sind auf Vinted eventuell noch nicht eingeblendet.");
-    }
-
-    if (draft.brand) {
-      activeFormContainer = getFormContainer(log);
-      results.brand = await selectVintedOption(
-        activeFormContainer,
-        "brand",
-        ["brand", "marke", "marque", "marca"],
-        draft.brand,
-        log
-      );
+      log("❌ Kategorie konnte im Verkaufsformular NICHT verifiziert werden! Nachfolgende Felder (Marke, Größe, Farbe, Zustand) werden NICHT versucht.");
+      results.brand = { success: false, reason: "Kategorie nicht bestätigt" };
+      results.size = { success: false, reason: "Kategorie nicht bestätigt" };
+      results.color = { success: false, reason: "Kategorie nicht bestätigt" };
+      results.condition = { success: false, reason: "Kategorie nicht bestätigt" };
     } else {
-      results.brand = { success: false, reason: "Kein Wert" };
+      // Category confirmed! Wait for React re-render and new controls to appear in main
+      const activeRoot = getFormContainer(log);
+      await waitForNewControls(activeRoot, initialControlCount, log);
+
+      // Output debug log for up to 30 visible interactive controls
+      debugInteractiveControls(activeRoot, log);
+
+      // Dependent fields strictly mapped via visible UI text and order
+      if (draft.brand) {
+        results.brand = await selectVintedOption(
+          getFormContainer(log),
+          "brand",
+          FIELD_KEYWORDS.brand,
+          draft.brand,
+          log
+        );
+      } else {
+        results.brand = { success: false, reason: "Kein Wert" };
+      }
+
+      if (draft.size) {
+        results.size = await selectVintedOption(
+          getFormContainer(log),
+          "size",
+          FIELD_KEYWORDS.size,
+          draft.size,
+          log
+        );
+      } else {
+        results.size = { success: false, reason: "Kein Wert" };
+      }
+
+      if (draft.color) {
+        results.color = await selectVintedOption(
+          getFormContainer(log),
+          "color",
+          FIELD_KEYWORDS.color,
+          draft.color,
+          log
+        );
+      } else {
+        results.color = { success: false, reason: "Kein Wert" };
+      }
+
+      if (draft.condition) {
+        results.condition = await selectVintedOption(
+          getFormContainer(log),
+          "condition",
+          FIELD_KEYWORDS.condition,
+          draft.condition,
+          log
+        );
+      } else {
+        results.condition = { success: false, reason: "Kein Wert" };
+      }
     }
 
-    if (draft.size) {
-      activeFormContainer = getFormContainer(log);
-      results.size = await selectVintedOption(
-        activeFormContainer,
-        "size",
-        ["size", "größe", "grosse", "taille", "talla"],
-        draft.size,
-        log
-      );
-    } else {
-      results.size = { success: false, reason: "Kein Wert" };
-    }
-
-    if (draft.color) {
-      activeFormContainer = getFormContainer(log);
-      results.color = await selectVintedOption(
-        activeFormContainer,
-        "color",
-        ["color", "colour", "farbe", "couleur"],
-        draft.color,
-        log
-      );
-    } else {
-      results.color = { success: false, reason: "Kein Wert" };
-    }
-
-    if (draft.condition) {
-      activeFormContainer = getFormContainer(log);
-      results.condition = await selectVintedOption(
-        activeFormContainer,
-        "condition",
-        ["condition", "zustand", "état", "estado"],
-        draft.condition,
-        log
-      );
-    } else {
-      results.condition = { success: false, reason: "Kein Wert" };
-    }
-
-    // 5. Fill Images
+    // 6. Fill Images (Preserved completely unchanged)
     try {
       if (draft.images && draft.images.length > 0) {
         const totalDraftImages = draft.images.length;
@@ -1275,7 +1229,8 @@
 
         log(`${totalDraftImages} Bilder, ${validDataUrlImages} gültige Bildquellen empfangen.`);
 
-        const fileInput = formContainer.querySelector('input[type="file"]') || document.querySelector('input[type="file"]');
+        const activeForm = getFormContainer(log);
+        const fileInput = activeForm.querySelector('input[type="file"]') || document.querySelector('input[type="file"]');
 
         if (!fileInput) {
           results.images = {
