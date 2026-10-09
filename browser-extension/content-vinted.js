@@ -468,27 +468,27 @@
         return {success:false,reason:"Zielwert nicht im passenden Auswahlmenü gefunden"};
       }
       const name=labelText(choice);
-      const activated=activateFieldOption(field,choice);
-      await sleep(400);
+      activateFieldOption(field,choice);
+      // Vinted renders controlled input values asynchronously; only the
+      // displayed field value is proof that this specific field was saved.
+      const valueMatches=()=> {
+        const actual=currentFieldValue(field);
+        return candidates.some(c=>actual===c ||
+          (field==="size" && actual.split(/[,;\/]/).map(norm).includes(c)));
+      };
+      // Wait until Vinted commits the click before attempting to dismiss
+      // the menu. Never interpret a radio click alone as success.
+      await waitFor(valueMatches,4200,200);
       await dismissMenu(field,control);
-      await sleep(250);
-      const actual=currentFieldValue(field);
-      const checked=activated?.checked===true ||
-        activated?.getAttribute?.("aria-checked")==="true";
-      const persisted=candidates.some(c=>actual===c ||
-        (field==="size" && actual.split(/[,;\/]/).map(norm).includes(c)));
-      const openBrand=field==="brand" && !!fieldSearchInput("brand");
-      log("[SELECT "+field+"] clicked="+name+" actual="+actual+
-        " radioChecked="+checked+" brandMenuOpen="+openBrand);
-      if(persisted && !openBrand)return {success:true};
-      if(!persisted && checked && field==="brand" && !openBrand) {
-        // Some Vinted radio controls update the input only after rerender.
-        await sleep(350);
-        if(candidates.includes(currentFieldValue(field)))return {success:true};
-      }
-      return {success:false,reason:openBrand?
-        "Markenmenü noch geöffnet, Auswahl nicht bestätigt":
-        "Option geklickt, aber Feldwert nicht bestätigt"};
+      const confirmed=await waitFor(()=>{
+        return valueMatches() && (field!=="brand" || !fieldSearchInput("brand"));
+      },5000,200);
+      log("[SELECT "+field+"] clicked="+name+" actual="+currentFieldValue(field)+
+        " confirmed="+confirmed+" brandMenuOpen="+!!fieldSearchInput("brand"));
+      return confirmed?{success:true}:{success:false,reason:
+        field==="brand" && fieldSearchInput("brand")?
+          "Markenmenü noch geöffnet: Auswahl nicht bestätigt":
+          "Option wurde nicht als ausgewählter Feldwert übernommen"};
     } catch(err) {
       log("[ERROR "+field+"] "+err.message);
       return {success:false,reason:err.message};
@@ -610,10 +610,14 @@
     const chosen=ranked[0];
     log("[CATALOG] choose "+desired+" path="+chosen.context.slice(0,150));
     chosen.el.click();
-    await sleep(480);
+    const committed=await waitFor(()=>{
+      const picked=norm(selected.value || selected.getAttribute("data-value"));
+      const catalogOpen=shown(document.querySelector("#catalog-search-input"));
+      return !catalogOpen && picked===desired;
+    },5000,200);
     const picked=norm(selected.value || selected.getAttribute("data-value"));
     const catalogOpen=shown(document.querySelector("#catalog-search-input"));
-    if(catalogOpen || picked!==desired) {
+    if(!committed) {
       log("[CATALOG CONFIRM] picked="+picked+" catalogOpen="+catalogOpen);
       return {success:false,reason:"Kategoriewahl nicht im Feld bestätigt"};
     }
