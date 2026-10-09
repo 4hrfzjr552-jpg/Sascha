@@ -678,6 +678,54 @@
     return result;
   }
 
+  // Live catalog search is asynchronous. Vinted often fetches rows after
+  // the search input has already received the new value.
+  function catalogSearchSnapshot() {
+    const input=document.querySelector('#catalog-search-input, input[name="catalog-search-input"]');
+    const all=Array.from(document.querySelectorAll(
+      'input[id^="catalog-search-"][id$="-radio"], input[type="radio"][name*="catalog" i]'));
+    const unique=[...new Set(all)];
+    const radios=unique.slice(0,35).map(el=>{
+      const label=document.querySelector('label[for="'+el.id+'"]');
+      const row=el.closest("li,[role=option],[role=menuitem]") ||
+        label?.closest("li,[role=option],[role=menuitem]") ||
+        el.parentElement?.parentElement;
+      return {
+        id:el.id || "", radioType:el.type || "",checked:!!el.checked,
+        rowVisible:!!row && shown(row),
+        label:labelText(label).slice(0,100),
+        text:labelText(row).slice(0,145)
+      };
+    });
+    // This contains only catalog labels, never other form inputs/descriptions.
+    return {searchOpen:!!input&&shown(input),query:input?.value||"",
+      rawRadios:unique.length,radios,
+      visibleListPreview:Array.from(document.querySelectorAll(
+        '[role="dialog"] li, [class*="Dialog__portal"] li, .web_ui__Dialog__portal li'
+      )).filter(shown).slice(0,18).map(el=>labelText(el).slice(0,110))};
+  }
+
+  async function waitForCatalogChoices(desired,classification,timeoutMs=4600) {
+    const start=Date.now();
+    let radios=[];
+    do{
+      radios=catalogRadioOptions(desired,classification);
+      if(radios.some(x=>x.eligible))break;
+      await sleep(220);
+    }while(Date.now()-start<timeoutMs);
+    return radios;
+  }
+
+  async function updateCatalogSearch(term,log) {
+    const el=document.querySelector('#catalog-search-input, input[name="catalog-search-input"]');
+    if(!el || !shown(el)) {
+      log("[CATALOG] Search input unavailable");
+      return false;
+    }
+    if(norm(el.value)!==norm(term))setInput(el,term);
+    return true;
+  }
+
   async function chooseCategory(draft,log) {
     const found=findFieldRoot("category",log);
     if(!found)return {success:false,reason:"Kategorie-Auswahl nicht gefunden"};
@@ -704,41 +752,37 @@
     selected.click();
     await sleep(260);
     const search=document.querySelector('#catalog-search-input, input[name="catalog-search-input"]');
-    if(search && shown(search)) {
-      setInput(search,desired);
-      await sleep(470);
+    if(!search || !shown(search)){
+      log("[CATALOG SNAPSHOT] "+JSON.stringify(catalogSearchSnapshot()));
+      return {success:false,reason:"Kategoriesuche wurde nicht geöffnet"};
     }
-    // Prefer the actual radio results rather than looking for an exact
-    // text-only <li>. Log what Vinted genuinely rendered.
-    const radioResults=catalogRadioOptions(desired,classification);
+    await updateCatalogSearch(desired,log);
+    // Wait for the actual React/API results, not a hard-coded 470ms.
+    let radioResults=await waitForCatalogChoices(desired,classification);
+    log("[CATALOG FIRST RESULTS] "+JSON.stringify(radioResults.slice(0,30).map(x=>({
+      id:x.id,name:x.name.slice(0,80),context:x.context.slice(0,160),
+      score:x.score,eligible:x.eligible,reason:x.reason
+    }))));
+    if(!radioResults.some(x=>x.eligible) && classification.fit){
+      const targeted=Object.entries(VERIFIED_JEANS_CATEGORIES)
+        .find(([,v])=>v.gender===gender && v.fit===classification.fit);
+      if(targeted){
+        log("[CATALOG RETRY] Suche gezielt nach "+targeted[1].label);
+        await updateCatalogSearch(targeted[1].label,log);
+        radioResults=await waitForCatalogChoices(desired,classification);
+      }
+    }
     log("[CATALOG RADIO RESULTS] "+JSON.stringify(radioResults.slice(0,30).map(x=>({
       id:x.id,name:x.name.slice(0,80),context:x.context.slice(0,160),
       score:x.score,known:x.knownType,eligible:x.eligible,reason:x.reason
     }))));
-    const candidates=()=>{
-      const scopes=overlays();
-      const roots=[...scopes,search?.parentElement?.parentElement?.parentElement,document.body]
-        .filter(Boolean);
-      const matches=[];
-      for(const root of roots){
-        const elements=Array.from(root.querySelectorAll(
-          '[role="option"],[role="treeitem"],[role="menuitem"],li,button,'+
-          '[data-testid*="item" i],[data-testid*="cell" i],[class*="item" i],[class*="cell" i]'
-        )).filter(el=>shown(el)&&!ignore(el)&&!el.contains(selected)&&labelText(el)===desired);
-        for(const el of elements)if(!matches.includes(el))matches.push(el);
-      }
-      return matches.filter(el=>!matches.some(inner=>inner!==el&&el.contains(inner)));
-    };
+    if(!radioResults.some(x=>x.eligible)){
+      log("[CATALOG SNAPSHOT] "+JSON.stringify(catalogSearchSnapshot()));
+    }
     const eligibleRadio=radioResults.filter(x=>x.eligible);
-    const ranked=eligibleRadio.length?
-      eligibleRadio.map(x=>({el:x.radio,context:x.context,score:x.score,radioId:x.id}))
-        .sort((a,b)=>b.score-a.score) :
-      // If radios exist but are ambiguous, never fall back to clicking the
-      // first text-only "Jeans" row (it previously picked children's jeans).
-      radioResults.length?[]:
-      candidates().map(el=>({el,context:categoryOptionContext(el),
-        score:categoryScore(categoryOptionContext(el),gender)}))
-        .filter(x=>x.score>=0).sort((a,b)=>b.score-a.score);
+    const ranked=eligibleRadio.map(x=>({
+      el:x.radio,context:x.context,score:x.score,radioId:x.id
+    })).sort((a,b)=>b.score-a.score);
     log("[CATALOG CANDIDATES] gender="+(gender||"unknown")+" "+
       JSON.stringify(ranked.slice(0,10).map(x=>({
         context:x.context.slice(0,145),score:x.score,id:x.radioId||null

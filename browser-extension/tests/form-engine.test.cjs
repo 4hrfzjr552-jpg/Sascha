@@ -10,13 +10,14 @@ const file = fs.readFileSync(path.join(__dirname, '..', 'content-vinted.js'), 'u
 const register = '  chrome.runtime.onMessage.addListener';
 assert.ok(file.includes(register), 'Expected extension message listener');
 const instrumented = file.replace(register,
-  '  window.__test = { norm, optionAliases, formatTitle, fieldLabelMatches, desiredGender, categoryScore, fieldSearchInput, runSequentialSteps, FIELD_ORDER, classifyDraftCategory, catalogRadioOptions };\n' + register);
+  '  window.__test = { norm, optionAliases, formatTitle, fieldLabelMatches, desiredGender, categoryScore, fieldSearchInput, runSequentialSteps, FIELD_ORDER, classifyDraftCategory, catalogRadioOptions, waitForCatalogChoices, catalogSearchSnapshot };\n' + register);
 const sandbox = {
   window: {},
-  chrome: { runtime: { onMessage: { addListener() {} } } }
+  chrome: { runtime: { onMessage: { addListener() {} } } },
+  setTimeout
 };
 vm.runInNewContext(instrumented, sandbox, { filename: 'content-vinted.js' });
-const { norm, optionAliases, formatTitle, fieldLabelMatches, desiredGender, categoryScore, fieldSearchInput, runSequentialSteps, FIELD_ORDER, classifyDraftCategory, catalogRadioOptions } = sandbox.window.__test;
+const { norm, optionAliases, formatTitle, fieldLabelMatches, desiredGender, categoryScore, fieldSearchInput, runSequentialSteps, FIELD_ORDER, classifyDraftCategory, catalogRadioOptions, waitForCatalogChoices, catalogSearchSnapshot } = sandbox.window.__test;
 const has = (field, desired, candidate, draft = {}) =>
   optionAliases(field, desired, draft).includes(norm(candidate));
 
@@ -177,4 +178,31 @@ test('radio category IDs are used only for verified gender and fit', () => {
   assert.equal(options('men','skinny').find(x=>x.id===1817)?.eligible,true);
   assert.equal(options('women','skinny').find(x=>x.id===1844)?.eligible,true);
   assert.ok(!options('men','').some(x=>x.eligible && x.id===1559));
+});
+
+
+test('asynchronous radio results are awaited instead of checking once at 470ms', async () => {
+  const body={};
+  const row={id:'',tagName:'LI',isConnected:true,innerText:'Gerade geschnittene Jeans Herren',
+    textContent:'Gerade geschnittene Jeans Herren',parentElement:body,
+    getClientRects:()=>[1],getAttribute:()=>'',closest:()=>null};
+  const radio={id:'catalog-search-1819-radio',closest:()=>row};
+  let calls=0;
+  sandbox.document={body,querySelectorAll(selector){
+    return selector.startsWith('input[id^=') && calls>=3 ? [radio]:[];
+  },querySelector(){return null;}};
+  sandbox.getComputedStyle=()=>({display:'block',visibility:'visible'});
+  // The first two polling attempts see an empty catalog; a later React render
+  // supplies the adult/straight category.
+  sandbox.setTimeout=fn=>{calls++;fn();};
+  const results=await waitForCatalogChoices('jeans',
+    {gender:'men',fit:'straight',isJeans:true},4600);
+  assert.ok(calls>=3);
+  assert.ok(results.find(item=>item.id===1819)?.eligible);
+});
+test('catalog snapshot reports empty results without guessing IDs', () => {
+  sandbox.document={body:{},querySelectorAll:()=>[],querySelector:()=>null};
+  const info=catalogSearchSnapshot();
+  assert.equal(info.rawRadios,0);
+  assert.equal(info.searchOpen,false);
 });
