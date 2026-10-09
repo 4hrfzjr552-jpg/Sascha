@@ -377,9 +377,15 @@
     const selected=document.querySelector('#category');
     const picked=norm(selected?.value||selected?.getAttribute("data-value")||"");
     const dependent=!!findFieldRoot("brand",()=>{}) || !!findFieldRoot("size",()=>{});
-    if(picked.includes(desired) || dependent) return {success:true};
-    log("[CATALOG DIAG] picked="+picked+" dependent="+dependent);
-    return {success:false,reason:"Kategorie angeklickt, aber nicht bestätigt"};
+    const catalogSearch=document.querySelector('#catalog-search-input');
+    const menuOpen=!!catalogSearch && shown(catalogSearch);
+    log("[CATALOG CONFIRM] picked="+picked+" dependent="+dependent+" menuOpen="+menuOpen);
+    // A dependent input may exist behind an unfinished category picker.
+    // Do not click through an active catalog menu.
+    if(!menuOpen && (picked.includes(desired) || dependent)) return {success:true};
+    return {success:false,reason:menuOpen ?
+      "Kategoriefenster noch geöffnet: Jeans noch nicht bestätigt" :
+      "Kategorie angeklickt, aber nicht bestätigt"};
   }
 
   async function fillText(field,value,log) {
