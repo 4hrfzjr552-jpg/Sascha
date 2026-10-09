@@ -199,6 +199,69 @@
     return confirmed ? {success:true} :
       {success:false,reason:"Angeklickt, aber nicht als ausgewählt bestätigt"};
   }
+
+  async function chooseCategory(draft,log) {
+    const found=findFieldRoot("category",log);
+    if(!found)return {success:false,reason:"Kategorie-Auswahl nicht gefunden"};
+    const raw=String(draft.category||"").trim();
+    if(!raw)return {success:false,reason:"Keine Kategorie angegeben"};
+    const leaf=raw.split(/[>/]/).pop().trim();
+    const trigger=found.control;
+    trigger.click();
+    await sleep(300);
+    // Vinted's catalog picker creates a portal search input outside its
+    // category cell, e.g. #catalog-search-input. Searching the cell misses it.
+    const search=document.querySelector('#catalog-search-input, input[name="catalog-search-input"], [data-testid="catalog-search-input"]');
+    if(search && shown(search)) {
+      setInput(search,leaf);
+      await sleep(550);
+    }
+    const desired=norm(leaf);
+    function matches() {
+      const field=document.querySelector('#catalog-search-input');
+      const scopes=overlays();
+      const roots=[...scopes,field?.parentElement?.parentElement?.parentElement,document.body].filter(Boolean);
+      for(const scope of roots) {
+        const all=Array.from(scope.querySelectorAll(
+          '[role=option], [role=treeitem], [role=menuitem], li, button, [data-testid*="item" i], [data-testid*="cell" i], [class*="item" i], [class*="cell" i]'
+        )).filter(el=>shown(el) && !ignore(el) && !el.contains(trigger));
+        const exact=all.filter(el=>labelText(el)===desired);
+        if(exact.length) {
+          // Prefer the deepest matching row and avoid unrelated page controls.
+          exact.sort((a,b)=>a.contains(b)?1:b.contains(a)?-1:0);
+          return exact[0];
+        }
+      }
+      return null;
+    }
+    let option=null;
+    for(let attempt=0;attempt<6;attempt++){
+      option=matches();
+      if(option)break;
+      await sleep(250);
+    }
+    if(!option) {
+      const searchEl=document.querySelector("#catalog-search-input");
+      const holder=searchEl?.closest('[role=dialog], [data-testid*="modal" i]') || searchEl?.parentElement?.parentElement?.parentElement;
+      const examples=Array.from((holder||document.body).querySelectorAll(
+        'button, li, [role=option], [data-testid*="item" i], [data-testid*="cell" i]'
+      )).filter(shown).slice(0,45).map(el=>({
+        tag:el.tagName, text:labelText(el).slice(0,65), testid:el.getAttribute("data-testid")||""
+      }));
+      log("[CATALOG DIAG] searchInput="+!!searchEl+" options="+JSON.stringify(examples));
+      return {success:false,reason:"Kategorie im geöffneten Vinted-Katalog nicht gefunden"};
+    }
+    log("[CATALOG] click "+labelText(option));
+    option.click();
+    await sleep(600);
+    const selected=document.querySelector('#category');
+    const picked=norm(selected?.value||selected?.getAttribute("data-value")||"");
+    const dependent=!!findFieldRoot("brand",()=>{}) || !!findFieldRoot("size",()=>{});
+    if(picked.includes(desired) || dependent) return {success:true};
+    log("[CATALOG DIAG] picked="+picked+" dependent="+dependent);
+    return {success:false,reason:"Kategorie angeklickt, aber nicht bestätigt"};
+  }
+
   async function fillText(field,value,log) {
     if(value===undefined||value===null||String(value).trim()==="")
       return {success:false,reason:"Kein Wert"};
@@ -264,11 +327,14 @@
     results.title=await fillText("title",formatTitle(draft.title,draft.artikelnummer),log);
     results.description=await fillText("description",draft.description,log);
     results.price=await fillText("price",draft.price,log);
-    results.category=draft.category ?
-      await chooseField("category",String(draft.category).split(/[>/]/).pop().trim(),draft,log) :
-      {success:false,reason:"Keine Kategorie"};
+    results.category=await chooseCategory(draft,log);
     await sleep(450);
-    for (const field of ["brand","size","color","condition"]) {
+    if (!results.category.success) {
+      log("[STOP] Kategorie fehlt: Abhängige Felder werden bewusst nicht ausgefüllt.");
+      for (const field of ["brand","size","color","condition"]) {
+        results[field]={success:false,reason:"Kategorie zuerst auswählen: "+results.category.reason};
+      }
+    } else for (const field of ["brand","size","color","condition"]) {
       results[field]=draft[field] ?
         await chooseField(field,draft[field],draft,log) :
         {success:false,reason:"Kein Wert"};
