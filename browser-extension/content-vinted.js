@@ -72,42 +72,52 @@
   function findFieldRoot(field,log) {
     const root = rootForm();
     const names = aliases[field].map(norm);
-    // Prefer for/id associations, Vinted data-testid, aria-label and placeholder.
     const query = "input, textarea, select, button, [role=combobox], [aria-haspopup], [data-testid]";
-    for (const el of root.querySelectorAll(query)) {
-      if (!shown(el) || ignore(el)) continue;
+    const matched = el => {
       const attributes = ["name","id","data-testid","aria-label","placeholder"].map(a=>norm(el.getAttribute(a)));
-      if (attributes.some(a => names.some(n => a === n || a.startsWith(n + "-") || a.startsWith(n + "_")))) {
-        log("[FIELD " + field + "] direct attribute: " + el.tagName);
-        return {fieldRoot:el.parentElement || el,control:el};
-      }
+      return attributes.some(a => names.some(n => a===n || a.startsWith(n+"-") || a.startsWith(n+"_")));
+    };
+    const elements = Array.from(root.querySelectorAll(query))
+      .filter(el => shown(el) && !ignore(el));
+    // Inputs always win over wrapper/label testids. The former code selected
+    // <label data-testid="title"> instead of <input id="title">.
+    for (const el of elements.filter(el => el.matches("input, textarea, select, [role=combobox]"))) {
+      if (!matched(el)) continue;
+      log("[FIELD "+field+"] input attribute: "+el.tagName);
+      return {fieldRoot:el.parentElement||el,control:el};
     }
-    // Labels must match exactly, not by substring or a large ancestor's innerText.
+    for (const el of elements) {
+      if (el.tagName==="LABEL" || !matched(el)) continue;
+      const control=el.matches("button,[aria-haspopup]") ? el :
+        el.querySelector("input, textarea, select, button, [role=combobox], [aria-haspopup]") || el;
+      if (!shown(control)) continue;
+      log("[FIELD "+field+"] wrapper attribute: "+control.tagName);
+      return {fieldRoot:el,control};
+    }
     const labels = Array.from(root.querySelectorAll("label, span, div, p, dt"))
       .filter(el => shown(el) && !ignore(el) && fieldLabelMatches(labelText(el),field))
       .filter(el => !Array.from(el.children).some(ch => fieldLabelMatches(labelText(ch),field)));
     for (const label of labels) {
       if (label instanceof HTMLLabelElement && label.htmlFor) {
-        const associated = document.getElementById(label.htmlFor);
+        const associated=document.getElementById(label.htmlFor);
         if (associated && shown(associated)) return {fieldRoot:label.parentElement,control:associated};
       }
-      let parent = label.parentElement;
-      for (let level=0;level<4 && parent && parent!==root;level++,parent=parent.parentElement) {
+      let parent=label.parentElement;
+      for(let level=0;level<5 && parent && parent!==root;level++,parent=parent.parentElement) {
         const controls=Array.from(parent.querySelectorAll(
           "input:not([type=hidden]):not([type=file]), textarea, select, button, [role=combobox], [aria-haspopup], [role=button], [tabindex='0']"
-        )).filter(el=>shown(el) && !ignore(el) && !el.contains(label));
-        if (controls.length===1) {
-          log("[FIELD " + field + "] label -> control: " + controls[0].tagName);
+        )).filter(el=>shown(el)&&!ignore(el)&&!el.contains(label));
+        if(controls.length===1) {
+          log("[FIELD "+field+"] label -> "+controls[0].tagName);
           return {fieldRoot:parent,control:controls[0]};
         }
-        // Vinted's clickable cells can be divs with no role or tabindex.
-        if (level<=2 && parent.matches('[data-testid*="cell" i], [class*="cell" i], [class*="field" i]')) {
-          log("[FIELD " + field + "] label -> cell");
+        if(level<=2 && parent.matches('[data-testid*="cell" i], [class*="cell" i], [class*="field" i]')) {
+          log("[FIELD "+field+"] label -> cell");
           return {fieldRoot:parent,control:parent};
         }
       }
     }
-    log("[FIELD " + field + "] not found");
+    log("[FIELD "+field+"] not found");
     logSnapshot(log,field,root);
     return null;
   }
@@ -153,51 +163,209 @@
     return eligible.find(el=>candidates.includes(labelText(el)) &&
       !eligible.some(child=>child!==el && el.contains(child) && candidates.includes(labelText(child)))) || null;
   }
+  // Observe nodes generated while the menu opens. Vinted often mounts option
+  // rows into React portals without standard ARIA roles or predictable classes.
+  function watchNewMenuNodes() {
+    const added=new Set();
+    const observer=new MutationObserver(records=>{
+      for(const record of records){
+        for(const node of record.addedNodes){
+          if(node.nodeType===1)added.add(node);
+        }
+      }
+    });
+    observer.observe(document.body,{childList:true,subtree:true});
+    return {
+      roots:()=>Array.from(added).filter(el=>shown(el)&&!ignore(el)),
+      stop:()=>observer.disconnect()
+    };
+  }
+
+  function safeMenuStructure(trigger,roots) {
+    // No form values, cookies, HTML source, title or description text copied.
+    const nonSensitiveAttrs=el=>({
+      tag:el.tagName.toLowerCase(),id:el.id||"",
+      role:el.getAttribute("role")||"",
+      testid:el.getAttribute("data-testid")||"",
+      cls:typeof el.className==="string"?el.className.slice(0,90):"",
+      placeholder:el.getAttribute("placeholder")||"",
+      expanded:el.getAttribute("aria-expanded")||"",
+      readonly:!!el.readOnly
+    });
+    const items=[];
+    for(const root of roots.slice(0,12)){
+      if(!shown(root))continue;
+      items.push(nonSensitiveAttrs(root));
+      for(const child of Array.from(root.querySelectorAll(
+        '[role="option"],[role="menuitem"],[role="listbox"],[data-testid],input,button'
+      )).filter(shown).slice(0,12)){
+        items.push(nonSensitiveAttrs(child));
+      }
+      if(items.length>=55)break;
+    }
+    return {trigger:nonSensitiveAttrs(trigger),nodes:items.slice(0,55)};
+  }
+
+  function getOpenDropdownSurfaces(trigger) {
+    const selectors=[
+      '[role="dialog"]','[role="listbox"]','[role="menu"]',
+      '[data-state="open"]','[data-testid*="dropdown" i]',
+      '[data-testid*="popover" i]','[data-testid*="modal" i]',
+      '[class*="dropdown" i]','[class*="popover" i]',
+      '[class*="menu" i]','[data-popper-placement]',
+      '[data-radix-popper-content-wrapper]'
+    ];
+    const layers=Array.from(document.querySelectorAll(selectors.join(",")))
+      .filter(el=>shown(el)&&!ignore(el)&&el!==trigger&&
+        !el.contains(trigger) && !el.matches("input,textarea"));
+    const controlledId=trigger.getAttribute("aria-controls")||trigger.getAttribute("aria-owns");
+    const controlled=controlledId&&document.getElementById(controlledId);
+    if(controlled&&shown(controlled))layers.unshift(controlled);
+    // Some menus live inside the same field wrapper without a role/portal.
+    // Keep only nearby wrappers, never the whole form or page.
+    let local=trigger.parentElement;
+    for(let depth=0;depth<3 && local && local!==rootForm();depth++,local=local.parentElement) {
+      if(local.matches('[data-testid*="dropdown" i], [class*="dropdown" i], [class*="select" i], [class*="field" i]')) {
+        layers.push(local);
+      }
+    }
+    return [...new Set(layers)].reverse();
+  }
+
+  function dropdownOption(roots,candidates,trigger) {
+    const selectors=[
+      '[role="option"]','[role="menuitem"]','[role="treeitem"]',
+      '[data-testid*="option" i]','[data-testid*="item" i]',
+      '[data-testid*="cell" i]','li','button','[role="button"]',
+      '[class*="option" i]','[class*="item" i]'
+    ].join(",");
+    for(const root of roots) {
+      if(!root||!shown(root))continue;
+      const entries=[...(root.matches?.(selectors)?[root]:[]),...root.querySelectorAll(selectors)]
+        .filter(el=>shown(el)&&!ignore(el)&&el!==trigger&&!el.contains(trigger));
+      const exact=entries.filter(el=>candidates.includes(labelText(el)));
+      // Choose a leaf, never a parent of another equally matching option.
+      const leaf=exact.find(el=>!exact.some(inner=>inner!==el&&el.contains(inner)));
+      if(leaf)return leaf;
+      // Some Vinted option rows use unadorned div/span nodes with click listeners.
+      // This fallback is allowed only within an already identified open menu.
+      if(root!==document.body) {
+        const all=Array.from(root.querySelectorAll("span,div,p"))
+          .filter(el=>shown(el)&&candidates.includes(labelText(el)));
+        const smallest=all.find(el=>!all.some(inner=>inner!==el&&el.contains(inner)));
+        if(smallest && !smallest.closest('label[for], [data-testid*="description" i]')) {
+          return smallest;
+        }
+      }
+    }
+    return null;
+  }
+
+  function dropdownSearchInput(trigger,surfaces) {
+    const ownId=trigger.id;
+    const inputs=Array.from(document.querySelectorAll(
+      'input[type="search"], input[id*="search" i], input[name*="search" i], input[placeholder*="suchen" i], input[placeholder*="search" i]'
+    )).filter(el=>shown(el)&&!el.matches('[type="hidden"]')&&!ignore(el));
+    // Prefer newly focused or the currently opened popup's own search box.
+    const focused=document.activeElement;
+    const within=inputs.find(el=>surfaces.some(surface=>surface.contains(el)));
+    return within || inputs.find(el=>el===focused) ||
+      inputs.find(el=>ownId && (el.id.includes(ownId)||el.name.includes(ownId))) || null;
+  }
+
+  function dropdownDebug(field,trigger,log) {
+    const surfaces=getOpenDropdownSurfaces(trigger);
+    const surfaceInfo=surfaces.slice(0,8).map(el=>({
+      tag:el.tagName.toLowerCase(), role:el.getAttribute("role")||"",
+      id:el.id||"",testid:el.getAttribute("data-testid")||"",
+      cls:String(el.className||"").slice(0,65)
+    }));
+    const entries=Array.from(document.querySelectorAll(
+      '[role="option"], [role="menuitem"], [role="listbox"], [role="dialog"], li, button, [data-testid*="item" i], [data-testid*="option" i], [data-testid*="cell" i]'
+    )).filter(el=>shown(el)&&!ignore(el)&&
+      !el.closest('[data-testid*="description" i], textarea'))
+      .slice(0,50).map(el=>({
+        tag:el.tagName.toLowerCase(),
+        text:labelText(el).slice(0,55),
+        testid:el.getAttribute("data-testid")||"",
+        role:el.getAttribute("role")||""
+      }));
+    const active=document.activeElement;
+    log("[DROPDOWN DIAG "+field+"] "+JSON.stringify({
+      trigger:trigger.outerHTML.slice(0,350), expanded:trigger.getAttribute("aria-expanded"),
+      active:active?.outerHTML?.slice(0,250)||"",
+      surfaces:surfaceInfo, entries
+    }));
+  }
+
   async function chooseField(field,desired,draft,log) {
     const found=findFieldRoot(field,log);
-    if(!found)return {success:false,reason:"Feld nicht gefunden (Diagnose im Log)"};
-    const {control}=found;
-    const candidates=optionAliases(field,desired,draft);
+    if(!found)return {success:false,reason:"Feld nicht gefunden"};
+    const {control}=found, candidates=optionAliases(field,desired,draft);
     if(control instanceof HTMLSelectElement) {
-      const option=Array.from(control.options).find(opt=>candidates.includes(norm(opt.textContent)) || candidates.includes(norm(opt.value)));
+      const option=Array.from(control.options).find(opt=>
+        candidates.includes(norm(opt.textContent))||candidates.includes(norm(opt.value)));
       if(!option)return {success:false,reason:"Keine passende Auswahl"};
       control.value=option.value;
       control.dispatchEvent(new Event("input",{bubbles:true}));
       control.dispatchEvent(new Event("change",{bubbles:true}));
-      await sleep(200);
-      return {success:control.value===option.value,reason:control.value===option.value?"":"Auswahl nicht gespeichert"};
+      await sleep(250);
+      return control.value===option.value?{success:true}:
+        {success:false,reason:"Auswahl nicht übernommen"};
     }
-    control.click();
-    await sleep(350);
-    let scope=overlays()[0];
-    // Some Vinted dropdowns are nested in the field cell rather than a portal.
-    if(!scope)scope=found.fieldRoot;
-    let option=optionIn(scope,candidates);
-    if(!option) {
-      const search=scope?.querySelector('input[type=search], input[placeholder*="suchen" i], input[placeholder*="search" i]');
-      if(search && shown(search)) {
-        setInput(search,String(desired));await sleep(350);
-        scope=overlays()[0] || scope;
-        option=optionIn(scope,candidates);
-        if(!option) {setInput(search,"");await sleep(200);option=optionIn(scope,candidates);}
+    const watcher=watchNewMenuNodes();
+    try {
+      control.click();
+      await sleep(300);
+      let candidate=null;
+      // Vinted can render the popup directly below body, outside the field.
+      for(let attempt=0;attempt<12;attempt++) {
+        const surfaces=getOpenDropdownSurfaces(control);
+        candidate=dropdownOption([...watcher.roots(),...surfaces],candidates,control);
+        if(candidate)break;
+        await sleep(150);
       }
+      if(!candidate) {
+        const surfaces=getOpenDropdownSurfaces(control);
+        const search=dropdownSearchInput(control,surfaces) ||
+          (control instanceof HTMLInputElement && !control.readOnly && !control.disabled ? control : null);
+        if(search) {
+          log("[SEARCH "+field+"] "+(search.id||search.getAttribute("placeholder")||"input"));
+          setInput(search,String(desired));
+          await sleep(400);
+          for(let attempt=0;attempt<8;attempt++) {
+            candidate=dropdownOption([...watcher.roots(),...getOpenDropdownSurfaces(control)],candidates,control);
+            if(candidate)break;
+            await sleep(150);
+          }
+        }
+      }
+      if(!candidate) {
+        log("[MENU STRUCTURE "+field+"] "+JSON.stringify(safeMenuStructure(control,watcher.roots())));
+        dropdownDebug(field,control,log);
+        return {success:false,reason:"Auswahlmenü enthält keine erkannte Option"};
+      }
+      const chosen=labelText(candidate);
+      candidate.click();
+      await sleep(450);
+      // Re-query field only, never parent/form text. A successful click by
+      // itself does not prove that Vinted stored a chosen value.
+      const fresh=findFieldRoot(field,()=>{})?.control||control;
+      const actual=[fresh.value,fresh.getAttribute("data-value"),
+        fresh.getAttribute("aria-valuetext"),fresh.innerText,
+        fresh.getAttribute("placeholder")].map(norm);
+      const confirmed=actual.some(value=>candidates.includes(value));
+      log("[SELECT "+field+"] clicked="+chosen+" confirmed="+confirmed);
+      if(!confirmed)dropdownDebug(field,fresh,log);
+      return confirmed?{success:true}:
+        {success:false,reason:"Option geklickt, aber nicht bestätigt"};
+    }catch(err) {
+      log("[ERROR "+field+"] "+err.message);
+      dropdownDebug(field,control,log);
+      return {success:false,reason:err.message};
+    } finally {
+      watcher.stop();
     }
-    if(!option) {
-      log("[DIAG " + field + "] available options: " +
-        JSON.stringify(Array.from((scope||document).querySelectorAll("[role=option],li,button"))
-          .filter(shown).slice(0,35).map(el=>labelText(el).slice(0,60))));
-      return {success:false,reason:"Passende Option nicht gefunden"};
-    }
-    const chosen=labelText(option);
-    option.click();
-    await sleep(400);
-    const fieldNow=findFieldRoot(field,()=>{})?.control || control;
-    const state=[fieldNow.value,fieldNow.getAttribute("data-value"),
-      fieldNow.getAttribute("aria-valuetext"),fieldNow.innerText].map(norm);
-    const confirmed=state.some(v=>candidates.includes(v));
-    log("[SELECT " + field + "] clicked=" + chosen + " confirmed=" + confirmed);
-    return confirmed ? {success:true} :
-      {success:false,reason:"Angeklickt, aber nicht als ausgewählt bestätigt"};
   }
 
   async function chooseCategory(draft,log) {
@@ -257,9 +425,15 @@
     const selected=document.querySelector('#category');
     const picked=norm(selected?.value||selected?.getAttribute("data-value")||"");
     const dependent=!!findFieldRoot("brand",()=>{}) || !!findFieldRoot("size",()=>{});
-    if(picked.includes(desired) || dependent) return {success:true};
-    log("[CATALOG DIAG] picked="+picked+" dependent="+dependent);
-    return {success:false,reason:"Kategorie angeklickt, aber nicht bestätigt"};
+    const catalogSearch=document.querySelector('#catalog-search-input');
+    const menuOpen=!!catalogSearch && shown(catalogSearch);
+    log("[CATALOG CONFIRM] picked="+picked+" dependent="+dependent+" menuOpen="+menuOpen);
+    // A dependent input may exist behind an unfinished category picker.
+    // Do not click through an active catalog menu.
+    if(!menuOpen && (picked.includes(desired) || dependent)) return {success:true};
+    return {success:false,reason:menuOpen ?
+      "Kategoriefenster noch geöffnet: Jeans noch nicht bestätigt" :
+      "Kategorie angeklickt, aber nicht bestätigt"};
   }
 
   async function fillText(field,value,log) {
@@ -286,7 +460,7 @@
   }
   function formatTitle(title,id) {
     let text=String(title||"").trim();
-    const number=String(id||"").trim();
+    const number=String(id||"").trim().replace(/^#+/, "");
     if(number && !text.includes("#"+number)) text=(text+" #"+number).trim();
     return text;
   }
@@ -326,7 +500,7 @@
     const results={};
     results.title=await fillText("title",formatTitle(draft.title,draft.artikelnummer),log);
     results.description=await fillText("description",draft.description,log);
-    results.price=await fillText("price",draft.price,log);
+    // Vinted frequently renders the price input after category selection.
     results.category=await chooseCategory(draft,log);
     await sleep(450);
     if (!results.category.success) {
@@ -339,6 +513,14 @@
         await chooseField(field,draft[field],draft,log) :
         {success:false,reason:"Kein Wert"};
     }
+    // Wait briefly for fields Vinted renders asynchronously after category.
+    if (draft.price !== undefined && draft.price !== null && String(draft.price).trim()) {
+      for(let retry=0;retry<6;retry++) {
+        if(findFieldRoot("price",()=>{}))break;
+        await sleep(250);
+      }
+    }
+    results.price=await fillText("price",draft.price,log);
     results.images=await fillImages(draft.images,log);
     log("Abgeschlossen; kein automatisches Veröffentlichen.");
     return {results,logs};
