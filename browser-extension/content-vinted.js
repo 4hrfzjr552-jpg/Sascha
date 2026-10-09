@@ -1055,6 +1055,53 @@
     return [...new Set(list)];
   }
 
+  // Vinted often renders field triggers as plain divs inside labelled cells.
+  // Use the field label as the anchor rather than requiring a button.
+  function findControlFromFieldLabel(root, fieldName, keywords, log) {
+    const normalize = v => String(v || "").normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+    const aliases = [...keywords, ...(fieldName === "condition" ? ["artikelzustand"] : [])].map(normalize);
+    const labels = Array.from(root.querySelectorAll(
+      'label, [class*="label" i], [data-testid*="label" i], dt, span, div'
+    )).filter(el => {
+      if (!isElementVisible(el) || !isSafeInteractiveElement(el)) return false;
+      const own = normalize(el.textContent);
+      if (own.length > 38 || !aliases.some(k => own === k || own === k + " *" || own === k + ":")) return false;
+      return !Array.from(el.children).some(ch => aliases.includes(normalize(ch.textContent)));
+    });
+    for (const label of labels) {
+      if (label.tagName === "LABEL" && label.htmlFor) {
+        const target = document.getElementById(label.htmlFor);
+        if (target && isElementVisible(target)) return target;
+      }
+      let scope = label.parentElement;
+      for (let depth = 0; depth < 4 && scope && scope !== root; depth++, scope = scope.parentElement) {
+        const controls = Array.from(scope.querySelectorAll(
+          '[role="combobox"], [aria-haspopup], select, [role="button"], button, input:not([type="hidden"]):not([type="file"]), [tabindex="0"], [class*="input" i], [class*="select" i]'
+        )).filter(el => isElementVisible(el) && isSafeInteractiveElement(el) &&
+            !el.contains(label) && !el.matches('[type="submit"],[type="reset"]'));
+        if (controls.length === 1) {
+          log("✓ [" + fieldName + "] Feld über Beschriftung gefunden");
+          return controls[0];
+        }
+        // The whole select cell is clickable even without semantic button attributes.
+        if (depth <= 2 && scope.matches('[data-testid*="cell" i], [class*="cell" i], [class*="field" i]')) {
+          const directLabel = normalize(label.textContent);
+          if (aliases.some(k => directLabel === k || directLabel === k + " *")) {
+            log("✓ [" + fieldName + "] Vinted-Feldzelle gefunden");
+            return scope;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  function findVintedFieldTrigger(root, fieldName, keywords, log) {
+    return findControlFromFieldLabel(root, fieldName, keywords, log) ||
+      findSpecificDropdown(root, keywords);
+  }
+
   // Single Dropdown Option Selector Helper (Marke, Größe, Farbe, Zustand)
   async function selectVintedOption(
     formContainer,
@@ -1071,10 +1118,10 @@
       }
 
       const activeContainer = getFormContainer(log) || formContainer;
-      const triggerEl = findSpecificDropdown(activeContainer, fieldKeywords);
+      const triggerEl = findVintedFieldTrigger(activeContainer, fieldName, fieldKeywords, log);
 
       if (!triggerEl) {
-        log(`✗ Dropdown-Element für "${fieldName}" nicht gefunden.`);
+        log(`✗ Dropdown-Element für "${fieldName}" nicht gefunden. Labels: ${Array.from(activeContainer.querySelectorAll("label")).map(e => e.textContent.trim()).slice(0,30).join(" | ")}`);
         return { success: false, reason: `Dropdown-Element für "${fieldName}" nicht gefunden` };
       }
 
@@ -1083,7 +1130,7 @@
 
       const overlayScope = getOpenOverlayScope();
       if (!overlayScope) {
-        log(`✗ Kein geöffnetes Dropdown/Modal für "${fieldName}" gefunden.`);
+        log(`✗ Kein geöffnetes Dropdown/Modal für "${fieldName}" gefunden. Trigger: ${triggerEl.tagName} ${triggerEl.outerHTML.slice(0, 260)}`);
         return { success: false, reason: `Overlay für "${fieldName}" nicht geöffnet` };
       }
 
@@ -1149,7 +1196,7 @@
 
         const freshContainer = getFormContainer(log);
         const verified = isDropdownConfirmed(
-          findSpecificDropdown(freshContainer, fieldKeywords) || triggerEl,
+          findVintedFieldTrigger(freshContainer, fieldName, fieldKeywords, log) || triggerEl,
           desiredSynonyms
         );
 
@@ -1265,7 +1312,7 @@
           log(`✓ Preis eingefügt: ${priceVal} €`);
         } else {
           // Fallback: look for input[type="number"] or input with name/id containing price or near €
-          const priceFallback = formContainer.querySelector('input[name*="price" i], input[id*="price" i], input[data-testid*="price" i], input[placeholder*="0,00"], input[placeholder*="0.00"]');
+          const priceFallback = formContainer.querySelector('input[name*="price" i], input[id*="price" i], input[data-testid*="price" i], input[placeholder*="0,00"], input[placeholder*="0.00"]') || (function () { const label = Array.from(formContainer.querySelectorAll("label, span, div")).find(el => /^(preis|price)\s*\*?:?$/i.test(el.textContent.trim()) && el.textContent.length < 18); if (!label) return null; let parent = label.parentElement; for (let i = 0; parent && i < 4; i++, parent = parent.parentElement) { const inputs = Array.from(parent.querySelectorAll('input:not([type="hidden"]):not([type="file"])')).filter(isSafeInteractiveElement); if (inputs.length === 1) return inputs[0]; } return null; })();
           if (priceFallback && isSafeInteractiveElement(priceFallback)) {
             setNativeInputValue(priceFallback, priceVal);
             results.price = { success: true };
