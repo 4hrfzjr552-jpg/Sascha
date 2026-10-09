@@ -10,13 +10,13 @@ const file = fs.readFileSync(path.join(__dirname, '..', 'content-vinted.js'), 'u
 const register = '  chrome.runtime.onMessage.addListener';
 assert.ok(file.includes(register), 'Expected extension message listener');
 const instrumented = file.replace(register,
-  '  window.__test = { norm, optionAliases, formatTitle, fieldLabelMatches, desiredGender, categoryScore, fieldSearchInput, catalogRadioOptions };\n' + register);
+  '  window.__test = { norm, optionAliases, formatTitle, fieldLabelMatches, desiredGender, categoryScore, fieldSearchInput, catalogRadioOptions, classifyDraftCategory };\n' + register);
 const sandbox = {
   window: {},
   chrome: { runtime: { onMessage: { addListener() {} } } }
 };
 vm.runInNewContext(instrumented, sandbox, { filename: 'content-vinted.js' });
-const { norm, optionAliases, formatTitle, fieldLabelMatches, desiredGender, categoryScore, fieldSearchInput } = sandbox.window.__test;
+const { norm, optionAliases, formatTitle, fieldLabelMatches, desiredGender, categoryScore, fieldSearchInput, catalogRadioOptions, classifyDraftCategory } = sandbox.window.__test;
 const has = (field, desired, candidate, draft = {}) =>
   optionAliases(field, desired, draft).includes(norm(candidate));
 
@@ -71,42 +71,54 @@ test('brand search cannot be reused by size, condition or color', () => {
 });
 
 
-test('catalog radios resolve adult categories, not baby or unrelated subtypes', () => {
-  const build=(id,name,trail)=>{
-    const row={
-      id:'',tagName:'LI',isConnected:true,
-      innerText:name+' '+trail,parentElement:null,
-      getClientRects(){return [1];},closest(){return null;},
-      getAttribute(){return '';}
-    };
-    return {
-      radio:{id:'catalog-search-'+id+'-radio',closest(){return row;}},
-      label:{innerText:name,textContent:name}
-    };
-  };
-  const items=[
-    build(1559,'Jeans','Kinder Mädchen'),
-    build(1696,'Jeans','Kinder Jungen'),
-    build(1818,'Jeans mit enger Passform','Herren'),
-    build(257,'Jeans','Herren Hosen'),
-    build(183,'Jeans','Damen Hosen')
-  ];
+test('category inference uses the AI-generated description and title', () => {
+  const slim=classifyDraftCategory({
+    title:'Diesel Safado',description:'Herrenjeans Slim Fit W36 L32',category:'Jeans'
+  });
+  assert.equal(slim.gender,'men');
+  assert.equal(slim.fit,'slim');
+  const straight=classifyDraftCategory({
+    title:'Zara Jeans',description:'Damenjeans, Straight Leg',category:'Jeans'
+  });
+  assert.equal(straight.gender,'women');
+  assert.equal(straight.fit,'straight');
+});
+test('W36 alone does not determine gender', () => {
+  assert.equal(classifyDraftCategory({title:'Jeans W36 L32',category:'Jeans'}).gender,'');
+});
+test('AI-generated jeans jacket text is not pants', () => {
+  assert.equal(classifyDraftCategory({title:'Damen Jeansjacke',category:'Jeansjacke'}).isJeans,false);
+});
+test('explicit structured gender overrides inconsistent title', () => {
+  assert.equal(classifyDraftCategory({gender:'Damen',title:'Herrenjeans',category:'Jeans'}).gender,'women');
+});
+test('radio category IDs are used only for verified gender and fit', () => {
+  const items=[{id:1818,text:'Jeans mit enger Passform Herren'},
+    {id:1819,text:'Gerade geschnittene Jeans Herren'},
+    {id:1845,text:'Gerade geschnittene Jeans Damen'},
+    {id:1559,text:'Jeans Kinder'},
+    {id:1696,text:'Jeans Jungen'}];
+  const body={};
+  const radios=items.map(item=>{
+    const row={id:'',tagName:'LI',isConnected:true,textContent:item.text,
+      innerText:item.text,parentElement:body,getClientRects:()=>[1],
+      getAttribute:()=>'',closest:()=>null};
+    return {id:'catalog-search-'+item.id+'-radio',closest:()=>row};
+  });
   sandbox.document={
-    body:{},
+    body,
     querySelectorAll(selector){
-      return selector.startsWith('input[id^=')?items.map(item=>item.radio):[];
+      return selector.startsWith('input[id^=')?radios:[];
     },
-    querySelector(selector){
-      const match=selector.match(/catalog-search-(\d+)-radio/);
-      return match ? items.find(item=>item.radio.id==='catalog-search-'+match[1]+'-radio')?.label||null : null;
-    }
+    querySelector:()=>null
   };
   sandbox.getComputedStyle=()=>({display:'block',visibility:'visible'});
-  const men=sandbox.window.__test.catalogRadioOptions('jeans','men');
-  const women=sandbox.window.__test.catalogRadioOptions('jeans','women');
-  assert.ok(men.find(item=>item.id===257)?.eligible);
-  assert.ok(women.find(item=>item.id===183)?.eligible);
-  assert.equal(men.find(item=>item.id===1559)?.eligible,false);
-  assert.equal(men.find(item=>item.id===1696)?.eligible,false);
-  assert.equal(men.find(item=>item.id===1818)?.eligible,false);
+  const options=(gender,fit)=>catalogRadioOptions('jeans',{gender,fit,isJeans:true});
+  const menSlim=options('men','slim');
+  assert.equal(menSlim.find(x=>x.id===1818)?.eligible,true);
+  assert.equal(menSlim.find(x=>x.id===1845)?.eligible,false);
+  assert.equal(menSlim.find(x=>x.id===1559)?.eligible,false);
+  assert.equal(options('men','straight').find(x=>x.id===1819)?.eligible,true);
+  assert.equal(options('women','straight').find(x=>x.id===1845)?.eligible,true);
+  assert.ok(!options('men','').some(x=>x.eligible && x.id===1559));
 });
