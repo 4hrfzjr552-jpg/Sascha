@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Sascha AI -> Vinted Assistant",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Überträgt Vinted-Entwürfe aus Sascha AI direkt in die Verkaufsmaske von Vinted.",
   "permissions": [
     "storage",
