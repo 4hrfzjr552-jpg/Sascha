@@ -497,72 +497,125 @@
     }
   }
 
+  function desiredGender(draft) {
+    const source=norm([draft.gender,draft.categoryPath,draft.title].filter(Boolean).join(" "));
+    if(/\b(damen|frauen|weiblich|women|female|femme)\b/.test(source))return "women";
+    if(/\b(herren|manner|mannlich|men|male|homme)\b/.test(source))return "men";
+    if(/\b(kinder|baby|kids|children)\b/.test(source))return "children";
+    return "";
+  }
+
+  function categoryOptionContext(el) {
+    const segments=[];
+    let node=el;
+    for(let depth=0;depth<5&&node&&node!==document.body;depth++,node=node.parentElement){
+      const attr=[node.id,node.getAttribute("data-testid"),node.getAttribute("aria-label")]
+        .filter(Boolean).join(" ");
+      const text=labelText(node);
+      // Avoid the entire modal: only row-level breadcrumb text is meaningful.
+      if(text.length<175)segments.push(text);
+      if(attr)segments.push(norm(attr));
+    }
+    return [...new Set(segments)].join(" | ").slice(0,300);
+  }
+
+  function categoryScore(context,gender) {
+    const baby=/fruhchen|baby|kinder|kids|children|neugeboren|jungen|madchen/.test(context);
+    if(gender!=="children" && baby)return -100;
+    if(gender==="children")return baby?10:-30;
+    const men=/\b(herren|men|mann|manner|homme)\b/.test(context);
+    const women=/\b(damen|women|frau|frauen|femme)\b/.test(context);
+    if(gender==="men")return men?20:women?-30:1;
+    if(gender==="women")return women?20:men?-30:1;
+    return (men||women)?5:1;
+  }
+
+  async function verifyCategorySizeFamily(draft,log) {
+    if(desiredGender(draft)==="children")return {ok:true};
+    const size=findFieldRoot("size",()=>{})?.control;
+    if(!size)return {ok:true,unknown:true};
+    size.click();
+    await sleep(300);
+    const baby=isInfantSizeGrid();
+    const el=document.activeElement||size;
+    el.dispatchEvent(new KeyboardEvent("keydown",
+      {key:"Escape",code:"Escape",bubbles:true,cancelable:true}));
+    await sleep(120);
+    if(baby){
+      log("[CATEGORY SAFETY] Die ausgewählte Jeans-Kategorie liefert Babygrößen.");
+      return {ok:false,reason:"Falsche Kategorie: Vinted zeigt Babygrößen"};
+    }
+    return {ok:true};
+  }
+
   async function chooseCategory(draft,log) {
     const found=findFieldRoot("category",log);
     if(!found)return {success:false,reason:"Kategorie-Auswahl nicht gefunden"};
     const raw=String(draft.category||"").trim();
     if(!raw)return {success:false,reason:"Keine Kategorie angegeben"};
-    const leaf=raw.split(/[>/]/).pop().trim();
-    const trigger=found.control;
-    trigger.click();
-    await sleep(300);
-    // Vinted's catalog picker creates a portal search input outside its
-    // category cell, e.g. #catalog-search-input. Searching the cell misses it.
-    const search=document.querySelector('#catalog-search-input, input[name="catalog-search-input"], [data-testid="catalog-search-input"]');
-    if(search && shown(search)) {
-      setInput(search,leaf);
-      await sleep(550);
+    const desired=norm(raw.split(/[>/]/).pop().trim());
+    const gender=desiredGender(draft);
+    const selected=found.control;
+    const previous=norm(selected.value||selected.getAttribute("data-value"));
+    // Respect a category manually chosen by the user, but still check sizes.
+    if(previous===desired && !shown(document.querySelector("#catalog-search-input"))) {
+      const inspected=await verifyCategorySizeFamily(draft,log);
+      if(inspected.ok)return {success:true};
+      return {success:false,reason:inspected.reason};
     }
-    const desired=norm(leaf);
-    function matches() {
-      const field=document.querySelector('#catalog-search-input');
+    selected.click();
+    await sleep(260);
+    const search=document.querySelector('#catalog-search-input, input[name="catalog-search-input"]');
+    if(search && shown(search)) {
+      setInput(search,desired);
+      await sleep(470);
+    }
+    const candidates=()=>{
       const scopes=overlays();
-      const roots=[...scopes,field?.parentElement?.parentElement?.parentElement,document.body].filter(Boolean);
-      for(const scope of roots) {
-        const all=Array.from(scope.querySelectorAll(
-          '[role=option], [role=treeitem], [role=menuitem], li, button, [data-testid*="item" i], [data-testid*="cell" i], [class*="item" i], [class*="cell" i]'
-        )).filter(el=>shown(el) && !ignore(el) && !el.contains(trigger));
-        const exact=all.filter(el=>labelText(el)===desired);
-        if(exact.length) {
-          // Prefer the deepest matching row and avoid unrelated page controls.
-          exact.sort((a,b)=>a.contains(b)?1:b.contains(a)?-1:0);
-          return exact[0];
+      const roots=[...scopes,search?.parentElement?.parentElement?.parentElement,document.body]
+        .filter(Boolean);
+      const matches=[];
+      for(const root of roots){
+        const elements=Array.from(root.querySelectorAll(
+          '[role="option"],[role="treeitem"],[role="menuitem"],li,button,'+
+          '[data-testid*="item" i],[data-testid*="cell" i],[class*="item" i],[class*="cell" i]'
+        )).filter(el=>shown(el)&&!ignore(el)&&!el.contains(selected)&&labelText(el)===desired);
+        for(const el of elements){
+          if(matches.some(other=>other===el))continue;
+          matches.push(el);
         }
       }
-      return null;
+      return matches.filter(el=>!matches.some(inner=>inner!==el&&el.contains(inner)));
+    };
+    let options=[];
+    for(let i=0;i<8;i++){options=candidates();if(options.length)break;await sleep(200);}
+    const ranked=options.map(el=>({
+      el,context:categoryOptionContext(el),
+      score:categoryScore(categoryOptionContext(el),gender)
+    })).filter(x=>x.score>=0).sort((a,b)=>b.score-a.score);
+    log("[CATALOG CANDIDATES] gender="+(gender||"unknown")+" "+
+      JSON.stringify(ranked.slice(0,10).map(x=>({context:x.context.slice(0,145),score:x.score}))));
+    if(!ranked.length)return {success:false,reason:"Keine geeignete Jeans-Kategorie gefunden"};
+    if(ranked.length>1 && ranked[0].score===ranked[1].score) {
+      return {success:false,reason:"Mehrere gleichnamige Jeans-Kategorien: Herren/Damen nicht eindeutig"};
     }
-    let option=null;
-    for(let attempt=0;attempt<6;attempt++){
-      option=matches();
-      if(option)break;
-      await sleep(250);
+    if(gender && gender!=="children" && ranked[0].score<5) {
+      return {success:false,reason:"Jeans-Kategorie konnte nicht sicher Herren oder Damen zugeordnet werden"};
     }
-    if(!option) {
-      const searchEl=document.querySelector("#catalog-search-input");
-      const holder=searchEl?.closest('[role=dialog], [data-testid*="modal" i]') || searchEl?.parentElement?.parentElement?.parentElement;
-      const examples=Array.from((holder||document.body).querySelectorAll(
-        'button, li, [role=option], [data-testid*="item" i], [data-testid*="cell" i]'
-      )).filter(shown).slice(0,45).map(el=>({
-        tag:el.tagName, text:labelText(el).slice(0,65), testid:el.getAttribute("data-testid")||""
-      }));
-      log("[CATALOG DIAG] searchInput="+!!searchEl+" options="+JSON.stringify(examples));
-      return {success:false,reason:"Kategorie im geöffneten Vinted-Katalog nicht gefunden"};
+    const chosen=ranked[0];
+    log("[CATALOG] choose "+desired+" path="+chosen.context.slice(0,150));
+    chosen.el.click();
+    await sleep(480);
+    const picked=norm(selected.value || selected.getAttribute("data-value"));
+    const catalogOpen=shown(document.querySelector("#catalog-search-input"));
+    if(catalogOpen || picked!==desired) {
+      log("[CATALOG CONFIRM] picked="+picked+" catalogOpen="+catalogOpen);
+      return {success:false,reason:"Kategoriewahl nicht im Feld bestätigt"};
     }
-    log("[CATALOG] click "+labelText(option));
-    option.click();
-    await sleep(600);
-    const selected=document.querySelector('#category');
-    const picked=norm(selected?.value||selected?.getAttribute("data-value")||"");
-    const dependent=!!findFieldRoot("brand",()=>{}) || !!findFieldRoot("size",()=>{});
-    const catalogSearch=document.querySelector('#catalog-search-input');
-    const menuOpen=!!catalogSearch && shown(catalogSearch);
-    log("[CATALOG CONFIRM] picked="+picked+" dependent="+dependent+" menuOpen="+menuOpen);
-    // A dependent input may exist behind an unfinished category picker.
-    // Do not click through an active catalog menu.
-    if(!menuOpen && (picked.includes(desired) || dependent)) return {success:true};
-    return {success:false,reason:menuOpen ?
-      "Kategoriefenster noch geöffnet: Jeans noch nicht bestätigt" :
-      "Kategorie angeklickt, aber nicht bestätigt"};
+    const sizeFamily=await verifyCategorySizeFamily(draft,log);
+    if(!sizeFamily.ok)return {success:false,reason:sizeFamily.reason};
+    log("[CATALOG CONFIRM] picked="+picked+" gender="+(gender||"unknown")+" babyGrid=false");
+    return {success:true};
   }
 
   async function fillText(field,value,log) {
