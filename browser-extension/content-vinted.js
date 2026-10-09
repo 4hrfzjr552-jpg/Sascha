@@ -532,7 +532,9 @@
     const isJacket=/(jeansjacke|denimjacke|denim jacket|jean jacket)/.test(type+" "+title+" "+desc);
     const isJeans=!isJacket && /(jeans|jeanhose|denimhose|denim jeans|denim pants)/.test(
       [type,title,desc].join(" "));
-    const fitSource=fitMeta || [title,desc].join(" ");
+    // Explicit cut wins, otherwise look across title and AI-generated description.
+    const fitSource=fitMeta && /(bootcut|flared|schlag|skinny|slim|straight|regular|baggy|wide|loose|mom|gerade)/.test(fitMeta) ?
+      fitMeta : [title,desc].join(" ");
     const patterns=[
       ["bootcut",/(bootcut|flared|schlaghose|schlagjeans|flare jeans|boot cut)/],
       ["skinny",/(skinny|super skinny|rohrenjeans|rohrenhose)/],
@@ -683,7 +685,7 @@
     const gender=classification.gender;
     log("[CATEGORY CLASSIFICATION] "+JSON.stringify(classification));
     if(!classification.isJeans) {
-      return {success:false,reason:"Keine eindeutige Jeans: bitte Kategorie manuell auswählen"};
+      return {success:false,reason:"Artikel nicht eindeutig als Jeans erkannt; Kategorie bitte manuell auswählen"};
     }
     if(!gender || gender==="children") {
       return {success:false,reason:"Herren/Damen aus den Entwurfsdaten nicht eindeutig erkannt"};
@@ -751,8 +753,13 @@
     await sleep(480);
     const picked=norm(selected.value || selected.getAttribute("data-value"));
     const catalogOpen=shown(document.querySelector("#catalog-search-input"));
-    if(catalogOpen || picked!==desired) {
-      log("[CATALOG CONFIRM] picked="+picked+" catalogOpen="+catalogOpen);
+    const selectedCategoryName=norm(chosen.radioId &&
+      VERIFIED_JEANS_CATEGORIES[chosen.radioId]?.label || "");
+    const nameMatches=!!picked && (picked===desired ||
+      picked===selectedCategoryName || picked.includes(desired));
+    if(catalogOpen || !nameMatches) {
+      log("[CATALOG CONFIRM] picked="+picked+" catalogOpen="+catalogOpen+
+        " expected="+selectedCategoryName);
       return {success:false,reason:"Kategoriewahl nicht im Feld bestätigt"};
     }
     const sizeFamily=await verifyCategorySizeFamily(draft,log);
