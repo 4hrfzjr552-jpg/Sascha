@@ -163,6 +163,49 @@
     return eligible.find(el=>candidates.includes(labelText(el)) &&
       !eligible.some(child=>child!==el && el.contains(child) && candidates.includes(labelText(child)))) || null;
   }
+  // Observe nodes generated while the menu opens. Vinted often mounts option
+  // rows into React portals without standard ARIA roles or predictable classes.
+  function watchNewMenuNodes() {
+    const added=new Set();
+    const observer=new MutationObserver(records=>{
+      for(const record of records){
+        for(const node of record.addedNodes){
+          if(node.nodeType===1)added.add(node);
+        }
+      }
+    });
+    observer.observe(document.body,{childList:true,subtree:true});
+    return {
+      roots:()=>Array.from(added).filter(el=>shown(el)&&!ignore(el)),
+      stop:()=>observer.disconnect()
+    };
+  }
+
+  function safeMenuStructure(trigger,roots) {
+    // No form values, cookies, HTML source, title or description text copied.
+    const nonSensitiveAttrs=el=>({
+      tag:el.tagName.toLowerCase(),id:el.id||"",
+      role:el.getAttribute("role")||"",
+      testid:el.getAttribute("data-testid")||"",
+      cls:typeof el.className==="string"?el.className.slice(0,90):"",
+      placeholder:el.getAttribute("placeholder")||"",
+      expanded:el.getAttribute("aria-expanded")||"",
+      readonly:!!el.readOnly
+    });
+    const items=[];
+    for(const root of roots.slice(0,12)){
+      if(!shown(root))continue;
+      items.push(nonSensitiveAttrs(root));
+      for(const child of Array.from(root.querySelectorAll(
+        '[role="option"],[role="menuitem"],[role="listbox"],[data-testid],input,button'
+      )).filter(shown).slice(0,12)){
+        items.push(nonSensitiveAttrs(child));
+      }
+      if(items.length>=55)break;
+    }
+    return {trigger:nonSensitiveAttrs(trigger),nodes:items.slice(0,55)};
+  }
+
   function getOpenDropdownSurfaces(trigger) {
     const selectors=[
       '[role="dialog"]','[role="listbox"]','[role="menu"]',
@@ -271,31 +314,34 @@
         {success:false,reason:"Auswahl nicht übernommen"};
     }
     try {
+      const watcher=watchNewMenuNodes();
       control.click();
-      await sleep(250);
+      await sleep(300);
       let candidate=null;
       // Vinted can render the popup directly below body, outside the field.
       for(let attempt=0;attempt<12;attempt++) {
         const surfaces=getOpenDropdownSurfaces(control);
-        candidate=dropdownOption(surfaces,candidates,control);
+        candidate=dropdownOption([...watcher.roots(),...surfaces],candidates,control);
         if(candidate)break;
         await sleep(150);
       }
       if(!candidate) {
         const surfaces=getOpenDropdownSurfaces(control);
-        const search=dropdownSearchInput(control,surfaces);
+        const search=dropdownSearchInput(control,surfaces) ||
+          (control instanceof HTMLInputElement && !control.readOnly && !control.disabled ? control : null);
         if(search) {
           log("[SEARCH "+field+"] "+(search.id||search.getAttribute("placeholder")||"input"));
           setInput(search,String(desired));
           await sleep(400);
           for(let attempt=0;attempt<8;attempt++) {
-            candidate=dropdownOption(getOpenDropdownSurfaces(control),candidates,control);
+            candidate=dropdownOption([...watcher.roots(),...getOpenDropdownSurfaces(control)],candidates,control);
             if(candidate)break;
             await sleep(150);
           }
         }
       }
       if(!candidate) {
+        log("[MENU STRUCTURE "+field+"] "+JSON.stringify(safeMenuStructure(control,watcher.roots())));
         dropdownDebug(field,control,log);
         return {success:false,reason:"Auswahlmenü enthält keine erkannte Option"};
       }
@@ -317,6 +363,8 @@
       log("[ERROR "+field+"] "+err.message);
       dropdownDebug(field,control,log);
       return {success:false,reason:err.message};
+    } finally {
+      watcher.stop();
     }
   }
 
