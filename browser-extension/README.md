@@ -52,6 +52,14 @@ browser-extension/
 
 ---
 
+## 🔄 Updates ohne Neuinstallation (Chrome / Edge)
+
+Wenn die Erweiterung einmal über **Entpackte Erweiterung laden** aus einem festen Ordner installiert ist, bleibt sie installiert. Für Updates **denselben Ordner** aktualisieren und dann auf `chrome://extensions/` (Edge: `edge://extensions/`) auf **Neu laden** klicken. Vinted-Tab ebenfalls neu laden. Nicht den Erweiterungsordner löschen oder verschieben.
+
+Für eine einfache Git-basierte Aktualisierung: Repository einmal mit `git clone https://github.com/4hrfzjr552-jpg/Sascha.git` auf dem PC klonen und den Unterordner `Sascha/browser-extension` als entpackte Erweiterung laden. Später im Repository-Ordner `git pull` ausführen und die Erweiterung neu laden. Das funktioniert nur, wenn die Änderungen auf `main` übernommen wurden. Ein ZIP-Download alleine aktualisiert den bestehenden Ordner **nicht**.
+
+Die Versionsnummer steht in `manifest.json` und wird auch im Extension-Popup angezeigt. Sie wird nicht automatisch durch GitHub aktualisiert; ein automatischer Browser-Update-Kanal erfordert eine reguläre signierte/distribuierte Erweiterung mit Update-Infrastruktur.
+
 ## 💻 Installation in Desktop-Browsern (Chrome / Edge / Firefox / Orion Desktop)
 
 ### Chrome / Edge / Brave / Orion Desktop:
