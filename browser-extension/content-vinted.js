@@ -131,20 +131,91 @@
     }
     if (field==="size") {
       const m=raw.toUpperCase().replace(/\s+/g,"").match(/^W?(\d{2})(?:[\/-]?L\d{2})?$/);
-      if (m) {
+      if(m){
         const waist=Number(m[1]);
         candidates.push("W"+waist,"W "+waist,String(waist));
-        const woman=/damen|frauen|women|female|femme/i.test(
-          [draft.gender,draft.category].filter(Boolean).join(" "));
-        if (woman) {
-          // Size equivalences vary by manufacturer: fall back only after exact waist search.
-          const approximate={24:"XS",25:"XS",26:"S",27:"S",28:"M",29:"M",30:"L",31:"L",32:"XL",33:"XL",34:"XXL"};
-          if (approximate[waist]) candidates.push(approximate[waist]);
-        }
       }
+      // Do not guess a letter size here: W36 may be L on Vinted's
+      // generic men's chart but XXL on Diesel's own size chart.
+      // Use resolveSizeFallback only when the visible menu lacks W sizes.
     }
     return [...new Set(candidates.map(norm))];
   }
+  function normalizeInternationalSize(label) {
+    const value=norm(label).replace(/\s+/g,"");
+    if(value==="xxl")return "2xl";
+    if(value==="xxxl")return "3xl";
+    if(value==="xxxxl")return "4xl";
+    if(value==="xxxxxl")return "5xl";
+    if(value==="xxxxxxl")return "6xl";
+    if(value==="xxxxxxxl")return "7xl";
+    return value;
+  }
+
+  // Reference charts, not measurements of the garment:
+  // Diesel men's denim: https://de.diesel.com/en/slim/slim-jeans-2019-d-strukt-0adbk-blue/A035580ADBK01.html
+  // Vinted men's clothing: https://www.vinted.com/help/1214/515-mannenkleding-maattabel
+  // Vinted women's jeans: https://www.vinted.com/help/507-guide-des-tailles-de-jeans-femme
+  // If the conversion is ambiguous or no exact letter choice is visible,
+  // the extension must stop and ask the seller to pick the size manually.
+  function resolveSizeFallback(draft, rawSize, availableLabels) {
+    const clean=String(rawSize||"").trim().toUpperCase().replace(/\s+/g,"");
+    const match=clean.match(/^W?(\d{2})(?:[\/-]?L\d{2})?$/);
+    if(!match)return null;
+    const waist=Number(match[1]);
+    const sizes=[...new Set(availableLabels.map(v=>norm(v)).filter(Boolean))];
+    if(!sizes.length || sizes.some(v=>v===norm(rawSize) || v===String(waist) ||
+      v==="w"+waist || v==="w "+waist))return null;
+    const letterSizes=sizes.map(normalizeInternationalSize);
+    if(!letterSizes.some(v=>/^(?:[2-7]?xl|xs|xxs|xxxs|s|m|l)$/.test(v)))return null;
+
+    const kind=classifyDraftCategory(draft);
+    if(!kind.isJeans || !["men","women"].includes(kind.gender))return null;
+    const brand=norm(draft.brand);
+    let size="",source="";
+    if(kind.gender==="men" && brand==="diesel") {
+      const diesel={26:"XS",27:"S",28:"S",29:"M",30:"M",31:"L",
+        32:"L",33:"XL",34:"XL",36:"XXL",38:"XXXL",40:"4XL"};
+      size=diesel[waist]||"";
+      source="Diesel Herrengrößentabelle";
+    } else if(kind.gender==="men") {
+      // Only use sizes lying unambiguously in one interval of Vinted's
+      // men's general international chart (boundary overlaps are omitted).
+      const vintedMen=[
+        [23,27,"XS"],[29,31,"S"],[32,34,"M"],[35,36,"L"],
+        [38,40,"XL"],[41,44,"XXL"],[46,50,"XXXL"],[51,55,"4XL"]
+      ];
+      size=vintedMen.find(([low,high])=>waist>=low&&waist<=high)?.[2]||"";
+      source="Vinted Herrengrößentabelle (Richtwert)";
+    } else {
+      const women={
+        26:"XS",27:"S",28:"S",29:"M",30:"M",31:"L",32:"L",
+        33:"XL",34:"XL",35:"XXL",36:"XXL",37:"XXXL",38:"XXXL",
+        39:"4XL",40:"4XL",41:"5XL",42:"5XL",43:"6XL",44:"6XL",
+        45:"7XL",46:"7XL"
+      };
+      size=women[waist]||"";
+      source="Vinted Damenjeans-Größentabelle (Richtwert)";
+    }
+    if(!size)return null;
+    const index=letterSizes.findIndex(value=>value===normalizeInternationalSize(size));
+    if(index===-1)return null;
+    return {
+      original:"W"+waist,
+      target:sizes[index],
+      source,
+      note:"Umrechnung ist ein Größentabellen-Richtwert, Etikett und Maße vor Veröffentlichung prüfen"
+    };
+  }
+
+  function visibleSizeOptions() {
+    const grid=document.querySelector('[data-testid="category-size-single-grid-content"]');
+    if(!grid || !shown(grid))return [];
+    return Array.from(grid.querySelectorAll(
+      '[role="checkbox"][data-testid*="size-group" i], [data-testid*="size-grid-option" i]'
+    )).filter(shown).map(labelText).filter(Boolean);
+  }
+
   function overlays() {
     const selectors=['[role=dialog]','[role=listbox]','[role=menu]',
       '[data-testid*="popover" i]','[data-testid*="dropdown" i]',
@@ -411,7 +482,7 @@
   async function chooseField(field,desired,draft,log) {
     const found=findFieldRoot(field,log);
     if(!found)return {success:false,reason:"Feld nicht gefunden"};
-    const {control}=found,candidates=optionAliases(field,desired,draft);
+    const {control}=found; let candidates=optionAliases(field,desired,draft);
     if(control instanceof HTMLSelectElement) {
       const option=Array.from(control.options).find(el=>
         candidates.includes(norm(el.textContent))||candidates.includes(norm(el.value)));
@@ -454,6 +525,19 @@
             if(choice)break;
             await sleep(140);
           }
+        }
+      }
+      if(!choice && field==="size") {
+        const conversion=resolveSizeFallback(draft,desired,visibleSizeOptions());
+        if(conversion){
+          log("[SIZE CONVERSION] "+conversion.original+" -> "+
+            conversion.target.toUpperCase()+" ("+conversion.source+"). "+conversion.note);
+          candidates=[...new Set([...candidates,conversion.target].map(norm))];
+          choice=exactFieldOption(scopesForField(field,control,watcher),candidates,field,control);
+          if(!choice)log("[SIZE CONVERSION] Passende Checkbox fehlt trotz möglichem Richtwert.");
+        } else {
+          log("[SIZE CONVERSION] Keine eindeutige Umrechnung für "+String(desired)+
+            "; Größe nicht automatisch setzen.");
         }
       }
       if(!choice) {
