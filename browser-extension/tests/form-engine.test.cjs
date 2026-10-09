@@ -17,7 +17,7 @@ const sandbox = {
   setTimeout
 };
 vm.runInNewContext(instrumented, sandbox, { filename: 'content-vinted.js' });
-const { norm, optionAliases, formatTitle, fieldLabelMatches, desiredGender, categoryScore, fieldSearchInput, runSequentialSteps, FIELD_ORDER, classifyDraftCategory, catalogRadioOptions, waitForCatalogChoices, catalogSearchSnapshot } = sandbox.window.__test;
+const { norm, optionAliases, formatTitle, fieldLabelMatches, desiredGender, categoryScore, fieldSearchInput, runSequentialSteps, FIELD_ORDER, classifyDraftCategory, catalogRadioOptions, waitForCatalogChoices, catalogSearchSnapshot, resolveSizeFallback, normalizeInternationalSize } = sandbox.window.__test;
 const has = (field, desired, candidate, draft = {}) =>
   optionAliases(field, desired, draft).includes(norm(candidate));
 
