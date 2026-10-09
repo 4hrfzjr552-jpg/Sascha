@@ -10,7 +10,7 @@ const file = fs.readFileSync(path.join(__dirname, '..', 'content-vinted.js'), 'u
 const register = '  chrome.runtime.onMessage.addListener';
 assert.ok(file.includes(register), 'Expected extension message listener');
 const instrumented = file.replace(register,
-  '  window.__test = { norm, optionAliases, formatTitle, fieldLabelMatches, desiredGender, categoryScore, fieldSearchInput, runSequentialSteps, FIELD_ORDER, classifyDraftCategory, catalogRadioOptions, waitForCatalogChoices, catalogSearchSnapshot };\n' + register);
+  '  window.__test = { norm, optionAliases, formatTitle, fieldLabelMatches, desiredGender, categoryScore, fieldSearchInput, runSequentialSteps, FIELD_ORDER, classifyDraftCategory, catalogRadioOptions, waitForCatalogChoices, catalogSearchSnapshot, resolveSizeFallback, normalizeInternationalSize };\n' + register);
 const sandbox = {
   window: {},
   chrome: { runtime: { onMessage: { addListener() {} } } },
@@ -205,4 +205,36 @@ test('catalog snapshot reports empty results without guessing IDs', () => {
   const info=catalogSearchSnapshot();
   assert.equal(info.rawRadios,0);
   assert.equal(info.searchOpen,false);
+});
+
+
+test('Diesel men's W36 maps to XXL when Vinted shows letter sizes', () => {
+  const options=['XS','S','M','L','XL','XXL','XXXL','4XL'];
+  const draft={gender:'Herren',category:'Jeans',brand:'Diesel'};
+  const result=resolveSizeFallback(draft,'W36',options);
+  assert.equal(result.target,'xxl');
+  assert.match(result.source,/Diesel/);
+});
+test('generic Vinted men W36 maps to L, not brand-specific XXL', () => {
+  const draft={gender:'Herren',category:'Jeans',brand:'Levi’s'};
+  assert.equal(resolveSizeFallback(draft,'W36 L32',['XS','S','M','L','XL','XXL']).target,'l');
+});
+test('Vinted women jeans W36 maps to XXL', () => {
+  const draft={gender:'Damen',category:'Jeans',brand:'Diesel'};
+  assert.equal(resolveSizeFallback(draft,'W36',['S','M','L','XL','XXL']).target,'xxl');
+});
+test('ambiguous W37 and missing target are not auto-converted', () => {
+  assert.equal(resolveSizeFallback({gender:'Herren',category:'Jeans'},'W37',['L','XL']),null);
+  assert.equal(resolveSizeFallback({gender:'Herren',category:'Jeans',brand:'Diesel'},'W36',['L','XL']),null);
+});
+test('original waist size is preferred whenever it is offered', () => {
+  assert.equal(resolveSizeFallback({gender:'Herren',category:'Jeans',brand:'Diesel'},'W36',['W36','XXL']),null);
+});
+test('no conversions for jackets or when gender is unknown', () => {
+  assert.equal(resolveSizeFallback({gender:'Herren',category:'Jeansjacke'},'W36',['L','XL']),null);
+  assert.equal(resolveSizeFallback({category:'Jeans',brand:'Diesel'},'W36',['L','XL','XXL']),null);
+});
+test('international XXL and 2XL are equivalent for option matching', () => {
+  assert.equal(normalizeInternationalSize('XXL'),'2xl');
+  assert.equal(resolveSizeFallback({gender:'Herren',category:'Jeans',brand:'Diesel'},'W36',['L','2XL']).target,'2xl');
 });
