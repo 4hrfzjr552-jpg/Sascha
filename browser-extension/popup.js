@@ -1,6 +1,9 @@
 // Sascha AI -> Vinted Assistant Popup Script
 
 document.addEventListener("DOMContentLoaded", () => {
+  const versionLabel = document.getElementById("extensionVersion");
+  if (versionLabel) versionLabel.textContent = chrome.runtime.getManifest().version;
+
   // UI Elements
   const draftSelect = document.getElementById("draftSelect");
   const noDraftMessage = document.getElementById("noDraftMessage");
