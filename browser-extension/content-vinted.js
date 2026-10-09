@@ -499,9 +499,12 @@
 
   // Verified from public Vinted catalog pages, not inferred from radio IDs.
   // Other cuts/categories must be matched from the live UI or left for review.
+    // Vinted's skinny categories are separate for women and men.
   const VERIFIED_JEANS_CATEGORIES = Object.freeze({
+    1817: {gender:"men",fit:"skinny",label:"Röhrenjeans"},
     1818: {gender:"men",fit:"slim",label:"Jeans mit enger Passform"},
     1819: {gender:"men",fit:"straight",label:"Gerade geschnittene Jeans"},
+    1844: {gender:"women",fit:"skinny",label:"Röhrenjeans"},
     1845: {gender:"women",fit:"straight",label:"Gerade geschnittene Jeans"}
   });
 
