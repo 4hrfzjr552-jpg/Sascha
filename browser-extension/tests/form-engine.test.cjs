@@ -10,13 +10,13 @@ const file = fs.readFileSync(path.join(__dirname, '..', 'content-vinted.js'), 'u
 const register = '  chrome.runtime.onMessage.addListener';
 assert.ok(file.includes(register), 'Expected extension message listener');
 const instrumented = file.replace(register,
-  '  window.__test = { norm, optionAliases, formatTitle, fieldLabelMatches };\n' + register);
+  '  window.__test = { norm, optionAliases, formatTitle, fieldLabelMatches, desiredGender, categoryScore, fieldSearchInput };\n' + register);
 const sandbox = {
   window: {},
   chrome: { runtime: { onMessage: { addListener() {} } } }
 };
 vm.runInNewContext(instrumented, sandbox, { filename: 'content-vinted.js' });
-const { norm, optionAliases, formatTitle, fieldLabelMatches } = sandbox.window.__test;
+const { norm, optionAliases, formatTitle, fieldLabelMatches, desiredGender, categoryScore, fieldSearchInput } = sandbox.window.__test;
 const has = (field, desired, candidate, draft = {}) =>
   optionAliases(field, desired, draft).includes(norm(candidate));
 
@@ -45,4 +45,27 @@ test('article number appended once, even if prefixed #', () => {
   assert.equal(formatTitle('Diesel Jeans', '42'), 'Diesel Jeans #42');
   assert.equal(formatTitle('Diesel Jeans #42', '42'), 'Diesel Jeans #42');
   assert.equal(formatTitle('Diesel Jeans', '#42'), 'Diesel Jeans #42');
+});
+
+
+test('adult genders are inferred from explicit gender or title', () => {
+  assert.equal(desiredGender({gender:'Herren'}), 'men');
+  assert.equal(desiredGender({gender:'Damen'}), 'women');
+  assert.equal(desiredGender({title:'Diesel Damen Jeans W28'}), 'women');
+});
+test('baby-jeans category is rejected for adult denim', () => {
+  assert.equal(categoryScore('jeans | kinder | neugeboren', 'men'), -100);
+  assert.equal(categoryScore('jeans | fruhchen', 'women'), -100);
+});
+test('preferred category path follows declared gender', () => {
+  assert.ok(categoryScore('jeans | herren | hosen', 'men') >
+    categoryScore('jeans | damen | hosen', 'men'));
+  assert.ok(categoryScore('jeans | damen | hosen', 'women') >
+    categoryScore('jeans | herren | hosen', 'women'));
+});
+test('brand search cannot be reused by size, condition or color', () => {
+  // For all other fields the brand-only search is never returned.
+  assert.equal(fieldSearchInput('size'), null);
+  assert.equal(fieldSearchInput('color'), null);
+  assert.equal(fieldSearchInput('condition'), null);
 });
