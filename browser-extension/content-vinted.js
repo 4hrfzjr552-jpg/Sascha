@@ -755,14 +755,20 @@
           {success:false,reason:"Kein Wert"};
       }
     }
-    // Wait briefly for fields Vinted renders asynchronously after category.
-    if (draft.price !== undefined && draft.price !== null && String(draft.price).trim()) {
-      for(let retry=0;retry<6;retry++) {
-        if(findFieldRoot("price",()=>{}))break;
-        await sleep(250);
+    // Price is not rendered while the catalog search modal is open.
+    // Avoid reporting an independent price bug when category failed.
+    if(!results.category.success && shown(document.querySelector("#catalog-search-input"))) {
+      results.price={success:false,reason:"Zuerst Kategorie auswählen; Kategoriesuche noch geöffnet"};
+      log("[SKIP price] Preisfeld ist hinter dem offenen Katalog nicht sichtbar.");
+    } else {
+      if(draft.price!==undefined && draft.price!==null && String(draft.price).trim()){
+        for(let retry=0;retry<6;retry++){
+          if(findFieldRoot("price",()=>{}))break;
+          await sleep(250);
+        }
       }
+      results.price=await fillText("price",draft.price,log);
     }
-    results.price=await fillText("price",draft.price,log);
     results.images=await fillImages(draft.images,log);
     log("Abgeschlossen; kein automatisches Veröffentlichen.");
     return {results,logs};
