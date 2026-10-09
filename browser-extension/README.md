@@ -52,6 +52,22 @@ browser-extension/
 
 ---
 
+## 👖 Jeans-W-Größen und Vinted-Buchstabengrößen
+
+Wenn Vinted in einer Jeans-Kategorie nur XS–7XL anbietet, versucht die Extension zuerst weiterhin die unveränderte W-Größe. Nur wenn diese nicht angeboten wird, wird bei erkanntem Herren-/Damen-Kontext eine Größentabelle als Orientierung benutzt.
+
+- Herrenjeans der Marke **Diesel**: Die Diesel-Herrentabelle wird vor der allgemeinen Vinted-Tabelle verwendet (z. B. W36 → XXL).
+- Andere Herrenjeans: die allgemeine Vinted-Herrenbekleidungstabelle (z. B. W36 → L).
+- Damenjeans: Vinteds Damenjeans-Tabelle (z. B. W36 → XXL).
+- Mehrdeutige oder nicht eindeutig unterstützte Größen werden **nicht** automatisch ausgewählt. Die Extension stoppt, damit der Nutzer das Etikett bzw. Maße prüfen kann.
+
+Im Debug-Log steht jeweils [SIZE CONVERSION] mit der Quelle. Die umgerechnete Buchstabengröße kann von Marke zu Marke abweichen und ist keine Messung der echten Hose. Die originale W-/L-Größe sollte in Titel/Beschreibung erhalten bleiben; vor Veröffentlichung alle Angaben kontrollieren.
+
+Größentabellen:
+- [Diesel Herrengrößentabelle](https://de.diesel.com/en/slim/slim-jeans-2019-d-strukt-0adbk-blue/A035580ADBK01.html)
+- [Vinted internationale Herrengrößen](https://www.vinted.com/help/1214/515-mannenkleding-maattabel)
+- [Vinted Damenjeans-Größen](https://www.vinted.com/help/507-guide-des-tailles-de-jeans-femme)
+
 ## 🔄 Updates ohne Neuinstallation (Chrome / Edge)
 
 Wenn die Erweiterung einmal über **Entpackte Erweiterung laden** aus einem festen Ordner installiert ist, bleibt sie installiert. Für Updates **denselben Ordner** aktualisieren und dann auf `chrome://extensions/` (Edge: `edge://extensions/`) auf **Neu laden** klicken. Vinted-Tab ebenfalls neu laden. Nicht den Erweiterungsordner löschen oder verschieben.
