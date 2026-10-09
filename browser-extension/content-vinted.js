@@ -729,7 +729,7 @@
       log("[OK] "+label+" bestätigt ("+((Date.now()-start)/1000).toFixed(1)+" s)");
       if(i<steps.length-1){
         log("[PAUSE] "+(pauseMs/1000).toFixed(1)+" s vor "+steps[i+1].label);
-        await sleep(pauseMs);
+        if(pauseMs>0)await sleep(pauseMs);
       }
     }
     return {results,stoppedAt:null};
@@ -779,10 +779,17 @@
     return {...run,logs};
   }
 
+  let fillRunning=false;
   chrome.runtime.onMessage.addListener((request,sender,sendResponse)=>{
     if(request?.type!=="FILL_VINTED_FORM")return;
+    if(fillRunning){
+      sendResponse({success:false,error:"Formular wird bereits ausgefüllt – bitte warten."});
+      return false;
+    }
+    fillRunning=true;
     fill(request.draft||{}).then(data=>sendResponse({success:true,...data}))
-      .catch(err=>sendResponse({success:false,error:err.message}));
+      .catch(err=>sendResponse({success:false,error:err.message}))
+      .finally(()=>{fillRunning=false;});
     return true;
   });
 })();
