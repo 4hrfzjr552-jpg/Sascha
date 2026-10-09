@@ -93,8 +93,10 @@ test('explicit structured gender overrides inconsistent title', () => {
   assert.equal(classifyDraftCategory({gender:'Damen',title:'Herrenjeans',category:'Jeans'}).gender,'women');
 });
 test('radio category IDs are used only for verified gender and fit', () => {
-  const items=[{id:1818,text:'Jeans mit enger Passform Herren'},
+  const items=[{id:1817,text:'Röhrenjeans Herren'},
+    {id:1818,text:'Jeans mit enger Passform Herren'},
     {id:1819,text:'Gerade geschnittene Jeans Herren'},
+    {id:1844,text:'Röhrenjeans Damen'},
     {id:1845,text:'Gerade geschnittene Jeans Damen'},
     {id:1559,text:'Jeans Kinder'},
     {id:1696,text:'Jeans Jungen'}];
@@ -120,5 +122,7 @@ test('radio category IDs are used only for verified gender and fit', () => {
   assert.equal(menSlim.find(x=>x.id===1559)?.eligible,false);
   assert.equal(options('men','straight').find(x=>x.id===1819)?.eligible,true);
   assert.equal(options('women','straight').find(x=>x.id===1845)?.eligible,true);
+  assert.equal(options('men','skinny').find(x=>x.id===1817)?.eligible,true);
+  assert.equal(options('women','skinny').find(x=>x.id===1844)?.eligible,true);
   assert.ok(!options('men','').some(x=>x.eligible && x.id===1559));
 });
