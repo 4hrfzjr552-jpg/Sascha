@@ -497,12 +497,64 @@
     }
   }
 
+  // Verified from public Vinted catalog pages, not inferred from radio IDs.
+  // Other cuts/categories must be matched from the live UI or left for review.
+  const VERIFIED_JEANS_CATEGORIES = Object.freeze({
+    1818: {gender:"men",fit:"slim",label:"Jeans mit enger Passform"},
+    1819: {gender:"men",fit:"straight",label:"Gerade geschnittene Jeans"},
+    1845: {gender:"women",fit:"straight",label:"Gerade geschnittene Jeans"}
+  });
+
+  // Sascha AI already analyzes the photos to generate title/description.
+  // This uses those generated signals; it does not pretend to re-analyze raw
+  // images inside the Vinted extension.
+  function classifyDraftCategory(draft) {
+    const explicit=norm([
+      draft.gender,draft.sex,draft.targetGender,draft.categoryPath,
+      draft.audience,draft.department
+    ].filter(Boolean).join(" "));
+    const title=norm(draft.title || "");
+    const desc=norm(draft.description || "");
+    const type=norm([draft.category,draft.subcategory,draft.productType,
+      draft.itemType].filter(Boolean).join(" "));
+    const fitMeta=norm([draft.fit,draft.cut,draft.style,draft.jeansFit,
+      draft.attributes?.fit].filter(Boolean).join(" "));
+    const genders={
+      men:/(^|[^a-z])(herren|manner|mannlich|men|mens|male|homme|herrenhose|herrenjeans)(?=$|[^a-z])/,
+      women:/(^|[^a-z])(damen|frauen|weiblich|women|womens|female|femme|damenhose|damenjeans)(?=$|[^a-z])/,
+      children:/(^|[^a-z])(kinder|baby|kids|children|jungen|madchen|junior)(?=$|[^a-z])/
+    };
+    const genderFrom=text=>{
+      const found=Object.entries(genders).filter(([,re])=>re.test(text)).map(([k])=>k);
+      return found.length===1?found[0]:"";
+    };
+    const gender=genderFrom(explicit) || genderFrom(type) || genderFrom(title) || genderFrom(desc);
+    const isJacket=/(jeansjacke|denimjacke|denim jacket|jean jacket)/.test(type+" "+title+" "+desc);
+    const isJeans=!isJacket && /(jeans|jeanhose|denimhose|denim jeans|denim pants)/.test(
+      [type,title,desc].join(" "));
+    const fitSource=fitMeta || [title,desc].join(" ");
+    const patterns=[
+      ["bootcut",/(bootcut|flared|schlaghose|schlagjeans|flare jeans|boot cut)/],
+      ["skinny",/(skinny|super skinny|rohrenjeans|rohrenhose)/],
+      ["slim",/(slim fit|slimfit|slim jeans|schmal geschnitten|enge passform)/],
+      ["straight",/(straight leg|straight fit|regular fit|gerade geschnitten|gerades bein|straight jeans|regular jeans)/],
+      ["wide",/(baggy|wide leg|wide fit|loose fit|mom fit|mom jeans|boyfriend jeans)/]
+    ];
+    const matches=patterns.filter(([,pattern])=>pattern.test(fitSource)).map(([name])=>name);
+    const fit=matches.length===1?matches[0]:"";
+    return {
+      gender,fit,isJeans,confidence:gender && fit && isJeans?"high":
+        gender && isJeans?"medium":"low",
+      evidence:{
+        gender:gender?(genderFrom(explicit)?"structured":genderFrom(type)?"category":
+          genderFrom(title)?"title":"description"):"unresolved",
+        fit:fit?(fitMeta?"structured":"text"):"unresolved"
+      }
+    };
+  }
+
   function desiredGender(draft) {
-    const source=norm([draft.gender,draft.categoryPath,draft.title].filter(Boolean).join(" "));
-    if(/\b(damen|frauen|weiblich|women|female|femme)\b/.test(source))return "women";
-    if(/\b(herren|manner|mannlich|men|male|homme)\b/.test(source))return "men";
-    if(/\b(kinder|baby|kids|children)\b/.test(source))return "children";
-    return "";
+    return classifyDraftCategory(draft).gender;
   }
 
   function categoryOptionContext(el) {
@@ -556,33 +608,67 @@
   // Catalog search results are native radio inputs such as
   // #catalog-search-1559-radio, NOT generic [role=option] nodes.
   // Do not select a bare "Jeans" result unless its gender/path is verified.
-  function catalogRadioOptions(desired,gender) {
+  function catalogRadioOptions(desired,classification) {
     const radios=Array.from(document.querySelectorAll(
       'input[id^="catalog-search-"][id$="-radio"]'));
-    const knownType={257:"men",183:"women",1559:"children",1696:"children"};
     const result=[];
-    for(const radio of radios){
-      const id=Number((radio.id.match(/catalog-search-(\d+)-radio/)||[])[1]);
+    for(const radio of radios) {
+      const match=radio.id.match(/^catalog-search-(\d+)-radio$/);
+      if(!match)continue;
+      const id=Number(match[1]);
       const label=document.querySelector('label[for="'+radio.id+'"]');
       const row=radio.closest("li,[role=option],[role=menuitem]") ||
         label?.closest("li,[role=option],[role=menuitem]") ||
         radio.parentElement?.parentElement;
-      if(!row||!shown(row))continue;
-      const txt=labelText(row);
+      if(!row || !shown(row))continue;
       const context=categoryOptionContext(row);
-      const labelName=labelText(label);
-      const known=knownType[id]||"";
-      let score=categoryScore(context,gender);
-      if(known && gender && known!==gender)score=-100;
-      if(known && known===gender)score+=80;
-      // Vinted can return "Ripped Jeans" or "High-waisted Jeans" when
-      // searching "Jeans"; do not silently choose these subtypes.
-      const exactName=labelName===desired || txt===desired ||
-        new RegExp("(?:^|[>›|])\\s*"+desired+"$","i").test(txt);
-      if(!exactName && !known)score=Math.min(score,0);
-      const eligible=score>0 && (context.includes(desired)||known===gender);
-      result.push({radio,id,name:labelName||txt,context,score,
-        eligible,knownType:known,exactName});
+      const name=labelText(label)||labelText(row);
+      const labelExact=name===desired || name.endsWith(" > "+desired) ||
+        name.endsWith(" › "+desired);
+      const verified=VERIFIED_JEANS_CATEGORIES[id]||null;
+      const {gender,fit}=classification;
+      let score=-100,reason="unverified category";
+      if(gender==="children" || !classification.isJeans){
+        reason="children/non-jeans need manual confirmation";
+      } else if(verified) {
+        if(gender!==verified.gender){
+          reason="category gender mismatch";
+        } else if(fit===verified.fit){
+          score=130;
+          reason="verified category id matches gender and fit";
+        } else {
+          reason="verified subtype does not match fit";
+        }
+      } else {
+        const genderScore=categoryScore(context,gender);
+        const explicitAudience=gender==="men"?
+          /\b(herren|men|mann|manner|homme)\b/.test(context):
+          gender==="women"?
+          /\b(damen|women|frau|frauen|femme)\b/.test(context):false;
+        // Only a clearly marked matching gender AND a fitting category row.
+        // Do not mistake a random "Jeans" result from children's categories.
+        if(explicitAudience && genderScore>0) {
+          const otherFit=/(skinny|slim|bootcut|flared|mom jeans|baggy|wide leg|straight|gerade geschnitten)/;
+          const fitsDesired=!fit || (fit==="straight"?
+            /(straight|gerade|regular)/.test(context):
+            fit==="slim"?/(slim|enge passform)/.test(context):
+            fit==="skinny"?/skinny/.test(context):
+            fit==="bootcut"?/(bootcut|flared|schlag)/.test(context):
+            /(wide|baggy|mom|loose)/.test(context));
+          const exactGeneral=labelExact && !otherFit.test(context);
+          if(fitsDesired && (fit? !exactGeneral : exactGeneral)){
+            score=35;
+            reason="live category path and fit matched";
+          } else if(!fit && exactGeneral){
+            score=30;
+            reason="live generic Jeans path and gender matched";
+          }
+        } else {
+          reason="no verified gender in visible result";
+        }
+      }
+      result.push({radio,id,name,context,score,eligible:score>0,
+        reason,knownType:verified?.gender||"",verified});
     }
     return result;
   }
@@ -593,7 +679,15 @@
     const raw=String(draft.category||"").trim();
     if(!raw)return {success:false,reason:"Keine Kategorie angegeben"};
     const desired=norm(raw.split(/[>/]/).pop().trim());
-    const gender=desiredGender(draft);
+    const classification=classifyDraftCategory(draft);
+    const gender=classification.gender;
+    log("[CATEGORY CLASSIFICATION] "+JSON.stringify(classification));
+    if(!classification.isJeans) {
+      return {success:false,reason:"Keine eindeutige Jeans: bitte Kategorie manuell auswählen"};
+    }
+    if(!gender || gender==="children") {
+      return {success:false,reason:"Herren/Damen aus den Entwurfsdaten nicht eindeutig erkannt"};
+    }
     const selected=found.control;
     const previous=norm(selected.value||selected.getAttribute("data-value"));
     // Respect a category manually chosen by the user, but still check sizes.
@@ -611,10 +705,10 @@
     }
     // Prefer the actual radio results rather than looking for an exact
     // text-only <li>. Log what Vinted genuinely rendered.
-    const radioResults=catalogRadioOptions(desired,gender);
+    const radioResults=catalogRadioOptions(desired,classification);
     log("[CATALOG RADIO RESULTS] "+JSON.stringify(radioResults.slice(0,30).map(x=>({
       id:x.id,name:x.name.slice(0,80),context:x.context.slice(0,160),
-      score:x.score,known:x.knownType,eligible:x.eligible
+      score:x.score,known:x.knownType,eligible:x.eligible,reason:x.reason
     }))));
     const candidates=()=>{
       const scopes=overlays();
