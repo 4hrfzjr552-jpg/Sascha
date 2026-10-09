@@ -630,8 +630,11 @@
     const el=found?.control;
     if(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
       setInput(el,String(value));
-      await sleep(100);
-      return {success:el.value===String(value),reason:el.value===String(value)?"":"Eingabe nicht übernommen"};
+      const done=await waitFor(()=>{
+        const current=findFieldRoot(field,()=>{})?.control;
+        return current && current.value===String(value);
+      },2500,150);
+      return {success:done,reason:done?"":"Eingabe nach 2,5 Sekunden nicht übernommen"};
     }
     // Price fields can be nested inside an unlabelled currency cell.
     if(found) {
@@ -639,8 +642,8 @@
         .filter(shown).filter(el=>!["file","hidden"].includes(el.type));
       if(inputs.length===1) {
         setInput(inputs[0],String(value));
-        await sleep(100);
-        return {success:inputs[0].value===String(value),reason:"Eingabe nicht übernommen"};
+        const done=await waitFor(()=>inputs[0].value===String(value),2500,150);
+        return {success:done,reason:done?"":"Eingabe nicht übernommen"};
       }
     }
     return {success:false,reason:"Eingabefeld nicht eindeutig gefunden"};
@@ -682,47 +685,96 @@
       return {success:true};
     }catch(err){return {success:false,reason:"Browser verhindert Bildzuweisung: "+err.message};}
   }
-  async function fill(draft) {
-    const logs=[], log=value=>{logs.push(value);console.log("[Sascha V2]",value);};
-    const results={};
-    results.title=await fillText("title",formatTitle(draft.title,draft.artikelnummer),log);
-    results.description=await fillText("description",draft.description,log);
-    // Vinted frequently renders the price input after category selection.
-    results.category=await chooseCategory(draft,log);
-    await sleep(450);
-    if (!results.category.success) {
-      log("[STOP] Kategorie fehlt: Abhängige Felder werden bewusst nicht ausgefüllt.");
-      for (const field of ["brand","size","color","condition"]) {
-        results[field]={success:false,reason:"Kategorie zuerst auswählen: "+results.category.reason};
-      }
-    } else {
-      const fields=["brand","size","color","condition"];
-      for(let i=0;i<fields.length;i++){
-        const field=fields[i];
-        if(fieldSearchInput("brand") && field!=="brand"){
-          log("[STOP] Marken-Suchfenster ist noch geöffnet. Andere Felder bleiben unverändert.");
-          for(const remaining of fields.slice(i)){
-            results[remaining]={success:false,reason:"Offenes Markenmenü; weitere Eingaben aus Sicherheitsgründen gestoppt"};
-          }
-          break;
-        }
-        results[field]=draft[field] ?
-          await chooseField(field,draft[field],draft,log) :
-          {success:false,reason:"Kein Wert"};
-      }
+  // One verified field at a time. No following step starts until the prior
+  // field's asynchronous work, verification and safety pause are finished.
+  const STEP_PAUSE_MS=1100;
+  const FIELD_ORDER=["title","description","category","brand","size","color","condition","price","images"];
+  const FIELD_NAMES={
+    title:"Titel",description:"Beschreibung",category:"Kategorie",
+    brand:"Marke",size:"Größe",color:"Farbe",condition:"Zustand",
+    price:"Preis",images:"Bilder"
+  };
+
+  async function waitFor(check, timeoutMs=4500, intervalMs=200) {
+    const start=Date.now();
+    while(Date.now()-start<timeoutMs) {
+      try { if(check())return true; } catch(_) {}
+      await sleep(intervalMs);
     }
-    // Wait briefly for fields Vinted renders asynchronously after category.
-    if (draft.price !== undefined && draft.price !== null && String(draft.price).trim()) {
-      for(let retry=0;retry<6;retry++) {
-        if(findFieldRoot("price",()=>{}))break;
-        await sleep(250);
-      }
-    }
-    results.price=await fillText("price",draft.price,log);
-    results.images=await fillImages(draft.images,log);
-    log("Abgeschlossen; kein automatisches Veröffentlichen.");
-    return {results,logs};
+    try {return !!check();}catch(_){return false;}
   }
+
+  async function runSequentialSteps(steps,log,pauseMs=STEP_PAUSE_MS) {
+    const results={};
+    for(let i=0;i<steps.length;i++){
+      const {key,label,execute}=steps[i];
+      log("[SCHRITT "+(i+1)+"/"+steps.length+"] "+label+" beginnt");
+      const start=Date.now();
+      let result;
+      try {result=await execute();}
+      catch(error){result={success:false,reason:error.message||String(error)};}
+      results[key]=result||{success:false,reason:"Kein Ergebnis"};
+      if(!results[key].success){
+        log("[STOP] "+label+": "+(results[key].reason||"nicht bestätigt")+
+          ". Kein weiteres Feld wird bearbeitet.");
+        for(const remaining of steps.slice(i+1)){
+          results[remaining.key]={success:false,reason:"Übersprungen: "+label+" nicht bestätigt"};
+        }
+        return {results,stoppedAt:key};
+      }
+      log("[OK] "+label+" bestätigt ("+((Date.now()-start)/1000).toFixed(1)+" s)");
+      if(i<steps.length-1){
+        log("[PAUSE] "+(pauseMs/1000).toFixed(1)+" s vor "+steps[i+1].label);
+        await sleep(pauseMs);
+      }
+    }
+    return {results,stoppedAt:null};
+  }
+
+  async function fill(draft) {
+    const logs=[];
+    const log=value=>{
+      logs.push(value);
+      console.log("[Sascha Vinted sequential]",value);
+      if(/^\[(SCHRITT|OK|STOP|PAUSE)\]/.test(value)) {
+        try {chrome.runtime.sendMessage({type:"VINTED_FILL_PROGRESS",message:value},()=>void chrome.runtime.lastError);}
+        catch(_){}
+      }
+    };
+    log("[MODUS] Langsam und einzeln: pro Feld bestätigen, 1,1 s Pause; bei Fehler sofort stoppen");
+    const steps=[
+      {key:"title",label:FIELD_NAMES.title,
+        execute:()=>fillText("title",formatTitle(draft.title,draft.artikelnummer),log)},
+      {key:"description",label:FIELD_NAMES.description,
+        execute:()=>fillText("description",draft.description,log)},
+      {key:"category",label:FIELD_NAMES.category,
+        execute:()=>chooseCategory(draft,log)},
+      {key:"brand",label:FIELD_NAMES.brand,
+        execute:()=>draft.brand?chooseField("brand",draft.brand,draft,log):
+          {success:false,reason:"Keine Marke"}},
+      {key:"size",label:FIELD_NAMES.size,
+        execute:()=>draft.size?chooseField("size",draft.size,draft,log):
+          {success:false,reason:"Keine Größe"}},
+      {key:"color",label:FIELD_NAMES.color,
+        execute:()=>draft.color?chooseField("color",draft.color,draft,log):
+          {success:false,reason:"Keine Farbe"}},
+      {key:"condition",label:FIELD_NAMES.condition,
+        execute:()=>draft.condition?chooseField("condition",draft.condition,draft,log):
+          {success:false,reason:"Kein Zustand"}},
+      {key:"price",label:FIELD_NAMES.price,execute:async()=>{
+        const exists=await waitFor(()=>!!findFieldRoot("price",()=>{}),4500,250);
+        if(!exists)return {success:false,reason:"Preisfeld nach 4,5 Sekunden nicht erschienen"};
+        return fillText("price",draft.price,log);
+      }},
+      {key:"images",label:FIELD_NAMES.images,
+        execute:()=>fillImages(draft.images,log)}
+    ];
+    const run=await runSequentialSteps(steps,log);
+    log(run.stoppedAt?"[FERTIG] Vorzeitig gestoppt, keine Veröffentlichung":
+      "[FERTIG] Alle Felder einzeln bestätigt, keine Veröffentlichung");
+    return {...run,logs};
+  }
+
   chrome.runtime.onMessage.addListener((request,sender,sendResponse)=>{
     if(request?.type!=="FILL_VINTED_FORM")return;
     fill(request.draft||{}).then(data=>sendResponse({success:true,...data}))
