@@ -313,8 +313,8 @@
       return control.value===option.value?{success:true}:
         {success:false,reason:"Auswahl nicht übernommen"};
     }
+    const watcher=watchNewMenuNodes();
     try {
-      const watcher=watchNewMenuNodes();
       control.click();
       await sleep(300);
       let candidate=null;
