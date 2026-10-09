@@ -298,74 +298,259 @@
     }));
   }
 
+
+  function isInfantSizeGrid() {
+    const grid=document.querySelector('[data-testid="category-size-single-grid-content"]');
+    if(!grid || !shown(grid)) return false;
+    const text=norm(grid.innerText || grid.textContent);
+    return /(fruhchen|neugeboren|bis zu 1 monat|1-3 monate|3-6 monate|6-9 monate)/.test(text);
+  }
+
+  // Select only inside the menu that belongs to this field. In particular,
+  // the brand-search-input must NEVER be used for size, color or condition.
+  function scopesForField(field, control, watcher) {
+    const specific={
+      size:'[data-testid="category-size-single-grid-content"]',
+      color:'[data-testid*="color-select-dropdown" i], [data-testid*="color-grid" i]',
+      condition:'[data-testid*="condition-select" i], [data-testid*="status-select" i]',
+      brand:'[data-testid*="brand-search" i]'
+    };
+    const related=Array.from(document.querySelectorAll(specific[field]||"body"))
+      .filter(el=>shown(el) && !el.matches("input,button,span") && !el.contains(control));
+    if(field==="size" && related.length)return related;
+    // Brand options are list items mounted next to #brand-search-input in a
+    // dialog portal, not necessarily descendants of a dropdown element.
+    if(field==="brand" && shown(document.querySelector("#brand-search-input"))) {
+      const search=document.querySelector("#brand-search-input");
+      const dialog=search.closest('[role="dialog"], [class*="Dialog__portal"], .web_ui__Dialog__portal');
+      if(dialog)related.unshift(dialog);
+      else related.push(document.body); // only while the brand search is visible
+    }
+    const discovered=watcher.roots().filter(el=>shown(el));
+    return [...new Set([...related,...discovered,...getOpenDropdownSurfaces(control)])];
+  }
+
+  function fieldSearchInput(field) {
+    if(field!=="brand")return null;
+    const el=document.querySelector('#brand-search-input, input[data-testid="brand-search--input"]');
+    return shown(el)?el:null;
+  }
+
+  function exactFieldOption(roots,candidates,field,trigger) {
+    const selectors=field==="size"
+      ? '[role="checkbox"][data-testid*="size-group" i], [data-testid*="size-grid-option" i]'
+      : field==="brand"
+      ? 'li, label[for^="brand-radio"], [role="radio"], [role="option"]'
+      : '[role="checkbox"], [role="option"], [role="menuitem"], [data-testid*="option" i], li, button, label';
+    for(const root of roots) {
+      if(!root||!shown(root))continue;
+      const candidatesInRoot=[
+        ...(root.matches?.(selectors)?[root]:[]),
+        ...root.querySelectorAll(selectors)
+      ].filter(el=>shown(el)&&!ignore(el)&&el!==trigger&&!el.contains(trigger));
+      const exact=candidatesInRoot.filter(el=>candidates.includes(labelText(el)));
+      if(exact.length) {
+        exact.sort((a,b)=>a.contains(b)?1:b.contains(a)?-1:0);
+        return exact[0];
+      }
+    }
+    return null;
+  }
+
+  function activateFieldOption(field,option) {
+    const row=option.closest("li,[role=option],[role=checkbox]") || option;
+    if(field==="brand") {
+      // Vinted's brand picker uses a radio, and clicking <li> does not
+      // necessarily trigger the radio selection.
+      const radio=row.querySelector('input[type="radio"]') ||
+        (row.matches('input[type="radio"]')?row:null);
+      if(radio && !radio.checked) {radio.click();return radio;}
+      const label=row.querySelector('label[for]') ||
+        (row.matches("label[for]")?row:null);
+      if(label) {
+        const target=document.getElementById(label.htmlFor);
+        if(target && !target.checked) {target.click();return target;}
+        label.click();return label;
+      }
+      const labeled=Array.from(row.querySelectorAll("[role=radio], [data-testid*='brand-radio' i]"))
+        .find(shown);
+      if(labeled){labeled.click();return labeled;}
+    }
+    if(field==="size"||field==="color") {
+      const checkbox=row.matches('[role="checkbox"]')?row:
+        row.querySelector('[role="checkbox"]');
+      if(checkbox){checkbox.click();return checkbox;}
+    }
+    option.click();
+    return option;
+  }
+
+  function currentFieldValue(field) {
+    const input=findFieldRoot(field,()=>{})?.control;
+    return norm(input?.value || input?.getAttribute("data-value") ||
+      input?.getAttribute("aria-valuetext") || (input?.tagName==="INPUT"?"":input?.innerText));
+  }
+
+  async function dismissMenu(field,trigger) {
+    const search=fieldSearchInput(field);
+    // Dialog confirm buttons only (never the page's publish/save actions).
+    if(search) {
+      const box=search.closest('[role="dialog"], .web_ui__Dialog__portal');
+      const confirm=box && Array.from(box.querySelectorAll("button"))
+        .find(el=>shown(el)&&/^(fertig|done|ubernehmen|anwenden|bestatigen|auswahlen|apply|confirm)$/.test(labelText(el)));
+      if(confirm){confirm.click();await sleep(250);}
+    }
+    if(field==="brand" && fieldSearchInput(field)) {
+      const active=document.activeElement || trigger;
+      active.dispatchEvent(new KeyboardEvent("keydown",
+        {key:"Escape",code:"Escape",bubbles:true,cancelable:true}));
+      await sleep(200);
+    }
+  }
+
   async function chooseField(field,desired,draft,log) {
     const found=findFieldRoot(field,log);
     if(!found)return {success:false,reason:"Feld nicht gefunden"};
-    const {control}=found, candidates=optionAliases(field,desired,draft);
+    const {control}=found,candidates=optionAliases(field,desired,draft);
     if(control instanceof HTMLSelectElement) {
-      const option=Array.from(control.options).find(opt=>
-        candidates.includes(norm(opt.textContent))||candidates.includes(norm(opt.value)));
-      if(!option)return {success:false,reason:"Keine passende Auswahl"};
+      const option=Array.from(control.options).find(el=>
+        candidates.includes(norm(el.textContent))||candidates.includes(norm(el.value)));
+      if(!option)return {success:false,reason:"Option fehlt"};
       control.value=option.value;
       control.dispatchEvent(new Event("input",{bubbles:true}));
       control.dispatchEvent(new Event("change",{bubbles:true}));
       await sleep(250);
-      return control.value===option.value?{success:true}:
-        {success:false,reason:"Auswahl nicht übernommen"};
+      return control.value===option.value?{success:true}:{success:false,reason:"Auswahl nicht übernommen"};
     }
     const watcher=watchNewMenuNodes();
     try {
-      control.click();
-      await sleep(300);
-      let candidate=null;
-      // Vinted can render the popup directly below body, outside the field.
-      for(let attempt=0;attempt<12;attempt++) {
-        const surfaces=getOpenDropdownSurfaces(control);
-        candidate=dropdownOption([...watcher.roots(),...surfaces],candidates,control);
-        if(candidate)break;
-        await sleep(150);
+      // A previous brand search still open means any subsequent click can
+      // accidentally type size W36 into the brand search. Stop rather than corrupt.
+      if(field!=="brand" && fieldSearchInput("brand")) {
+        log("[BLOCK "+field+"] Marken-Suchfenster noch geöffnet");
+        return {success:false,reason:"Markenauswahl zuerst abschließen"};
       }
-      if(!candidate) {
-        const surfaces=getOpenDropdownSurfaces(control);
-        const search=dropdownSearchInput(control,surfaces) ||
-          (control instanceof HTMLInputElement && !control.readOnly && !control.disabled ? control : null);
+      control.click();
+      await sleep(320);
+      if(field==="size" && isInfantSizeGrid() &&
+          !/kinder|baby|kids|kind/i.test([draft.gender,draft.category].join(" "))) {
+        log("[SIZE SAFETY] Babygrößen geöffnet, Kategorie ist nicht für Erwachsenen-Jeans geeignet");
+        return {success:false,reason:"Falsche Kategorie: Babykonfektionsgrößen"};
+      }
+      let choice=null;
+      for(let i=0;i<10;i++) {
+        choice=exactFieldOption(scopesForField(field,control,watcher),candidates,field,control);
+        if(choice)break;
+        await sleep(120);
+      }
+      if(!choice) {
+        const search=fieldSearchInput(field);
         if(search) {
-          log("[SEARCH "+field+"] "+(search.id||search.getAttribute("placeholder")||"input"));
+          log("[SEARCH "+field+"] "+search.id);
           setInput(search,String(desired));
-          await sleep(400);
-          for(let attempt=0;attempt<8;attempt++) {
-            candidate=dropdownOption([...watcher.roots(),...getOpenDropdownSurfaces(control)],candidates,control);
-            if(candidate)break;
-            await sleep(150);
+          await sleep(320);
+          for(let i=0;i<12;i++){
+            choice=exactFieldOption(scopesForField(field,control,watcher),candidates,field,control);
+            if(choice)break;
+            await sleep(140);
           }
         }
       }
-      if(!candidate) {
-        log("[MENU STRUCTURE "+field+"] "+JSON.stringify(safeMenuStructure(control,watcher.roots())));
-        dropdownDebug(field,control,log);
-        return {success:false,reason:"Auswahlmenü enthält keine erkannte Option"};
+      if(!choice) {
+        log("[FIELD OPTIONS "+field+"] "+JSON.stringify(
+          scopesForField(field,control,watcher).slice(0,4).flatMap(root=>
+            Array.from(root.querySelectorAll('[role="checkbox"],li,[role="option"]'))
+              .filter(shown).slice(0,22).map(el=>({
+                text:labelText(el).slice(0,60),
+                role:el.getAttribute("role")||"",
+                testid:el.getAttribute("data-testid")||""
+              }))).slice(0,40)));
+        return {success:false,reason:"Zielwert nicht im passenden Auswahlmenü gefunden"};
       }
-      const chosen=labelText(candidate);
-      candidate.click();
-      await sleep(450);
-      // Re-query field only, never parent/form text. A successful click by
-      // itself does not prove that Vinted stored a chosen value.
-      const fresh=findFieldRoot(field,()=>{})?.control||control;
-      const actual=[fresh.value,fresh.getAttribute("data-value"),
-        fresh.getAttribute("aria-valuetext"),fresh.innerText,
-        fresh.getAttribute("placeholder")].map(norm);
-      const confirmed=actual.some(value=>candidates.includes(value));
-      log("[SELECT "+field+"] clicked="+chosen+" confirmed="+confirmed);
-      if(!confirmed)dropdownDebug(field,fresh,log);
-      return confirmed?{success:true}:
-        {success:false,reason:"Option geklickt, aber nicht bestätigt"};
-    }catch(err) {
+      const name=labelText(choice);
+      const activated=activateFieldOption(field,choice);
+      await sleep(400);
+      await dismissMenu(field,control);
+      await sleep(250);
+      const actual=currentFieldValue(field);
+      const checked=activated?.checked===true ||
+        activated?.getAttribute?.("aria-checked")==="true";
+      const persisted=candidates.some(c=>actual===c ||
+        (field==="size" && actual.split(/[,;\/]/).map(norm).includes(c)));
+      const openBrand=field==="brand" && !!fieldSearchInput("brand");
+      log("[SELECT "+field+"] clicked="+name+" actual="+actual+
+        " radioChecked="+checked+" brandMenuOpen="+openBrand);
+      if(persisted && !openBrand)return {success:true};
+      if(!persisted && checked && field==="brand" && !openBrand) {
+        // Some Vinted radio controls update the input only after rerender.
+        await sleep(350);
+        if(candidates.includes(currentFieldValue(field)))return {success:true};
+      }
+      return {success:false,reason:openBrand?
+        "Markenmenü noch geöffnet, Auswahl nicht bestätigt":
+        "Option geklickt, aber Feldwert nicht bestätigt"};
+    } catch(err) {
       log("[ERROR "+field+"] "+err.message);
-      dropdownDebug(field,control,log);
       return {success:false,reason:err.message};
     } finally {
       watcher.stop();
     }
+  }
+
+  function desiredGender(draft) {
+    const source=norm([draft.gender,draft.categoryPath,draft.title].filter(Boolean).join(" "));
+    if(/\b(damen|frauen|weiblich|women|female|femme)\b/.test(source))return "women";
+    if(/\b(herren|manner|mannlich|men|male|homme)\b/.test(source))return "men";
+    if(/\b(kinder|baby|kids|children)\b/.test(source))return "children";
+    return "";
+  }
+
+  function categoryOptionContext(el) {
+    const segments=[];
+    let node=el;
+    for(let depth=0;depth<5&&node&&node!==document.body;depth++,node=node.parentElement){
+      const attr=[node.id,node.getAttribute("data-testid"),node.getAttribute("aria-label")]
+        .filter(Boolean).join(" ");
+      const text=labelText(node);
+      // Avoid the entire modal: only row-level breadcrumb text is meaningful.
+      if(text.length<175)segments.push(text);
+      if(attr)segments.push(norm(attr));
+    }
+    return [...new Set(segments)].join(" | ").slice(0,300);
+  }
+
+  function categoryScore(context,gender) {
+    const baby=/fruhchen|baby|kinder|kids|children|neugeboren|jungen|madchen/.test(context);
+    if(gender!=="children" && baby)return -100;
+    if(gender==="children")return baby?10:-30;
+    const men=/\b(herren|men|mann|manner|homme)\b/.test(context);
+    const women=/\b(damen|women|frau|frauen|femme)\b/.test(context);
+    if(gender==="men")return men?20:women?-30:1;
+    if(gender==="women")return women?20:men?-30:1;
+    return (men||women)?5:1;
+  }
+
+  async function verifyCategorySizeFamily(draft,log) {
+    if(desiredGender(draft)==="children")return {ok:true};
+    const size=findFieldRoot("size",()=>{})?.control;
+    if(!size)return {ok:true,unknown:true};
+    size.click();
+    await sleep(300);
+    const baby=isInfantSizeGrid();
+    const el=document.activeElement||size;
+    el.dispatchEvent(new KeyboardEvent("keydown",
+      {key:"Escape",code:"Escape",bubbles:true,cancelable:true}));
+    await sleep(120);
+    const grid=document.querySelector('[data-testid="category-size-single-grid-content"]');
+    if(grid && shown(grid)) {
+      size.click();
+      await sleep(130);
+    }
+    if(baby){
+      log("[CATEGORY SAFETY] Die ausgewählte Jeans-Kategorie liefert Babygrößen.");
+      return {ok:false,reason:"Falsche Kategorie: Vinted zeigt Babygrößen"};
+    }
+    return {ok:true};
   }
 
   async function chooseCategory(draft,log) {
@@ -373,67 +558,69 @@
     if(!found)return {success:false,reason:"Kategorie-Auswahl nicht gefunden"};
     const raw=String(draft.category||"").trim();
     if(!raw)return {success:false,reason:"Keine Kategorie angegeben"};
-    const leaf=raw.split(/[>/]/).pop().trim();
-    const trigger=found.control;
-    trigger.click();
-    await sleep(300);
-    // Vinted's catalog picker creates a portal search input outside its
-    // category cell, e.g. #catalog-search-input. Searching the cell misses it.
-    const search=document.querySelector('#catalog-search-input, input[name="catalog-search-input"], [data-testid="catalog-search-input"]');
-    if(search && shown(search)) {
-      setInput(search,leaf);
-      await sleep(550);
+    const desired=norm(raw.split(/[>/]/).pop().trim());
+    const gender=desiredGender(draft);
+    const selected=found.control;
+    const previous=norm(selected.value||selected.getAttribute("data-value"));
+    // Respect a category manually chosen by the user, but still check sizes.
+    if(previous===desired && !shown(document.querySelector("#catalog-search-input"))) {
+      const inspected=await verifyCategorySizeFamily(draft,log);
+      if(inspected.ok)return {success:true};
+      return {success:false,reason:inspected.reason};
     }
-    const desired=norm(leaf);
-    function matches() {
-      const field=document.querySelector('#catalog-search-input');
+    selected.click();
+    await sleep(260);
+    const search=document.querySelector('#catalog-search-input, input[name="catalog-search-input"]');
+    if(search && shown(search)) {
+      setInput(search,desired);
+      await sleep(470);
+    }
+    const candidates=()=>{
       const scopes=overlays();
-      const roots=[...scopes,field?.parentElement?.parentElement?.parentElement,document.body].filter(Boolean);
-      for(const scope of roots) {
-        const all=Array.from(scope.querySelectorAll(
-          '[role=option], [role=treeitem], [role=menuitem], li, button, [data-testid*="item" i], [data-testid*="cell" i], [class*="item" i], [class*="cell" i]'
-        )).filter(el=>shown(el) && !ignore(el) && !el.contains(trigger));
-        const exact=all.filter(el=>labelText(el)===desired);
-        if(exact.length) {
-          // Prefer the deepest matching row and avoid unrelated page controls.
-          exact.sort((a,b)=>a.contains(b)?1:b.contains(a)?-1:0);
-          return exact[0];
+      const roots=[...scopes,search?.parentElement?.parentElement?.parentElement,document.body]
+        .filter(Boolean);
+      const matches=[];
+      for(const root of roots){
+        const elements=Array.from(root.querySelectorAll(
+          '[role="option"],[role="treeitem"],[role="menuitem"],li,button,'+
+          '[data-testid*="item" i],[data-testid*="cell" i],[class*="item" i],[class*="cell" i]'
+        )).filter(el=>shown(el)&&!ignore(el)&&!el.contains(selected)&&labelText(el)===desired);
+        for(const el of elements){
+          if(matches.some(other=>other===el))continue;
+          matches.push(el);
         }
       }
-      return null;
+      return matches.filter(el=>!matches.some(inner=>inner!==el&&el.contains(inner)));
+    };
+    let options=[];
+    for(let i=0;i<8;i++){options=candidates();if(options.length)break;await sleep(200);}
+    const ranked=options.map(el=>({
+      el,context:categoryOptionContext(el),
+      score:categoryScore(categoryOptionContext(el),gender)
+    })).filter(x=>x.score>=0).sort((a,b)=>b.score-a.score);
+    log("[CATALOG CANDIDATES] gender="+(gender||"unknown")+" "+
+      JSON.stringify(ranked.slice(0,10).map(x=>({context:x.context.slice(0,145),score:x.score}))));
+    if(!ranked.length)return {success:false,reason:"Keine geeignete Jeans-Kategorie gefunden"};
+    if(ranked.length>1 && ranked[0].score===ranked[1].score) {
+      return {success:false,reason:"Mehrere gleichnamige Jeans-Kategorien: Herren/Damen nicht eindeutig"};
     }
-    let option=null;
-    for(let attempt=0;attempt<6;attempt++){
-      option=matches();
-      if(option)break;
-      await sleep(250);
+    if(gender && gender!=="children" && ranked[0].score<5) {
+      return {success:false,reason:"Jeans-Kategorie konnte nicht sicher Herren oder Damen zugeordnet werden"};
     }
-    if(!option) {
-      const searchEl=document.querySelector("#catalog-search-input");
-      const holder=searchEl?.closest('[role=dialog], [data-testid*="modal" i]') || searchEl?.parentElement?.parentElement?.parentElement;
-      const examples=Array.from((holder||document.body).querySelectorAll(
-        'button, li, [role=option], [data-testid*="item" i], [data-testid*="cell" i]'
-      )).filter(shown).slice(0,45).map(el=>({
-        tag:el.tagName, text:labelText(el).slice(0,65), testid:el.getAttribute("data-testid")||""
-      }));
-      log("[CATALOG DIAG] searchInput="+!!searchEl+" options="+JSON.stringify(examples));
-      return {success:false,reason:"Kategorie im geöffneten Vinted-Katalog nicht gefunden"};
+    const chosen=ranked[0];
+    log("[CATALOG] choose "+desired+" path="+chosen.context.slice(0,150));
+    chosen.el.click();
+    await sleep(480);
+    const picked=norm(selected.value || selected.getAttribute("data-value"));
+    const catalogOpen=shown(document.querySelector("#catalog-search-input"));
+    if(catalogOpen || picked!==desired) {
+      log("[CATALOG CONFIRM] picked="+picked+" catalogOpen="+catalogOpen);
+      return {success:false,reason:"Kategoriewahl nicht im Feld bestätigt"};
     }
-    log("[CATALOG] click "+labelText(option));
-    option.click();
-    await sleep(600);
-    const selected=document.querySelector('#category');
-    const picked=norm(selected?.value||selected?.getAttribute("data-value")||"");
-    const dependent=!!findFieldRoot("brand",()=>{}) || !!findFieldRoot("size",()=>{});
-    const catalogSearch=document.querySelector('#catalog-search-input');
-    const menuOpen=!!catalogSearch && shown(catalogSearch);
-    log("[CATALOG CONFIRM] picked="+picked+" dependent="+dependent+" menuOpen="+menuOpen);
-    // A dependent input may exist behind an unfinished category picker.
-    // Do not click through an active catalog menu.
-    if(!menuOpen && (picked.includes(desired) || dependent)) return {success:true};
-    return {success:false,reason:menuOpen ?
-      "Kategoriefenster noch geöffnet: Jeans noch nicht bestätigt" :
-      "Kategorie angeklickt, aber nicht bestätigt"};
+    const sizeFamily=await verifyCategorySizeFamily(draft,log);
+    if(!sizeFamily.ok)return {success:false,reason:sizeFamily.reason};
+    log("[CATALOG CONFIRM] picked="+picked+" gender="+(gender||"unknown")+" babyGrid=false");
+    return {success:true};
   }
 
   async function fillText(field,value,log) {
@@ -508,10 +695,21 @@
       for (const field of ["brand","size","color","condition"]) {
         results[field]={success:false,reason:"Kategorie zuerst auswählen: "+results.category.reason};
       }
-    } else for (const field of ["brand","size","color","condition"]) {
-      results[field]=draft[field] ?
-        await chooseField(field,draft[field],draft,log) :
-        {success:false,reason:"Kein Wert"};
+    } else {
+      const fields=["brand","size","color","condition"];
+      for(let i=0;i<fields.length;i++){
+        const field=fields[i];
+        if(fieldSearchInput("brand") && field!=="brand"){
+          log("[STOP] Marken-Suchfenster ist noch geöffnet. Andere Felder bleiben unverändert.");
+          for(const remaining of fields.slice(i)){
+            results[remaining]={success:false,reason:"Offenes Markenmenü; weitere Eingaben aus Sicherheitsgründen gestoppt"};
+          }
+          break;
+        }
+        results[field]=draft[field] ?
+          await chooseField(field,draft[field],draft,log) :
+          {success:false,reason:"Kein Wert"};
+      }
     }
     // Wait briefly for fields Vinted renders asynchronously after category.
     if (draft.price !== undefined && draft.price !== null && String(draft.price).trim()) {
