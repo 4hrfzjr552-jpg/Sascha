@@ -553,6 +553,40 @@
     return {ok:true};
   }
 
+  // Catalog search results are native radio inputs such as
+  // #catalog-search-1559-radio, NOT generic [role=option] nodes.
+  // Do not select a bare "Jeans" result unless its gender/path is verified.
+  function catalogRadioOptions(desired,gender) {
+    const radios=Array.from(document.querySelectorAll(
+      'input[id^="catalog-search-"][id$="-radio"]'));
+    const knownType={257:"men",183:"women",1559:"children",1696:"children"};
+    const result=[];
+    for(const radio of radios){
+      const id=Number((radio.id.match(/catalog-search-(\d+)-radio/)||[])[1]);
+      const label=document.querySelector('label[for="'+radio.id+'"]');
+      const row=radio.closest("li,[role=option],[role=menuitem]") ||
+        label?.closest("li,[role=option],[role=menuitem]") ||
+        radio.parentElement?.parentElement;
+      if(!row||!shown(row))continue;
+      const txt=labelText(row);
+      const context=categoryOptionContext(row);
+      const labelName=labelText(label);
+      const known=knownType[id]||"";
+      let score=categoryScore(context,gender);
+      if(known && gender && known!==gender)score=-100;
+      if(known && known===gender)score+=80;
+      // Vinted can return "Ripped Jeans" or "High-waisted Jeans" when
+      // searching "Jeans"; do not silently choose these subtypes.
+      const exactName=labelName===desired || txt===desired ||
+        new RegExp("(?:^|[>›|])\\s*"+desired+"$","i").test(txt);
+      if(!exactName && !known)score=Math.min(score,0);
+      const eligible=score>0 && (context.includes(desired)||known===gender);
+      result.push({radio,id,name:labelName||txt,context,score,
+        eligible,knownType:known,exactName});
+    }
+    return result;
+  }
+
   async function chooseCategory(draft,log) {
     const found=findFieldRoot("category",log);
     if(!found)return {success:false,reason:"Kategorie-Auswahl nicht gefunden"};
@@ -575,6 +609,13 @@
       setInput(search,desired);
       await sleep(470);
     }
+    // Prefer the actual radio results rather than looking for an exact
+    // text-only <li>. Log what Vinted genuinely rendered.
+    const radioResults=catalogRadioOptions(desired,gender);
+    log("[CATALOG RADIO RESULTS] "+JSON.stringify(radioResults.slice(0,30).map(x=>({
+      id:x.id,name:x.name.slice(0,80),context:x.context.slice(0,160),
+      score:x.score,known:x.knownType,eligible:x.eligible
+    }))));
     const candidates=()=>{
       const scopes=overlays();
       const roots=[...scopes,search?.parentElement?.parentElement?.parentElement,document.body]
@@ -585,22 +626,25 @@
           '[role="option"],[role="treeitem"],[role="menuitem"],li,button,'+
           '[data-testid*="item" i],[data-testid*="cell" i],[class*="item" i],[class*="cell" i]'
         )).filter(el=>shown(el)&&!ignore(el)&&!el.contains(selected)&&labelText(el)===desired);
-        for(const el of elements){
-          if(matches.some(other=>other===el))continue;
-          matches.push(el);
-        }
+        for(const el of elements)if(!matches.includes(el))matches.push(el);
       }
       return matches.filter(el=>!matches.some(inner=>inner!==el&&el.contains(inner)));
     };
-    let options=[];
-    for(let i=0;i<8;i++){options=candidates();if(options.length)break;await sleep(200);}
-    const ranked=options.map(el=>({
-      el,context:categoryOptionContext(el),
-      score:categoryScore(categoryOptionContext(el),gender)
-    })).filter(x=>x.score>=0).sort((a,b)=>b.score-a.score);
+    const eligibleRadio=radioResults.filter(x=>x.eligible);
+    const ranked=eligibleRadio.length?
+      eligibleRadio.map(x=>({el:x.radio,context:x.context,score:x.score,radioId:x.id}))
+        .sort((a,b)=>b.score-a.score) :
+      // If radios exist but are ambiguous, never fall back to clicking the
+      // first text-only "Jeans" row (it previously picked children's jeans).
+      radioResults.length?[]:
+      candidates().map(el=>({el,context:categoryOptionContext(el),
+        score:categoryScore(categoryOptionContext(el),gender)}))
+        .filter(x=>x.score>=0).sort((a,b)=>b.score-a.score);
     log("[CATALOG CANDIDATES] gender="+(gender||"unknown")+" "+
-      JSON.stringify(ranked.slice(0,10).map(x=>({context:x.context.slice(0,145),score:x.score}))));
-    if(!ranked.length)return {success:false,reason:"Keine geeignete Jeans-Kategorie gefunden"};
+      JSON.stringify(ranked.slice(0,10).map(x=>({
+        context:x.context.slice(0,145),score:x.score,id:x.radioId||null
+      }))));
+    if(!ranked.length)return {success:false,reason:"Keine eindeutig zuordenbare Herren-/Damen-Jeans-Kategorie; bitte Kategorie einmal manuell wählen"};
     if(ranked.length>1 && ranked[0].score===ranked[1].score) {
       return {success:false,reason:"Mehrere gleichnamige Jeans-Kategorien: Herren/Damen nicht eindeutig"};
     }
@@ -609,7 +653,7 @@
     }
     const chosen=ranked[0];
     log("[CATALOG] choose "+desired+" path="+chosen.context.slice(0,150));
-    chosen.el.click();
+    chosen.el.click(); // Native catalog radio activates React selection handler.
     await sleep(480);
     const picked=norm(selected.value || selected.getAttribute("data-value"));
     const catalogOpen=shown(document.querySelector("#catalog-search-input"));
