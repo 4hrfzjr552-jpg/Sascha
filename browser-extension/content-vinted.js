@@ -178,6 +178,14 @@
     const controlledId=trigger.getAttribute("aria-controls")||trigger.getAttribute("aria-owns");
     const controlled=controlledId&&document.getElementById(controlledId);
     if(controlled&&shown(controlled))layers.unshift(controlled);
+    // Some menus live inside the same field wrapper without a role/portal.
+    // Keep only nearby wrappers, never the whole form or page.
+    let local=trigger.parentElement;
+    for(let depth=0;depth<3 && local && local!==rootForm();depth++,local=local.parentElement) {
+      if(local.matches('[data-testid*="dropdown" i], [class*="dropdown" i], [class*="select" i], [class*="field" i]')) {
+        layers.push(local);
+      }
+    }
     return [...new Set(layers)].reverse();
   }
 
