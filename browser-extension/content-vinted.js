@@ -993,6 +993,68 @@
     };
   }
 
+  // Use exact dropdown option labels to prevent "Gut" matching "Sehr gut".
+  function findExactDropdownOption(scope, aliases) {
+    const norm = v => String(v || "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase().replace(/\s+/g, " ").trim();
+    const expected = aliases.map(norm);
+    return Array.from(scope.querySelectorAll(
+      '[role="option"], [role="menuitem"], [role="treeitem"], li, label, button, [data-testid*="option" i], [data-testid*="cell" i]'
+    )).find(el => isSafeInteractiveElement(el) && expected.includes(norm(el.textContent))) || null;
+  }
+
+  function findSpecificDropdown(root, keywords) {
+    const normalize = v => String(v || "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    let best = null, top = 0;
+    for (const el of getInteractiveControls(root)) {
+      const ctx = getControlTextContext(el);
+      const attrs = normalize([el.id, el.name, el.getAttribute("data-testid"),
+        el.getAttribute("aria-label"), el.getAttribute("placeholder")].join(" "));
+      const label = normalize(ctx.labelText);
+      const own = normalize(ctx.ownText);
+      let score = Math.max(...keywords.map(k => {
+        const w = normalize(k);
+        return (attrs.includes(w) ? 12 : 0) + (label.includes(w) ? 8 : 0) +
+          (own === w || own.startsWith(w + " ausw") || own.startsWith("select " + w) ? 7 : 0);
+      }));
+      if (el.matches('input:not([role="combobox"])')) score -= 20;
+      if (score > top) { best = el; top = score; }
+    }
+    return top >= 7 ? best : null;
+  }
+
+  function isDropdownConfirmed(trigger, aliases) {
+    if (!trigger) return false;
+    const norm = v => String(v || "").toLowerCase().replace(/\s+/g, " ").trim();
+    const values = [trigger.value, trigger.getAttribute("data-value"),
+      trigger.getAttribute("aria-valuetext"), trigger.textContent];
+    if (trigger.tagName === "SELECT") values.push(trigger.selectedOptions?.[0]?.textContent);
+    return values.some(v => aliases.map(norm).includes(norm(v)));
+  }
+
+  function sizeAliases(value, isWomen) {
+    const raw = String(value).trim();
+    const compact = raw.toUpperCase().replace(/\s+/g, "");
+    const list = [raw];
+    const waist = compact.match(/^W?(\d{2})(?:L\d{2})?$/);
+    if (waist) {
+      const n = Number(waist[1]);
+      list.push("W" + n, "W " + n, String(n));
+      if (isWomen) {
+        // Approximate fallback only if Vinted has no exact waist size.
+        const sizes = {24:"XS",25:"XS",26:"S",27:"S",28:"M",29:"M",
+          30:"L",31:"L",32:"XL",33:"XL",34:"XXL",35:"XXL",36:"3XL"};
+        if (sizes[n]) list.push(sizes[n]);
+      }
+    }
+    if (isWomen && /^US\d{1,2}$/i.test(compact)) {
+      const us = Number(compact.slice(2));
+      const sizes = {0:"XXS",2:"XS",4:"S",6:"M",8:"L",10:"XL",12:"XXL",14:"3XL"};
+      if (sizes[us]) list.push(sizes[us]);
+    }
+    return [...new Set(list)];
+  }
+
   // Single Dropdown Option Selector Helper (Marke, Größe, Farbe, Zustand)
   async function selectVintedOption(
     formContainer,
@@ -1009,7 +1071,7 @@
       }
 
       const activeContainer = getFormContainer(log) || formContainer;
-      const triggerEl = findInteractiveControlByUI(activeContainer, fieldName, fieldKeywords, log);
+      const triggerEl = findSpecificDropdown(activeContainer, fieldKeywords);
 
       if (!triggerEl) {
         log(`✗ Dropdown-Element für "${fieldName}" nicht gefunden.`);
@@ -1025,7 +1087,7 @@
         return { success: false, reason: `Overlay für "${fieldName}" nicht geöffnet` };
       }
 
-      await handleOverlaySearchInput(overlayScope, desiredValue, log);
+      // Search after trying the unfiltered options, not before.
 
       let desiredSynonyms = [desiredValue];
       const valLower = desiredValue.trim().toLowerCase();
@@ -1036,7 +1098,8 @@
       } else if (fieldName === "size") {
         // Build size variations (e.g. W36 -> ["W36", "36", "W 36", "36W", "W36/L32", "W36 L32"])
         const cleanVal = valLower.replace(/\s+/g, "");
-        desiredSynonyms = [desiredValue, cleanVal];
+        const women = /damen|frauen|women|female/i.test(String(window.__saschaDraftGender || ""));
+        desiredSynonyms = sizeAliases(desiredValue, women);
         if (cleanVal.startsWith("w")) {
           const numPart = cleanVal.slice(1);
           if (numPart) {
@@ -1052,7 +1115,7 @@
 
       let matchedOption = null;
       for (let attempt = 0; attempt < 5; attempt++) {
-        matchedOption = findMatchingOptionInOverlay(overlayScope, desiredSynonyms);
+        matchedOption = findExactDropdownOption(getOpenOverlayScope() || overlayScope, desiredSynonyms);
         if (matchedOption) break;
         await delay(200);
       }
@@ -1085,10 +1148,9 @@
         }
 
         const freshContainer = getFormContainer(log);
-        const verified = verifyFieldValue(
-          findInteractiveControlByUI(freshContainer, fieldName, fieldKeywords, log) || triggerEl,
-          desiredSynonyms,
-          log
+        const verified = isDropdownConfirmed(
+          findSpecificDropdown(freshContainer, fieldKeywords) || triggerEl,
+          desiredSynonyms
         );
 
         if (verified) {
@@ -1096,7 +1158,7 @@
         } else {
           log(`✓ Dropdown "${fieldName}" auf "${optionText}" geklickt.`);
         }
-        return { success: true };
+        return verified ? { success: true } : { success: false, reason: "Auswahl nicht im Feld bestätigt" };
       } else {
         log(`✗ Keine Option für "${desiredValue}" in Dropdown "${fieldName}" gefunden.`);
         await closeOverlaySafely(overlayScope);
@@ -1122,6 +1184,7 @@
     const pageLang = detectVintedLanguage();
     log(`Starte Formular-Befüllung für "${draft.title || draft.artikelnummer}" (Vinted Sprache: ${pageLang.toUpperCase()})`);
 
+    window.__saschaDraftGender = draft.gender || draft.category || "";
     const formContainer = getFormContainer(log);
 
     const results = {
