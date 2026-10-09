@@ -10,7 +10,7 @@ const file = fs.readFileSync(path.join(__dirname, '..', 'content-vinted.js'), 'u
 const register = '  chrome.runtime.onMessage.addListener';
 assert.ok(file.includes(register), 'Expected extension message listener');
 const instrumented = file.replace(register,
-  '  window.__test = { norm, optionAliases, formatTitle, fieldLabelMatches, desiredGender, categoryScore, fieldSearchInput };\n' + register);
+  '  window.__test = { norm, optionAliases, formatTitle, fieldLabelMatches, desiredGender, categoryScore, fieldSearchInput, catalogRadioOptions };\n' + register);
 const sandbox = {
   window: {},
   chrome: { runtime: { onMessage: { addListener() {} } } }
@@ -68,4 +68,45 @@ test('brand search cannot be reused by size, condition or color', () => {
   assert.equal(fieldSearchInput('size'), null);
   assert.equal(fieldSearchInput('color'), null);
   assert.equal(fieldSearchInput('condition'), null);
+});
+
+
+test('catalog radios resolve adult categories, not baby or unrelated subtypes', () => {
+  const build=(id,name,trail)=>{
+    const row={
+      id:'',tagName:'LI',isConnected:true,
+      innerText:name+' '+trail,parentElement:null,
+      getClientRects(){return [1];},closest(){return null;},
+      getAttribute(){return '';}
+    };
+    return {
+      radio:{id:'catalog-search-'+id+'-radio',closest(){return row;}},
+      label:{innerText:name,textContent:name}
+    };
+  };
+  const items=[
+    build(1559,'Jeans','Kinder Mädchen'),
+    build(1696,'Jeans','Kinder Jungen'),
+    build(1818,'Jeans mit enger Passform','Herren'),
+    build(257,'Jeans','Herren Hosen'),
+    build(183,'Jeans','Damen Hosen')
+  ];
+  sandbox.document={
+    body:{},
+    querySelectorAll(selector){
+      return selector.startsWith('input[id^=')?items.map(item=>item.radio):[];
+    },
+    querySelector(selector){
+      const match=selector.match(/catalog-search-(\d+)-radio/);
+      return match ? items.find(item=>item.radio.id==='catalog-search-'+match[1]+'-radio')?.label||null : null;
+    }
+  };
+  sandbox.getComputedStyle=()=>({display:'block',visibility:'visible'});
+  const men=sandbox.window.__test.catalogRadioOptions('jeans','men');
+  const women=sandbox.window.__test.catalogRadioOptions('jeans','women');
+  assert.ok(men.find(item=>item.id===257)?.eligible);
+  assert.ok(women.find(item=>item.id===183)?.eligible);
+  assert.equal(men.find(item=>item.id===1559)?.eligible,false);
+  assert.equal(men.find(item=>item.id===1696)?.eligible,false);
+  assert.equal(men.find(item=>item.id===1818)?.eligible,false);
 });
