@@ -24,6 +24,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const statusBox = document.getElementById("statusBox");
   const statusList = document.getElementById("statusList");
+  const statusSummaryTitle = document.getElementById("statusSummaryTitle");
 
   const debugToggle = document.getElementById("debugToggle");
   const debugLogContainer = document.getElementById("debugLogContainer");
@@ -39,6 +40,16 @@ document.addEventListener("DOMContentLoaded", () => {
     debugLog.textContent += `[${timestamp}] ${message}\n`;
     debugLog.scrollTop = debugLog.scrollHeight;
   }
+
+  // Display every completed/active step while the popup stays open.
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message?.type !== "VINTED_FILL_PROGRESS") return;
+    const line=String(message.message || "");
+    if (!/^\[(SCHRITT|OK|STOP|PAUSE)\]/.test(line)) return;
+    statusBox.style.display = "block";
+    statusSummaryTitle.textContent=line;
+    // End-of-run logs are rendered after the response; no duplicate live rows.
+  });
 
   // Load saved state (lightweight metadata list)
   chrome.storage.local.get(["savedDrafts", "selectedDraftId", "debugMode"], (res) => {
@@ -255,7 +266,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     logDebug("Starte Einfügen in Vinted...");
     btnFillVinted.disabled = true;
-    statusBox.style.display = "none";
+    statusBox.style.display = "block";
+    statusList.innerHTML = "";
+    statusSummaryTitle.textContent = "Übertrage Schritt für Schritt ...";
 
     try {
       const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -323,7 +336,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
               if (fillResponse && fillResponse.results) {
                 logDebug("Formular-Ausfüllung beendet.");
-                displayFillResults(fillResponse.results, fillResponse.logs);
+                displayFillResults(fillResponse.results, fillResponse.logs, fillResponse.stoppedAt);
               } else if (fillResponse && fillResponse.error) {
                 logDebug(`Fehler beim Ausfüllen: ${fillResponse.error}`);
                 alert(`Fehler beim Ausfüllen: ${fillResponse.error}`);
@@ -342,9 +355,10 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // Display results checklist in popup
-  function displayFillResults(results, logs) {
+  function displayFillResults(results, logs, stoppedAt) {
     statusBox.style.display = "block";
     statusList.innerHTML = "";
+    statusSummaryTitle.textContent=stoppedAt ? "Gestoppt: "+stoppedAt+" nicht bestätigt" : "Felder einzeln ausgefüllt – bitte prüfen";
 
     if (logs && Array.isArray(logs)) {
       logs.forEach((line) => logDebug(line));
