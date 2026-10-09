@@ -208,7 +208,7 @@ test('catalog snapshot reports empty results without guessing IDs', () => {
 });
 
 
-test('Diesel men's W36 maps to XXL when Vinted shows letter sizes', () => {
+test("Diesel men's W36 maps to XXL when Vinted shows letter sizes", () => {
   const options=['XS','S','M','L','XL','XXL','XXXL','4XL'];
   const draft={gender:'Herren',category:'Jeans',brand:'Diesel'};
   const result=resolveSizeFallback(draft,'W36',options);
