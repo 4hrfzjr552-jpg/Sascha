@@ -241,7 +241,7 @@
     ].join(",");
     for(const root of roots) {
       if(!root||!shown(root))continue;
-      const entries=Array.from(root.querySelectorAll(selectors))
+      const entries=[...(root.matches?.(selectors)?[root]:[]),...root.querySelectorAll(selectors)]
         .filter(el=>shown(el)&&!ignore(el)&&el!==trigger&&!el.contains(trigger));
       const exact=entries.filter(el=>candidates.includes(labelText(el)));
       // Choose a leaf, never a parent of another equally matching option.
@@ -460,7 +460,7 @@
   }
   function formatTitle(title,id) {
     let text=String(title||"").trim();
-    const number=String(id||"").trim();
+    const number=String(id||"").trim().replace(/^#+/, "");
     if(number && !text.includes("#"+number)) text=(text+" #"+number).trim();
     return text;
   }
