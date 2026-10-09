@@ -541,6 +541,11 @@
     el.dispatchEvent(new KeyboardEvent("keydown",
       {key:"Escape",code:"Escape",bubbles:true,cancelable:true}));
     await sleep(120);
+    const grid=document.querySelector('[data-testid="category-size-single-grid-content"]');
+    if(grid && shown(grid)) {
+      size.click();
+      await sleep(130);
+    }
     if(baby){
       log("[CATEGORY SAFETY] Die ausgewählte Jeans-Kategorie liefert Babygrößen.");
       return {ok:false,reason:"Falsche Kategorie: Vinted zeigt Babygrößen"};
@@ -690,10 +695,21 @@
       for (const field of ["brand","size","color","condition"]) {
         results[field]={success:false,reason:"Kategorie zuerst auswählen: "+results.category.reason};
       }
-    } else for (const field of ["brand","size","color","condition"]) {
-      results[field]=draft[field] ?
-        await chooseField(field,draft[field],draft,log) :
-        {success:false,reason:"Kein Wert"};
+    } else {
+      const fields=["brand","size","color","condition"];
+      for(let i=0;i<fields.length;i++){
+        const field=fields[i];
+        if(fieldSearchInput("brand") && field!=="brand"){
+          log("[STOP] Marken-Suchfenster ist noch geöffnet. Andere Felder bleiben unverändert.");
+          for(const remaining of fields.slice(i)){
+            results[remaining]={success:false,reason:"Offenes Markenmenü; weitere Eingaben aus Sicherheitsgründen gestoppt"};
+          }
+          break;
+        }
+        results[field]=draft[field] ?
+          await chooseField(field,draft[field],draft,log) :
+          {success:false,reason:"Kein Wert"};
+      }
     }
     // Wait briefly for fields Vinted renders asynchronously after category.
     if (draft.price !== undefined && draft.price !== null && String(draft.price).trim()) {
