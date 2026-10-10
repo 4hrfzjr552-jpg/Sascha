@@ -22,6 +22,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnFillVinted = document.getElementById("btnFillVinted");
   const btnClearDraft = document.getElementById("btnClearDraft");
   const btnBatchStart = document.getElementById("btnBatchStart");
+  const allowEstimatedSizeBatch = document.getElementById("allowEstimatedSizeBatch");
   const btnBatchStop = document.getElementById("btnBatchStop");
   const btnBatchConfirmSaved = document.getElementById("btnBatchConfirmSaved");
   const batchStatus = document.getElementById("batchStatus");
@@ -450,7 +451,8 @@ document.addEventListener("DOMContentLoaded", () => {
       "gespeichert ist, unten einmal als gespeichert bestätigen. "+
       "Die Hose wird NICHT erneut hochgeladen.");
     if(Array.isArray(batch.warnings)&&batch.warnings.length)
-      lines.push("Fotos nach Speichern prüfen:\n"+batch.warnings.slice(-5).join("\n"));
+      lines.push("GESPEICHERTE ENTWÜRFE VOR VERÖFFENTLICHUNG PRÜFEN:\n"+
+        batch.warnings.slice(-10).join("\n"));
     if(Array.isArray(batch.logs)&&batch.logs.length)
       lines.push("Letzter Schritt: "+batch.logs.at(-1));
     batchStatus.textContent=lines.join("\n");
@@ -498,13 +500,19 @@ document.addEventListener("DOMContentLoaded", () => {
     const list=draftsList.filter(d=>d.id===currentDraft.id ||
       Number(String(d.artikelnummer||"").replace("#","")) >=
         Number(String(currentDraft.artikelnummer||"").replace("#","")));
+    const allowEstimates=allowEstimatedSizeBatch?.checked===true;
     if(!confirm("Ab der ausgewählten Hose nacheinander Vinted-ENTWÜRFE speichern? "+
-      "Es wird nichts veröffentlicht. Bei fehlender Bestätigung stoppt der Stapel. "+
-      "Du solltest die fertigen Entwürfe anschließend prüfen."))return;
+      "Es wird NICHT veröffentlicht. "+
+      (allowEstimates?
+        "Geschätzte Größen dürfen in ENTWÜRFEN übernommen werden; "+
+        "vor Veröffentlichung unbedingt mit den echten Maßen/Etiketten prüfen. ":
+        "Bei geschätzter Größe hält der Stapel weiterhin an. ")+
+      "Bei unbestätigter Speicherung stoppt der Stapel."))return;
     btnBatchStart.disabled=true;
     try{
       const response=await chrome.runtime.sendMessage({
-        type:"START_VINTED_BATCH",selectedDraftId:currentDraft.id
+        type:"START_VINTED_BATCH",selectedDraftId:currentDraft.id,
+        allowEstimatedSizes:allowEstimates
       });
       if(!response?.success)throw Error(response?.error||"Stapelstart fehlgeschlagen");
       showBatchStatus(response.state);
