@@ -980,10 +980,28 @@
       .find(Boolean);
     if(match)draftSaveReceipt={saved:true,evidence:match.slice(0,110)};
   }
-  function draftSaveStatus(){
+  // A navigation to the profile is NOT alone proof of a successful save.
+  // Only a DOM card explicitly identified as a DRAFT and containing this
+  // exact article number can verify a saved listing there.
+  function profileDraftReceipt(articleNumber){
+    const id=Number(articleNumber);
+    if(!Number.isSafeInteger(id)||id<=0)return null;
+    const elements=visible(
+      '[data-testid*="draft-card" i],'+
+      '[data-testid*="draft-item" i],'+
+      '[data-testid*="draft-listing" i],'+
+      '[data-testid*="draft-tile" i]'
+    );
+    const exact=new RegExp("(?:^|\\\\D)#?"+id+"(?:\\\\D|$)");
+    const card=elements.find(el=>
+      exact.test(String(el.innerText||el.textContent||"")));
+    return card?{saved:true,evidence:"Entwurf #"+id+
+      " in Vinted-Entwurfskarte gefunden"}:null;
+  }
+  function draftSaveStatus(articleNumber){
     if(draftSaveReceipt)return draftSaveReceipt;
     storePositiveFeedback();
-    return draftSaveReceipt||{saved:false};
+    return draftSaveReceipt||profileDraftReceipt(articleNumber)||{saved:false};
   }
   function watchDraftSave(){
     draftSaveReceipt=null;
@@ -1017,7 +1035,7 @@
       sendResponse({ready:!!q("#title")&&!!q("#description")});return false;
     }
     if(message?.type==="CHECK_VINTED_DRAFT_SAVE"){
-      sendResponse(draftSaveStatus());return false;
+      sendResponse(draftSaveStatus(message.articleNumber));return false;
     }
     if(message?.type==="SAVE_VINTED_DRAFT"){
       if(running){sendResponse({clicked:false,error:"Ausfüllung läuft noch"});return false;}
@@ -1049,6 +1067,6 @@
     price,priceCents,editablePriceField,images,selectedDraftImages,uploadPreviewArea,uploadPreviewCount,imagePreviewDiagnostic,
     imageFile,imageSourceKind,
     draftButtonCandidates,draftSaveDiagnostics,draftSaveStatus,trySaveAsDraft,
-    saveFeedbackText,watchDraftSave
+    saveFeedbackText,watchDraftSave,profileDraftReceipt
   };
 })();
