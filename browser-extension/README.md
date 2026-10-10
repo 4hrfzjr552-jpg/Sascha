@@ -1,4 +1,4 @@
-# Sascha AI → Vinted Assistant 3.14
+# Sascha AI → Vinted Assistant 3.15
 
 Die Chrome-Erweiterung übernimmt einen vollständigen Entwurf aus Sascha AI in die geöffnete Vinted-Verkaufsmaske. **Sie veröffentlicht und speichert nichts automatisch.** Alle Angaben vor dem Speichern prüfen.
 
@@ -39,7 +39,7 @@ Die folgende Zuordnung stammt aus realen Vinted-Katalog-Suchergebnissen und ist 
 2. ZIP entpacken und den **Ordner \`browser-extension\`** an einem festen Ort behalten.
 3. In Chrome \`chrome://extensions/\` öffnen und den Entwicklermodus aktivieren.
 4. „Entpackte Erweiterung laden“ wählen und den Ordner \`browser-extension\` auswählen.
-5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.14.0** stehen.
+5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.15.0** stehen.
 
 **Updates:** Neue Dateien in denselben entpackten Erweiterungsordner kopieren, unter \`chrome://extensions/\` „Neu laden“ klicken und den Vinted-Tab aktualisieren. Nur „Download ZIP“ auszuführen aktualisiert die installierte Erweiterung nicht. Es ist weder \`git pull\` noch das Mergen eines GitHub-PR erforderlich, wenn die Version bereits in \`main\` liegt.
 
@@ -60,6 +60,12 @@ Beispiel: 39 cm Bundweite flach entsprechen rechnerisch 78 cm Umfang. Bei **Herr
 - **Stapelmodus-Schutz:** Bei einer aus Maßen geschätzten Größe wird die Hose zunächst ausgefüllt, aber **nicht automatisch als Entwurf gespeichert**. Der Stapel stoppt und wartet auf deine Prüfung. Du kannst die Größe vor dem manuellen Speichern korrigieren.
 
 So entstehen bei unbekannten Herstellergrößen keine unbemerkt falsch ausgezeichneten Vinted-Entwürfe.
+
+### Tab-Laden im Stapelmodus (3.15.0)
+
+Nach `chrome.tabs.create()` hat ein neuer Chrome-Tab manchmal für kurze Zeit noch die Adresse `about:blank`, `chrome://newtab` oder nur `pendingUrl`. Vorher wurde dies irrtümlich als „Vinted-Tab hat die Verkaufsseite verlassen“ bewertet, sodass der Stapel schon vor dem ersten Formularfeld stoppte.
+
+Die Erweiterung wartet jetzt bis zu **35 Sekunden** auf die echte Vinted-Verkaufsseite und darauf, dass die zwei Basis-Felder im Formular sichtbar sind. Nur temporäre Ladezustände auf einem neu geöffneten Tab werden abgewartet. Bei tatsächlicher Fremdseiten-Weiterleitung wird weiterhin **sofort gestoppt**, mit der URL ohne Query-Parameter oder Geheimtokens in der Fehlermeldung. Bei Login- oder Formularproblemen auf der Vinted-Domain gibt es einen aussagekräftigen Timeout statt einer falschen Weiterleitungsdiagnose. Ein nicht bestätigter Speicher-Schritt wird nie automatisch wiederholt.
 
 ## Automatischer Entwurfsstapel (Version 3.12)
 
