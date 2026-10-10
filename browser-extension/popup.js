@@ -26,6 +26,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnBatchStop = document.getElementById("btnBatchStop");
   const btnBatchConfirmSaved = document.getElementById("btnBatchConfirmSaved");
   const batchStatus = document.getElementById("batchStatus");
+  const batchQueueHint = document.getElementById("batchQueueHint");
 
   const statusBox = document.getElementById("statusBox");
   const statusList = document.getElementById("statusList");
@@ -85,6 +86,22 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  function setBatchQueueHint(){
+    if(!batchQueueHint)return;
+    if(!currentDraft||!draftsList.length){
+      batchQueueHint.textContent="Noch keine fertigen Hosen importiert.";
+      return;
+    }
+    const sorted=[...draftsList].sort((a,b)=>
+      Number(a.artikelnummer)-Number(b.artikelnummer));
+    const start=sorted.findIndex(d=>d.id===currentDraft.id);
+    const remaining=Math.max(0,sorted.length-start);
+    batchQueueHint.textContent=sorted.length+" geeignete Hosen aus Sascha AI importiert. "+
+      "Ab #"+(currentDraft.artikelnummer||"?")+": "+
+      remaining+" Hose"+(remaining===1?"":"n")+" im Stapel. "+
+      (remaining===1?"Danach gibt es keine nächste Hose.":"Danach folgt automatisch die nächste.");
+  }
+
   // Render current selected draft (lightweight metadata)
   function renderCurrentDraft(draft) {
     currentDraft = draft;
@@ -96,6 +113,7 @@ document.addEventListener("DOMContentLoaded", () => {
       btnFillVinted.disabled = true;
       btnBatchStart.disabled = true;
       btnClearDraft.style.display = "none";
+      setBatchQueueHint();
       return;
     }
 
@@ -104,6 +122,8 @@ document.addEventListener("DOMContentLoaded", () => {
     btnFillVinted.disabled = false;
     btnBatchStart.disabled = false;
     btnClearDraft.style.display = "inline-flex";
+
+    setBatchQueueHint();
 
     // Header Title
     const artNrStr = draft.artikelnummer ? `#${draft.artikelnummer}` : "";
@@ -214,7 +234,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       chrome.tabs.sendMessage(
         saschaTab.id,
-        { type: "FETCH_DRAFT_LIST_FROM_SASCHA" },
+        { type: "FETCH_DRAFT_LIST_FROM_SASCHA", includeEligiblePants: true },
         (response) => {
           btnImport.disabled = false;
 
@@ -248,6 +268,7 @@ document.addEventListener("DOMContentLoaded", () => {
           });
 
           renderCurrentDraft(activeDraft);
+          logDebug(draftsList.length+" geeignete Hosen für den Stapel geladen.");
           logDebug(`Entwurf #${activeDraft.artikelnummer || activeDraft.id} ausgewählt.`);
         }
       );
@@ -497,11 +518,13 @@ document.addEventListener("DOMContentLoaded", () => {
       alert("Bitte erst Entwürfe aus Sascha AI übernehmen.");
       return;
     }
-    const list=draftsList.filter(d=>d.id===currentDraft.id ||
-      Number(String(d.artikelnummer||"").replace("#","")) >=
-        Number(String(currentDraft.artikelnummer||"").replace("#","")));
+    const nextCount=[...draftsList]
+      .sort((a,b)=>Number(a.artikelnummer)-Number(b.artikelnummer))
+      .filter((d,i,all)=>i>=all.findIndex(x=>x.id===currentDraft.id)).length;
     const allowEstimates=allowEstimatedSizeBatch?.checked===true;
-    if(!confirm("Ab der ausgewählten Hose nacheinander Vinted-ENTWÜRFE speichern? "+
+    if(!confirm("Es sind "+nextCount+" Hosen für diesen Stapel eingeplant. "+
+      (nextCount===1?"Danach folgt KEINE weitere Hose. ":"")+
+      "Ab der ausgewählten Hose nacheinander Vinted-ENTWÜRFE speichern? "+
       "Es wird NICHT veröffentlicht. "+
       (allowEstimates?
         "Geschätzte Größen dürfen in ENTWÜRFEN übernommen werden; "+
