@@ -1,4 +1,4 @@
-# Sascha AI → Vinted Assistant 3.10
+# Sascha AI → Vinted Assistant 3.11
 
 Die Chrome-Erweiterung übernimmt einen vollständigen Entwurf aus Sascha AI in die geöffnete Vinted-Verkaufsmaske. **Sie veröffentlicht und speichert nichts automatisch.** Alle Angaben vor dem Speichern prüfen.
 
@@ -39,7 +39,7 @@ Die folgende Zuordnung stammt aus realen Vinted-Katalog-Suchergebnissen und ist 
 2. ZIP entpacken und den **Ordner \`browser-extension\`** an einem festen Ort behalten.
 3. In Chrome \`chrome://extensions/\` öffnen und den Entwicklermodus aktivieren.
 4. „Entpackte Erweiterung laden“ wählen und den Ordner \`browser-extension\` auswählen.
-5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.10.0** stehen.
+5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.11.0** stehen.
 
 **Updates:** Neue Dateien in denselben entpackten Erweiterungsordner kopieren, unter \`chrome://extensions/\` „Neu laden“ klicken und den Vinted-Tab aktualisieren. Nur „Download ZIP“ auszuführen aktualisiert die installierte Erweiterung nicht. Es ist weder \`git pull\` noch das Mergen eines GitHub-PR erforderlich, wenn die Version bereits in \`main\` liegt.
 
@@ -67,7 +67,7 @@ Der Preis wird **nach dem Verlassen des Eingabefelds** geprüft. Vinted kann `25
 
 Bei Problemen protokolliert `[PRICE VERIFY]` Sollbetrag, tatsächlichen Feldtext und Prüfergebnis. Ein wirklich abweichender Preis wird weiterhin nicht als Erfolg gewertet.
 
-### iPhone-Fotos-Regler als Bildlook (Version 3.10)
+### iPhone-Fotos-Regler als Bildlook (Version 3.11)
 
 Der automatische Bildlook orientiert sich an den zuletzt gezeigten Screenshots der iPhone-Fotos-App. Diese zeigen **keine lesbaren Zahlenwerte**. Die folgenden Werte sind deshalb **Näherungen**, keine 1:1-Übertragung:
 
@@ -80,6 +80,8 @@ Der automatische Bildlook orientiert sich an den zuletzt gezeigten Screenshots d
 | Schwarzpunkt | +32 |
 | Helligkeit | −12 |
 | Wärme | +3 |
+
+**Nach dem Praxistest verstärkt:** Die Werte werden jetzt mit dem Faktor **1,85** verarbeitet (`iphone-photo-adjustments-v2-visible`). Das ist ein merklicherer Eingriff in Mittelton-/Kontrastwerte, keine Änderung von Motiven oder der tatsächlichen Hose. Der Debug-Log nennt je Bild `avgRgbDelta` (mittlere absolute RGB-Abweichung) und `noticeablePct` (Anteil der Pixel mit mindestens 12 RGB-Abweichung). Prüfe die Ergebnisse visuell, denn ein großer Zahlenwert garantiert weder einen korrekten Produktfarbton noch die Akzeptanz durch Vinted.
 
 Der Effekt wird durch getrennte, sanfte Tonwertfunktionen umgesetzt, nicht durch einen globalen CSS-Filter. Ein einzelner Preset `iphone-photo-adjustments-v1` wird auf alle vier Bilder angewendet. Die tatsächlichen iPhone-Regler sind komplexer; das Ergebnis ist eine Annäherung und muss visuell geprüft werden. Bildausschnitt, Hintergrund, Jeansdetails und sichtbare Gebrauchsspuren bleiben erhalten. Keine Markierungsentfernung, keine automatische Veröffentlichung.
 

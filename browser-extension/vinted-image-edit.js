@@ -16,7 +16,10 @@
   // NOT show numerical amounts; these can be tuned after a real visual test.
   // Value range: -100..+100. No mark detection / background removal.
   const IPHONE_LOOK = Object.freeze({
-    id: "iphone-photo-adjustments-v1",
+    id: "iphone-photo-adjustments-v2-visible",
+    // User has requested visibly stronger correction. Exact iPhone amounts
+    // weren't readable; keep the same directions at a bounded intensity.
+    intensity: 1.85,
     brilliance: 35,    // Brillanz: clear positive shift in screenshot
     highlights: -14,   // Glanzlichter: slight reduction
     shadows: 12,       // Schatten: slight lift
@@ -29,8 +32,8 @@
   function clampUnit(v) {
     return Math.max(0, Math.min(1, v));
   }
-  function clampAdjust(v) {
-    return Math.max(-1, Math.min(1, (Number(v) || 0) / 100));
+  function clampAdjust(v,intensity=1) {
+    return Math.max(-1, Math.min(1, (Number(v) || 0) * intensity / 100));
   }
   function smooth(t) {
     const x=clampUnit(t);
@@ -46,15 +49,19 @@
     const src=imageData?.data;
     if (!src) return { pixels: 0, look: look.id || IPHONE_LOOK.id };
 
-    const brilliance=clampAdjust(look.brilliance);
-    const highlights=clampAdjust(look.highlights);
-    const shadows=clampAdjust(look.shadows);
-    const contrast=clampAdjust(look.contrast);
-    const blackPoint=clampAdjust(look.blackPoint);
-    const brightness=clampAdjust(look.brightness);
-    const warmth=clampAdjust(look.warmth);
+    const intensity=Number.isFinite(look.intensity)?
+      Math.max(0,Math.min(2.5,look.intensity)):1;
+    const brilliance=clampAdjust(look.brilliance,intensity);
+    const highlights=clampAdjust(look.highlights,intensity);
+    const shadows=clampAdjust(look.shadows,intensity);
+    const contrast=clampAdjust(look.contrast,intensity);
+    const blackPoint=clampAdjust(look.blackPoint,intensity);
+    const brightness=clampAdjust(look.brightness,intensity);
+    const warmth=clampAdjust(look.warmth,intensity);
 
     let changed=0;
+    let sumAbsoluteDelta=0;
+    let stronglyChanged=0;
     for(let i=0;i<src.length;i+=4){
       const r=src[i]/255, g=src[i+1]/255, b=src[i+2]/255;
       const lum=0.2126*r+0.7152*g+0.0722*b;
@@ -78,11 +85,20 @@
       const gg=clampUnit(lum+(g-lum)*chroma+delta);
       const bb=clampUnit(lum+(b-lum)*chroma+delta-warmth*0.025);
       const nr=Math.round(rr*255), ng=Math.round(gg*255), nb=Math.round(bb*255);
-      if(nr!==src[i]||ng!==src[i+1]||nb!==src[i+2])changed++;
+      const deltaSum=Math.abs(nr-src[i])+Math.abs(ng-src[i+1])+Math.abs(nb-src[i+2]);
+      sumAbsoluteDelta+=deltaSum;
+      if(deltaSum/3>=12)stronglyChanged++;
+      if(deltaSum>0)changed++;
       src[i]=nr;src[i+1]=ng;src[i+2]=nb;
       // Source alpha is deliberately preserved.
     }
-    return {pixels:changed,look:look.id||IPHONE_LOOK.id};
+    const pixelCount=src.length/4;
+    return {
+      pixels:changed,look:look.id||IPHONE_LOOK.id,
+      intensity,
+      averageRgbDelta:pixelCount?+(sumAbsoluteDelta/(pixelCount*3)).toFixed(1):0,
+      noticeablePercent:pixelCount?+(stronglyChanged/pixelCount*100).toFixed(1):0
+    };
   }
 
   async function toJpegBlob(canvas) {
@@ -123,6 +139,9 @@
         originalName: file.name,
         colorLook: grade.look,
         gradedPixels: grade.pixels,
+        gradeIntensity: grade.intensity,
+        averageRgbDelta: grade.averageRgbDelta,
+        noticeablePercent: grade.noticeablePercent,
         width, height
       };
     } finally {
