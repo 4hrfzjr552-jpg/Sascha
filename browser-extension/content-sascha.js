@@ -89,17 +89,18 @@
 
       window.addEventListener("message", handleResponse);
 
-      // Timeout safety (3 seconds)
+      // Four photos may require fresh Supabase URLs and data:image hydration.
+      // The original 3s limit caused intermittent failures during batches.
       const timer = setTimeout(() => {
         window.removeEventListener("message", handleResponse);
         if (!hasResponded) {
           hasResponded = true;
           sendResponse({
             success: false,
-            error: "Keine Antwort von Sascha AI erhalten.",
+            error: "Sascha AI brauchte länger als 45 Sekunden zum Laden der Fotos.",
           });
         }
-      }, 3000);
+      }, 45000);
 
       // Send postMessage request to Sascha AI page
       window.postMessage(
