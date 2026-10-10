@@ -198,6 +198,51 @@
     // Only treat as recoverable if a save was actually attempted.
     return (state.logs||[]).some(line=>/Prüfe Vinted-Speicherbestätigung für #/.test(line));
   }
+  function recoverablePreSaveFormFailure(current){
+    if(current?.status!=="error"||current.phase!=="failed"||
+       !Array.isArray(current.queue))return false;
+    const row=current.queue[current.index];
+    if(!row||row.id!==current.currentId)return false;
+    const reason=String(current.error||"");
+    if(!/^(?:Formular nicht vollständig:|Feld (?:[a-z]+) (?:wurde nicht bestätigt|muss noch manuell geprüft werden))/.test(reason))
+      return false;
+    // Legacy v3.22 state only kept "failed", not the previous phase.
+    // Require positive evidence that filling actually began, and reject
+    // anything that ever reached the SAVE button for this exact item.
+    const logs=Array.isArray(current.logs)?current.logs:[];
+    const start=logs.findLastIndex(line=>String(line).endsWith(
+      ": Artikel #"+row.artikelnummer));
+    if(start<0)return false;
+    const own=logs.slice(start);
+    return own.some(line=>String(line).startsWith("Fülle #"+row.artikelnummer)) &&
+      !own.some(line=>String(line).startsWith(
+        "Speichere #"+row.artikelnummer+" ausdrücklich als Entwurf"));
+  }
+  function skippableUnfilledForm(phase,reason){
+    return phase==="filling"&&/^(?:Formular nicht vollständig:|Feld [a-z]+ (?:wurde nicht bestätigt|muss noch manuell geprüft werden))/.test(
+      String(reason||""));
+  }
+  async function retryPreSaveFormFailure(){
+    if(busy)throw Error("Stapel läuft bereits");
+    const old=await getState();
+    if(!recoverablePreSaveFormFailure(old))
+      throw Error("Hose kann nicht sicher neu gestartet werden: Speicher-Klick "+
+        "möglicherweise bereits erfolgt oder kein reiner Formularfehler");
+    const row=old.queue[old.index];
+    stopRequested=false;
+    await chrome.alarms.clear(GUARD_ALARM);
+    await chrome.alarms.clear(NEXT_ALARM);
+    const next={...old,status:"running",phase:"ready",currentId:null,
+      error:null,stopRequested:false,
+      logs:[...(old.logs||[]),"Versuche #"+row.artikelnummer+
+        " nach Formularfehler erneut (kein Speicher-Klick beim letzten Versuch); "+
+        "zuvor bestätigte Entwürfe werden nicht wiederholt"].slice(-75)};
+    await put(next);
+    if(typeof chrome.tabs.query==="function"&&
+        typeof chrome.tabs.create==="function")void run();
+    return {success:true,currentArticle:row.artikelnummer,state:next};
+  }
+
   // Keep an item-confirmation ledger across separate batches. A successful
   // save (or explicit confirmation of an existing Vinted draft) should never
   // be uploaded again merely because the user imported the queue afresh.
@@ -479,6 +524,22 @@
           await single(row,sascha);
         }catch(e){
           const reason=e?.message||String(e);
+          const failedPhase=state.phase;
+          if(!stopRequested&&skippableUnfilledForm(failedPhase,reason)){
+            // The Save-draft step has NOT been reached. No draft could have
+            // been created by this attempt. Skip instead of aborting 22 pants.
+            // Never mark this row confirmed or add it to the saved ledger.
+            const skipped=[...(state.skipped||[]),{
+              id:row.id,artikelnummer:row.artikelnummer,reason
+            }].slice(-100);
+            await chrome.alarms.clear(GUARD_ALARM);
+            await log("ÜBERSPRUNGEN #"+row.artikelnummer+
+              " – Formular unvollständig, NICHT gespeichert: "+reason+
+              " · nächste Hose wird bearbeitet",{
+              skipped,index:state.index+1,currentId:null,phase:"ready",
+              error:null,pendingReviewWarnings:[]});
+            continue;
+          }
           if(!stopRequested && state.phase==="verifying" &&
               /(?:Speichern nicht eindeutig bestätigt|Speichern unklar)/i.test(reason)){
             await log("PAUSE bei #"+row.artikelnummer+": "+reason+
@@ -515,7 +576,10 @@
         }
       }
       await chrome.alarms.clear(GUARD_ALARM);
-      await log("Alle "+queue.length+" Vinted-Entwürfe bestätigt",{
+      const skippedCount=state.skipped?.length||0;
+      await log("Stapel abgeschlossen: "+state.completed.length+
+        " Entwürfe bestätigt, "+skippedCount+" Hose(n) wegen Formularfehler "+
+        "NICHT gespeichert. Übersprungene Artikel separat prüfen.",{
         status:"done",phase:"done",currentId:null
       });
     }catch(e){
@@ -548,6 +612,11 @@
   chrome.runtime.onMessage.addListener((msg,_sender,sendResponse)=>{
     if(msg?.type==="GET_VINTED_BATCH_STATUS"){
       getState().then(s=>sendResponse({success:true,state:s}))
+        .catch(e=>sendResponse({success:false,error:e.message}));
+      return true;
+    }
+    if(msg?.type==="RETRY_VINTED_FAILED_FORM"){
+      retryPreSaveFormFailure().then(sendResponse)
         .catch(e=>sendResponse({success:false,error:e.message}));
       return true;
     }
@@ -621,7 +690,8 @@
       await chrome.alarms.clear(GUARD_ALARM);
       await put({status:"running",phase:"ready",startedAt:Date.now(),queue,
         allowEstimatedSizes:msg.allowEstimatedSizes===true,
-        index:0,currentId:null,completed:[],warnings:[],pendingReviewWarnings:[],logs:[
+        index:0,currentId:null,completed:[],skipped:[],
+        warnings:[],pendingReviewWarnings:[],logs:[
           "Stapel gestartet: "+queue.length+" Hosen ab #"+
             queue[0].artikelnummer+" (bereits bestätigte übersprungen), "+
             "nur als Entwurf, keine Veröffentlichung"
@@ -636,5 +706,5 @@
     module.exports={orderedQueue,articleNumber,validVintedUrl,savedUrl,saschaUrl,
       safeTabLocation,tabNavigationState,waitForEditor,recoverableSave,
       formFailureMessage,draftSizeSummary,reviewableEstimatedSize,
-      continuationRows};
+      continuationRows,recoverablePreSaveFormFailure,skippableUnfilledForm};
 })();
