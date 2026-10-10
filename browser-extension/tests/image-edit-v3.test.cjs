@@ -105,3 +105,35 @@ test("no silent fallback to originals when browser cannot edit",async()=>{
   await assert.rejects(()=>api.processImage(
     new FakeFile([1],"original.jpg",{type:"image/jpeg"}),0),/nicht verfügbar/);
 });
+
+
+test("reference color look brightens and softens neutral backgrounds",()=>{
+  const api=loadAPI();
+  const img={width:1,height:1,data:new Uint8ClampedArray([178,174,167,255])};
+  const result=api.gradeReferenceColors(img);
+  assert.equal(result.look,"user-reference-soft-neutral-v1");
+  // Pixel values are measured from the original/edit reference pair.
+  assert.deepEqual(Array.from(img.data),[180,177,171,255]);
+});
+test("reference look reduces overly blue contrast while keeping denim blue",()=>{
+  const api=loadAPI();
+  const denim={width:1,height:1,data:new Uint8ClampedArray([125,145,167,255])};
+  api.gradeReferenceColors(denim);
+  const after=[...denim.data];
+  assert.deepEqual(after,[135,152,171,255]);
+  assert.ok(after[2]>after[1]&&after[1]>after[0],
+    "Jeans should remain recognizably blue");
+  assert.ok(after[2]-after[0]<167-125,
+    "Reference has less chroma than original fabric");
+});
+test("reference look is applied even when no blue mark is present",()=>{
+  const api=loadAPI(),img=fixture();
+  for(let y=10;y<43;y++)for(let x=8;x<16;x++)
+    img.pixel(x,y,[184,178,171]);
+  const before=[...img.data.slice(0,4)];
+  const cleaned=api.cleanupBackground(img);
+  assert.equal(cleaned.replaced,0);
+  const grade=api.gradeReferenceColors(img);
+  assert.ok(grade.pixels>0);
+  assert.notDeepEqual(Array.from(img.data.slice(0,4)),before);
+});
