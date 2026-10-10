@@ -41,7 +41,7 @@ test("seven explicit Apple Photos controls are present with approximate orientat
   assert.ok(look.brightness<0);
   assert.ok(Math.abs(look.warmth)<=10);
   assert.deepEqual(Object.keys({...look}).sort(),[
-    "id","brilliance","highlights","shadows","contrast",
+    "id","intensity","brilliance","highlights","shadows","contrast",
     "blackPoint","brightness","warmth"
   ].sort());
 });
