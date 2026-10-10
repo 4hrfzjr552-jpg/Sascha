@@ -1,4 +1,4 @@
-# Sascha AI → Vinted Assistant 3.9
+# Sascha AI → Vinted Assistant 3.10
 
 Die Chrome-Erweiterung übernimmt einen vollständigen Entwurf aus Sascha AI in die geöffnete Vinted-Verkaufsmaske. **Sie veröffentlicht und speichert nichts automatisch.** Alle Angaben vor dem Speichern prüfen.
 
@@ -39,7 +39,7 @@ Die folgende Zuordnung stammt aus realen Vinted-Katalog-Suchergebnissen und ist 
 2. ZIP entpacken und den **Ordner \`browser-extension\`** an einem festen Ort behalten.
 3. In Chrome \`chrome://extensions/\` öffnen und den Entwicklermodus aktivieren.
 4. „Entpackte Erweiterung laden“ wählen und den Ordner \`browser-extension\` auswählen.
-5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.9.0** stehen.
+5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.10.0** stehen.
 
 **Updates:** Neue Dateien in denselben entpackten Erweiterungsordner kopieren, unter \`chrome://extensions/\` „Neu laden“ klicken und den Vinted-Tab aktualisieren. Nur „Download ZIP“ auszuführen aktualisiert die installierte Erweiterung nicht. Es ist weder \`git pull\` noch das Mergen eines GitHub-PR erforderlich, wenn die Version bereits in \`main\` liegt.
 
@@ -66,6 +66,22 @@ Vinted hängt an Zustände wie „Sehr gut“ längere Beschreibungen an. Die Ex
 Der Preis wird **nach dem Verlassen des Eingabefelds** geprüft. Vinted kann `25,00`, `25.00` oder `25,00 €` anzeigen; diese Darstellungen entsprechen demselben Betrag. Die Extension vergleicht Cent-Beträge und kontrolliert, ob der Wert nach der Formatierung erhalten bleibt.
 
 Bei Problemen protokolliert `[PRICE VERIFY]` Sollbetrag, tatsächlichen Feldtext und Prüfergebnis. Ein wirklich abweichender Preis wird weiterhin nicht als Erfolg gewertet.
+
+### iPhone-Fotos-Regler als Bildlook (Version 3.10)
+
+Der automatische Bildlook orientiert sich an den zuletzt gezeigten Screenshots der iPhone-Fotos-App. Diese zeigen **keine lesbaren Zahlenwerte**. Die folgenden Werte sind deshalb **Näherungen**, keine 1:1-Übertragung:
+
+| iPhone-Regler | Näherungswert |
+| --- | ---: |
+| Brillanz | +35 |
+| Glanzlichter | −14 |
+| Schatten | +12 |
+| Kontrast | +14 |
+| Schwarzpunkt | +32 |
+| Helligkeit | −12 |
+| Wärme | +3 |
+
+Der Effekt wird durch getrennte, sanfte Tonwertfunktionen umgesetzt, nicht durch einen globalen CSS-Filter. Ein einzelner Preset `iphone-photo-adjustments-v1` wird auf alle vier Bilder angewendet. Die tatsächlichen iPhone-Regler sind komplexer; das Ergebnis ist eine Annäherung und muss visuell geprüft werden. Bildausschnitt, Hintergrund, Jeansdetails und sichtbare Gebrauchsspuren bleiben erhalten. Keine Markierungsentfernung, keine automatische Veröffentlichung.
 
 ### Fotos in Vinted
 
