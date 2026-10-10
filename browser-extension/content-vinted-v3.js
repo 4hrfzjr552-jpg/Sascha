@@ -53,6 +53,19 @@
     el.dispatchEvent(new Event("input",{bubbles:true}));
     el.dispatchEvent(new Event("change",{bubbles:true}));
   }
+  async function bringIntoView(el,field,log){
+    if(!el)return;
+    const before=el.getBoundingClientRect?.();
+    const outside=!!before && (before.top<70||before.bottom>window.innerHeight-70);
+    try{
+      el.scrollIntoView?.({behavior:"instant",block:"center",inline:"nearest"});
+    }catch(_){
+      try{el.scrollIntoView?.({block:"center"});}catch(_){}
+    }
+    if(outside && log)log("[SCROLL "+field+"] Feld in den sichtbaren Bereich gebracht");
+    await sleep(140);
+  }
+
   function required(selector,message){
     const el=q(selector);
     if(!el||!shown(el))throw Error(message);
@@ -62,6 +75,7 @@
     const str=String(raw??"").trim();
     if(!str)throw Error(field+" hat keinen Wert");
     const el=required(selector,field+" wurde nicht gefunden");
+    await bringIntoView(el,field);
     setReactValue(el,str);
     const confirmed=await until(()=>q(selector)?.value===str,1500);
     if(!confirmed)throw Error(field+" wurde nicht übernommen");
@@ -105,6 +119,7 @@
     const target=resolved.category;
     const control=required('#category, input[data-testid="catalog-select-dropdown-input"]',
       "Vinted-Kategorieeingabe fehlt");
+    await bringIntoView(control,"category",log);
     control.click();
     if(!await until(()=>shown(q("#catalog-search-input")),2800))
       throw Error("Vinted hat die Kategoriesuche nicht geöffnet");
@@ -163,6 +178,7 @@
     if(!desired)throw Error("Marke fehlt im Entwurf");
     const control=required("#brand", "Markenfeld fehlt");
     if(value(control)===desired)return {success:true};
+    await bringIntoView(control,"brand",log);
     control.click();
     const search=await until(()=>shown(q("#brand-search-input"))&&q("#brand-search-input"),3000);
     if(!search)throw Error("Vinted-Markensuche wurde nicht geöffnet");
@@ -195,23 +211,78 @@
     log("[BRAND SELECTED] "+draft.brand);
     return {success:true};
   }
+  const SIZE_OPTION_QUERY='[role="checkbox"][data-testid*="size-group" i], [data-testid*="size-grid-option" i]';
+  function sizeGrids(){
+    return visible('[data-testid="category-size-single-grid-content"], [data-testid*="size-single-grid-content" i], [data-testid*="size-grid-content" i]');
+  }
   function sizeGrid(){
-    return q('[data-testid="category-size-single-grid-content"]');
+    return sizeGrids().find(grid=>visible(SIZE_OPTION_QUERY,grid).length>0) ||
+      sizeGrids()[0] || null;
   }
   function sizeOptions(){
-    const grid=sizeGrid();
-    if(!shown(grid))return [];
+    const grids=sizeGrids();
     const seen=new Set();
-    return visible('[role="checkbox"][data-testid*="size-group" i], [data-testid*="size-grid-option" i]',grid)
+    return grids.flatMap(grid=>visible(SIZE_OPTION_QUERY,grid))
       .map(el=>({el,label:optionText(el)}))
       .filter(o=>o.label && !seen.has(o.label) && seen.add(o.label));
+  }
+  function sizeMenuReady(){
+    return sizeOptions().length>0;
+  }
+  function sizeMenuDiagnostic(){
+    const control=q("#size"), grids=qa('[data-testid*="size" i][data-testid*="grid" i]');
+    const sizeFields=qa('input[id="size"],input[data-testid*="size" i]').slice(0,7);
+    const fields=sizeFields.map(el=>({
+      tag:el.tagName.toLowerCase(),id:el.id||"",
+      testid:el.getAttribute("data-testid")||"",
+      readonly:!!el.readOnly,shown:shown(el),
+      rect:el.getBoundingClientRect?{
+        y:Math.round(el.getBoundingClientRect().y),
+        bottom:Math.round(el.getBoundingClientRect().bottom)
+      }:null
+    }));
+    const gridInfo=grids.slice(0,8).map(el=>({
+      testid:el.getAttribute("data-testid")||"",
+      shown:shown(el),choices:visible(SIZE_OPTION_QUERY,el).length
+    }));
+    const active=document.activeElement;
+    return {fields,gridInfo,activeId:active?.id||"",
+      brandSearchOpen:shown(q("#brand-search-input")),
+      categorySearchOpen:shown(q("#catalog-search-input")),
+      viewportHeight:window.innerHeight||null};
+  }
+  async function openSizeMenu(control,log){
+    const candidates=[{name:"input",el:control}];
+    const wrapper=control.closest?.('[data-testid*="size" i][class*="dropdown" i]') ||
+      control.parentElement?.closest?.('[class*="input-dropdown" i]') ||
+      control.parentElement;
+    if(wrapper && wrapper!==control)candidates.push({name:"wrapper",el:wrapper});
+    const chev=q('[data-testid="category-size-single-grid-chevron-down"], [data-testid*="size" i][data-testid*="chevron-down" i]');
+    if(chev && shown(chev) && !candidates.some(x=>x.el===chev))
+      candidates.push({name:"chevron",el:chev});
+    for(const {name,el} of candidates){
+      if(sizeMenuReady())return true;
+      if(!shown(el))continue;
+      await bringIntoView(el,"size",log);
+      log("[SIZE OPEN] click "+name);
+      el.click();
+      if(await until(sizeMenuReady,1600,130)){
+        log("[SIZE OPEN] choices="+sizeOptions().length+" via="+name);
+        return true;
+      }
+      await sleep(150);
+    }
+    log("[SIZE DIAG] "+JSON.stringify(sizeMenuDiagnostic()));
+    return false;
   }
   async function size(draft,log){
     const desired=String(draft.size||"").trim();
     if(!desired)throw Error("Größe fehlt im Entwurf");
-    const control=required("#size","Größenfeld fehlt");
-    control.click();
-    if(!await until(()=>shown(sizeGrid()),3000))throw Error("Vinted-Größenraster wurde nicht geöffnet");
+    const control=await until(()=>{const el=q("#size");return shown(el)&&el},4000);
+    if(!control)throw Error("Größenfeld fehlt oder wurde noch nicht gerendert");
+    await bringIntoView(control,"size",log);
+    if(!await openSizeMenu(control,log))
+      throw Error("Vinted-Größenraster nach Eingabe, Container-Klick und Scrollen nicht geöffnet");
     const options=sizeOptions();
     if(options.some(o=>/fruhchen|neugeboren|1-3 monate/i.test(o.label)))
       throw Error("Vinted zeigt Babygrößen – falsche Kategorie");
@@ -258,6 +329,7 @@
     if(!requested)throw Error(NAMES[field]+" fehlt im Entwurf");
     const control=required("#"+field,NAMES[field]+"-Auswahl fehlt");
     const aliases=nameAlternatives(field,requested);
+    await bringIntoView(control,field,log);
     control.click();
     const found=await until(()=>{
       return fieldOptions(field,control).find(el=>aliases.includes(optionText(el)))||null;
@@ -297,6 +369,7 @@
       throw Error("Preis ungültig oder fehlt");
     const el=await until(()=>{const inp=q('#price, input[name="price"]');return shown(inp)&&inp;},4400);
     if(!el)throw Error("Preisfeld nicht sichtbar");
+    await bringIntoView(el,"price");
     setReactValue(el,String(draft.price).replace(/[€\s]/g,""));
     const confirmed=await until(()=>{
       const actual=(q("#price, input[name=price]")?.value||"").replace(",",".");
@@ -323,6 +396,8 @@
     if(!Array.isArray(draft.images)||!draft.images.length)throw Error("Keine Entwurfsbilder");
     const input=q('main input[type="file"]')||q('input[type="file"]');
     if(!input)throw Error("Bilder-Uploadelement nicht gefunden");
+    // File inputs are often hidden: scroll to the surrounding upload area instead.
+    await bringIntoView(input.parentElement||input,"images");
     const files=await Promise.all(draft.images.map(imageFile));
     if(files.some(file=>!file))throw Error("Mindestens ein Bild konnte nicht geladen werden");
     const transfer=new DataTransfer();
@@ -389,6 +464,7 @@
   });
   // Available only for local, isolated automated tests (not an API for Vinted).
   if(window.__SASCHA_TEST__)window.__SASCHA_ENGINE_TEST__={
-    articleTitle,liveCatalogRows,optionText,nameAlternatives,run,chooseCategory,size
+    articleTitle,liveCatalogRows,optionText,nameAlternatives,run,chooseCategory,size,
+    sizeOptions,sizeMenuDiagnostic,openSizeMenu
   };
 })();
