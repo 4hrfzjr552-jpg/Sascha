@@ -1028,6 +1028,10 @@
     const id=Number(articleNumber);
     if(!Number.isSafeInteger(id)||id<=0)return null;
     const elements=visible(
+      '[data-testid*="draft-card" i],'+
+      '[data-testid*="draft-item" i],'+
+      '[data-testid*="draft-listing" i],'+
+      '[data-testid*="draft-tile" i],'+
       '[data-testid*="draft" i],'+
       '[data-testid*="item-box" i],'+
       '[data-testid*="item-card" i],'+
