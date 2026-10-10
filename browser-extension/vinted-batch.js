@@ -466,7 +466,8 @@
         const result=await markConfirmed(current,
           "vom Verkäufer im Vinted-Profil bestätigt");
         sendResponse(result);
-        if(!result.finished)void run(); // next immediately; 30s alarm is fallback
+        if(!result.finished && typeof chrome.tabs.query==="function")
+          void run(); // next immediately; 30s alarm remains fallback
       })().catch(e=>sendResponse({success:false,error:e.message}));
       return true;
     }
