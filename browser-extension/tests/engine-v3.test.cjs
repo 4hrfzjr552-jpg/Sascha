@@ -812,3 +812,28 @@ test("short-lived save toast is remembered by mutation observer after it disappe
   assert.equal(e.draftSaveStatus().saved,true);
   assert.match(e.draftSaveStatus().evidence,/Entwurf erfolgreich gespeichert/);
 });
+
+
+test("Vinted profile receipt only accepts explicitly identified draft card for exact article",()=>{
+  const card=(label)=>({
+    isConnected:true,innerText:label,textContent:label,
+    getClientRects:()=>[1],closest:()=>null
+  });
+  const draftCard=card("Diesel Jeans #71 - Entwurf");
+  const document={
+    querySelector:()=>null,
+    querySelectorAll(selector){
+      return selector.includes("draft-card")?[draftCard]:[];
+    }
+  };
+  const e=createEngine(document);
+  assert.equal(e.profileDraftReceipt(71)?.saved,true);
+  assert.equal(e.profileDraftReceipt(7),null);
+  assert.equal(e.profileDraftReceipt(72),null);
+});
+test("generic Vinted profile redirect without draft card is not save evidence",()=>{
+  const document={querySelector:()=>null,querySelectorAll:()=>[]};
+  const e=createEngine(document);
+  assert.equal(e.profileDraftReceipt(71),null);
+  assert.equal(e.draftSaveStatus(71).saved,false);
+});

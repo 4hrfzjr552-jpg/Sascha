@@ -348,6 +348,38 @@ export function getVintedDraftListSummary(
 }
 
 /**
+ * Give the extension a complete, explicit queue for a draft-only batch.
+ * The previous bridge listed ONLY individually prepared VintedDraftData,
+ * causing "0/1" even when plenty of finished pants were available.
+ *
+ * Never include uploaded, sold, or archived pants, nor Vinted drafts already
+ * marked saved in Sascha AI. Missing or nonnumeric article numbers are also
+ * excluded. Virtual IDs are stable across reloads, and generated on demand:
+ * creating this list does NOT upload, publish, or mutate any garment.
+ */
+export function getVintedBatchListSummary(
+  drafts: VintedDraftData[],
+  pants: PantItem[]
+): VintedDraftListItem[] {
+  const current = new Map(drafts.map((d) => [d.pantId, d]));
+  const eligible = pants
+    .filter((pant) =>
+      isPantEligibleForVintedDraft(pant) &&
+      !["uploaded", "sold", "archived"].includes(pant.saleStatus) &&
+      /^\d+$/.test(String(pant.artikelnummer || "").trim()) &&
+      Number(pant.artikelnummer) > 0 &&
+      current.get(pant.id)?.status !== "saved"
+    )
+    .map((pant) =>
+      current.get(pant.id) ||
+      createVintedDraftFromPant(pant, `vinted_auto_${pant.id}`)
+    )
+    .filter((d): d is VintedDraftData => d !== null)
+    .sort((a, b) => Number(a.artikelnummer) - Number(b.artikelnummer));
+  return getVintedDraftListSummary(eligible).slice(0, 100);
+}
+
+/**
  * Setup Window postMessage Event Listener for Content Script Chrome/Edge Extensions.
  * Message protocol:
  * Incoming 1: { source: "sascha-ai-extension", type: "LIST_VINTED_DRAFTS" }
@@ -367,7 +399,9 @@ export function setupVintedExtensionBridge(): () => void {
       if (type === "LIST_VINTED_DRAFTS") {
         try {
           const drafts = await getAllVintedDrafts();
-          const summaryList = getVintedDraftListSummary(drafts);
+          const summaryList = event.data.includeEligiblePants === true
+            ? getVintedBatchListSummary(drafts, await getAllPants())
+            : getVintedDraftListSummary(drafts);
 
           window.postMessage(
             {
@@ -397,8 +431,19 @@ export function setupVintedExtensionBridge(): () => void {
           );
 
           if (draftId) {
-            const targetDraft = drafts.find(
+            const saved = drafts.find(
               (d) => d.id === draftId || d.pantId === draftId
+            );
+            const candidate = draftId.startsWith("vinted_auto_")
+              ? pantsMap.get(draftId.slice("vinted_auto_".length))
+              : undefined;
+            const targetDraft = saved || (
+              candidate &&
+              isPantEligibleForVintedDraft(candidate) &&
+              !["uploaded", "sold", "archived"].includes(candidate.saleStatus) &&
+              /^\d+$/.test(String(candidate.artikelnummer || "").trim())
+                ? createVintedDraftFromPant(candidate, draftId)
+                : null
             );
             if (!targetDraft) {
               window.postMessage(

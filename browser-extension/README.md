@@ -1,4 +1,4 @@
-# Sascha AI → Vinted Assistant 3.19
+# Sascha AI → Vinted Assistant 3.20
 
 Die Chrome-Erweiterung übernimmt einen vollständigen Entwurf aus Sascha AI in die geöffnete Vinted-Verkaufsmaske. **Sie veröffentlicht und speichert nichts automatisch.** Alle Angaben vor dem Speichern prüfen.
 
@@ -39,7 +39,7 @@ Die folgende Zuordnung stammt aus realen Vinted-Katalog-Suchergebnissen und ist 
 2. ZIP entpacken und den **Ordner \`browser-extension\`** an einem festen Ort behalten.
 3. In Chrome \`chrome://extensions/\` öffnen und den Entwicklermodus aktivieren.
 4. „Entpackte Erweiterung laden“ wählen und den Ordner \`browser-extension\` auswählen.
-5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.19.0** stehen.
+5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.20.0** stehen.
 
 **Updates:** Neue Dateien in denselben entpackten Erweiterungsordner kopieren, unter \`chrome://extensions/\` „Neu laden“ klicken und den Vinted-Tab aktualisieren. Nur „Download ZIP“ auszuführen aktualisiert die installierte Erweiterung nicht. Es ist weder \`git pull\` noch das Mergen eines GitHub-PR erforderlich, wenn die Version bereits in \`main\` liegt.
 
@@ -113,6 +113,18 @@ Fehlerbericht: #71 zeigte bei 38 cm flach gemessener Bundweite `Feld size muss n
 **Wichtig:** Pro Artikel erscheint in der persistenten Fortschrittsanzeige eine Warnung wie „Artikel #71: geschätzte/umgerechnete Größe W30 – vor Veröffentlichung prüfen“. Diese Warnung wird auch beim nachträglichen manuellen Bestätigen eines bereits gespeicherten Entwurfs übernommen. Geschätzte Größen müssen vor einer tatsächlichen Veröffentlichung mit Artikel und Maßen abgeglichen werden.
 
 Bei deaktivierter Option stoppt der Stapel nach wie vor vor dem Speichern. Eine **nicht bestätigte**, fehlende oder nicht auswählbare Größe, eine fragliche Kategorie, Fehler bei anderen Feldern oder eine unklare Speicherbestätigung bleiben weiterhin **harte Stopps**. Es wird nie automatisch veröffentlicht. Der Einzelmodus verhält sich unverändert.
+
+### Ganze Hosenliste statt 0/1 und direkt zur nächsten (3.20.0)
+
+Vorher übernahm der Vinted-Import nur **einzeln vorbereitete VintedDraftData** aus Sascha AI. Hatte die Anwendung nur den Entwurf #71 vorbereitet, zeigte der Stapel **0/1**; nach manueller Bestätigung war **1/1** tatsächlich korrekt „fertig“ und es konnte keine nächste Hose folgen.
+
+**Neu ab 3.20:** „Entwurf aus Sascha AI übernehmen“ lädt auch noch nicht separat vorbereitete, bereits erfolgreich analysierte Hosen aus Sascha AI, sofern die Hose eine gültige Artikelnummer und Bilder hat und nicht als **hochgeladen, verkauft oder archiviert** markiert ist. Diese virtuellen Entwürfe werden mit stabiler ID erst beim Abruf gebaut und **ohne Änderung der Sascha-AI-Artikel** für den Stapel bereitgestellt. Bereits in Sascha AI als gespeichert markierte Vinted-Entwürfe werden übersprungen. Eine Bestätigung einer Vinted-Speicherung wird zusätzlich in der Extension als bestätigte Artikelnummer gespeichert, um spätere Dubletten zu vermeiden.
+
+Die Extension zeigt vor dem Start die Zahl der importierten geeigneten Hosen und **ab der ausgewählten Hose** die Größe der Warteschlange an. Zum Start lädt sie die aktuelle Liste erneut aus Sascha AI; bereits bestätigte Artikelnummern werden herausgefiltert. Bei einer weiteren bestätigten Hose wird die nächste **sofort** gestartet (der Chrome-Alarm nach 30 Sekunden dient nur als Sicherheitsreserve bei unterbrochenem Hintergrundprozess). Beim manuellen Bestätigen eines **älteren Ein-Hosen-Stapels** kann die Erweiterung die folgenden geeigneten Hosen erneut abfragen und weiterarbeiten.
+
+**Speicherbestätigung nach Weiterleitung aufs Vinted-Profil:** Nur eine eindeutig als Entwurf ausgewiesene Karte mit der **exakten Artikelnummer** kann als Bestätigung gelten; das bloße Öffnen einer Profilseite **beweist keine erfolgreiche Speicherung**. Wenn Vinted keine nachweisbare Speicherbestätigung zeigt, bleibt die einmalige manuelle Kontrolle notwendig. Die Erweiterung darf nicht blind einen zweiten Speicher-Klick auslösen.
+
+**Wichtig:** Neue virtuelle Hosen erscheinen nur, wenn die **aktuelle Sascha-AI-Web-App** (nach GitHub-Merge via Vercel-Deployment) die erweiterte Liste bereits ausliefert. Aktualisiere die Website und die vorhandene Extension, ohne deren lokalen Speicher zu löschen. Prüfe den Import-Zähler vor dem Start. Bei nur einer geeigneten Hose zeigt die Extension ausdrücklich, dass es keine folgende Hose gibt. Bitte bestehende Vinted-Entwürfe vor der ersten größeren Serie auf Dubletten prüfen. Die Extension **veröffentlicht niemals automatisch**.
 
 ## Automatischer Entwurfsstapel (Version 3.12)
 
