@@ -992,9 +992,10 @@
       '[data-testid*="draft-listing" i],'+
       '[data-testid*="draft-tile" i]'
     );
-    const exact=new RegExp("(?:^|\\\\D)#?"+id+"(?:\\\\D|$)");
-    const card=elements.find(el=>
-      exact.test(String(el.innerText||el.textContent||"")));
+    const card=elements.find(el=>{
+      const numbers=String(el.innerText||el.textContent||"").match(/#\d+\b/g)||[];
+      return numbers.some(number=>Number(number.slice(1))===id);
+    });
     return card?{saved:true,evidence:"Entwurf #"+id+
       " in Vinted-Entwurfskarte gefunden"}:null;
   }
