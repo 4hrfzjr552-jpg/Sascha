@@ -21,7 +21,7 @@ class FakeInput{
   dispatchEvent(){}
 }
 class FakeEvent{constructor(name){this.type=name;}}
-function createEngine(document){
+function createEngine(document,extra={}){
   const window={SaschaVintedCatalogV3:catalog,__SASCHA_TEST__:true};
   let tick=0;
   class ClockDate extends Date{static now(){tick+=250;return tick;}}
@@ -32,8 +32,9 @@ function createEngine(document){
     getComputedStyle:()=>({display:"block",visibility:"visible"}),
     setTimeout:fn=>fn(),
     Date:ClockDate,
-    File:class{},
-    DataTransfer:class{},
+    File:extra.File||class{},
+    DataTransfer:extra.DataTransfer||class{},
+    fetch:extra.fetch||undefined,
     chrome:{runtime:{onMessage:{addListener(){}}}},
     console
   };
@@ -317,4 +318,92 @@ test("if Vinted overwrites the input with a different price, stop",async()=>{
   await assert.rejects(()=>createEngine(document).price({price:"25,00"},x=>logs.push(x)),
     /nicht sicher bestätigt/);
   assert.ok(logs.some(x=>x.includes("confirmed=false")));
+});
+
+
+function imageTestEnv({sourceCount=5,resetAfterChange=true,withPreview=false,assignCount=null}={}){
+  let sent=[];
+  class FakeFile{constructor(chunks,name,opts){this.name=name;this.type=opts.type;this.chunks=chunks;}}
+  class FakeTransfer{
+    constructor(){
+      const entries=[];
+      this.items={add:file=>entries.push(file)};
+      Object.defineProperty(this,"files",{get:()=>entries});
+    }
+  }
+  const upload={isConnected:true,
+    getBoundingClientRect:()=>({top:10,bottom:30,y:10}),
+    scrollIntoView(){},
+    getClientRects:()=>[1],closest(){return null;}};
+  let count=0;
+  let selected=[];
+  Object.defineProperty(upload,"files",{
+    get:()=>selected,
+    set:files=>{selected=assignCount===null?[...files]:[...files].slice(0,assignCount);}
+  });
+  upload.dispatchEvent=event=>{
+    if(event.type!=="change")return;
+    sent=[...upload.files];
+    if(withPreview)count=sent.length;
+    if(resetAfterChange)selected=[];
+  };
+  const area={isConnected:true,contains:el=>el===upload,
+    getClientRects:()=>[1],closest:()=>null,querySelectorAll(selector){
+      if(selector.includes("photo-preview")){
+        return Array.from({length:count},(_,i)=>({
+          isConnected:true,getClientRects:()=>[1],closest:()=>null,
+          getAttribute:()=>null,id:"preview-"+i
+        }));
+      }
+      return [];
+    }};
+  upload.closest=selector=>selector.includes("photo-upload")?area:null;
+  const document={
+    querySelector(sel){return sel.includes('input[type="file"]')?upload:null;},
+    querySelectorAll(sel){return sel.includes("photo-upload")?[area]:[];}
+  };
+  const extra={
+    File:FakeFile,DataTransfer:FakeTransfer,
+    fetch:async url=>({ok:true,blob:async()=>({type:"image/jpeg",url})})
+  };
+  const images=Array.from({length:sourceCount},(_,i)=>({
+    dataUrl:"data:image/jpeg;base64,"+(i+1),name:"image"+(i+1)+".jpg"
+  }));
+  return {document,extra,draft:{images},sent:()=>sent,visiblePreviews:()=>count};
+}
+
+test("when draft has five images, Vinted receives only first four in order",async()=>{
+  const mock=imageTestEnv({sourceCount:5,resetAfterChange:true,withPreview:false});
+  const logs=[];
+  const result=await createEngine(mock.document,mock.extra).images(mock.draft,line=>logs.push(line));
+  assert.equal(mock.sent().length,4);
+  assert.deepEqual(mock.sent().map(f=>f.name),[
+    "image1.jpg","image2.jpg","image3.jpg","image4.jpg"]);
+  assert.equal(result.success,true);
+  assert.equal(result.needsReview,true);
+  assert.ok(logs.some(l=>l.includes("[IMAGES SUBMIT] first=4 total=5 skipped=1")));
+  assert.ok(logs.some(l=>l.includes("[IMAGES REVIEW]")));
+});
+test("four Vinted preview thumbnails confirm the upload even after input reset",async()=>{
+  const mock=imageTestEnv({sourceCount:5,resetAfterChange:true,withPreview:true});
+  const logs=[];
+  const result=await createEngine(mock.document,mock.extra).images(mock.draft,line=>logs.push(line));
+  assert.equal(mock.sent().length,4);
+  assert.equal(mock.visiblePreviews(),4);
+  assert.equal(result.needsReview,false);
+  assert.equal(result.success,true);
+  assert.ok(logs.some(l=>l.includes("verified=true")));
+});
+test("browser accepting fewer than four files is a genuine upload error",async()=>{
+  const mock=imageTestEnv({sourceCount:5,assignCount:3});
+  await assert.rejects(()=>createEngine(mock.document,mock.extra).images(mock.draft,()=>{}),
+    /nur 3\/4 Bilddateien angenommen/);
+  assert.equal(mock.sent().length,0);
+});
+test("a two-image draft transfers both and does not invent extra photos",async()=>{
+  const mock=imageTestEnv({sourceCount:2,resetAfterChange:false,withPreview:true});
+  const result=await createEngine(mock.document,mock.extra).images(mock.draft,()=>{});
+  assert.equal(mock.sent().length,2);
+  assert.equal(result.count,2);
+  assert.equal(result.success,true);
 });
