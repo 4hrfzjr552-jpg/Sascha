@@ -483,6 +483,20 @@
         desired=converted.size;
         log("[SIZE WOMEN CONVERT] "+converted.originalLabel+" → "+desired+
           " (Damen-Buchstabengröße nur angenähert; Prüfung erforderlich)");
+      }else if(/^\d{1,2}$/.test(desired)){
+        // A bare "6" might be US or UK 6. Do NOT assume either one:
+        // use actual measured flat waistband instead, only when available.
+        if(!estimator?.estimateWomenNumericByWaist)
+          throw Error("Damen-Zahlenmaß aus Bundweite fehlt – Extension aktualisieren");
+        const fallback=estimator.estimateWomenNumericByWaist(draft,group);
+        if(!fallback.ok)
+          throw Error("Größe "+desired+" ist bei Vinted nicht auswählbar. "+
+            fallback.reason);
+        estimated=fallback;
+        desired=fallback.size;
+        log("[SIZE WOMEN NUMERIC WAIST] Etikett "+
+          fallback.originalLabel+" → "+desired+" nur aus Bundweite "+
+          fallback.waistCm+" cm (keine US-/EU-Umrechnung; vor Veröffentlichen prüfen)");
       }
     }
     // Never open the men's W waist submenu for a women's letter size.
@@ -517,8 +531,8 @@
     if(estimated){
       const reason=estimated.source==="measured-waist"?
         "Größe "+result.size.toUpperCase()+" aus Bundweite "+estimated.waistCm+
-          " cm geschätzt (keine Etikettgröße) – vor Speichern prüfen":
-        estimated.reason+" – vor Speichern prüfen";
+          " cm geschätzt (keine Etikettgröße) – vor Veröffentlichen prüfen":
+        estimated.reason+" – vor Veröffentlichen prüfen";
       log("[SIZE REVIEW] "+reason);
       log("[SIZE SELECTED] "+result.size.toUpperCase()+
         " (geschätzte Damen-/W-Größe, keine bestätigte Herstellergrößen-Zuordnung)");

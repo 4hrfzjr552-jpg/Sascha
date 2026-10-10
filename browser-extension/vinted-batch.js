@@ -309,7 +309,7 @@
     const picked=String(result.selectedSize||"").toUpperCase().trim();
     const source=String(result.estimateSource||"");
     return /^(?:W\d{2}|(?:X{0,6}S|[SML]|X{1,6}L|[2-7]XL))$/.test(picked) &&
-      ["measured-waist","w-label","us-label","eu-label"].includes(source);
+      ["measured-waist","ambiguous-label-waist","w-label","us-label","eu-label"].includes(source);
   }
 
   async function single(row,source){
