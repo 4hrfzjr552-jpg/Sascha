@@ -1,4 +1,4 @@
-# Sascha AI → Vinted Assistant 3.21
+# Sascha AI → Vinted Assistant 3.22
 
 Die Chrome-Erweiterung übernimmt einen vollständigen Entwurf aus Sascha AI in die geöffnete Vinted-Verkaufsmaske. **Sie veröffentlicht und speichert nichts automatisch.** Alle Angaben vor dem Speichern prüfen.
 
@@ -39,7 +39,7 @@ Die folgende Zuordnung stammt aus realen Vinted-Katalog-Suchergebnissen und ist 
 2. ZIP entpacken und den **Ordner \`browser-extension\`** an einem festen Ort behalten.
 3. In Chrome \`chrome://extensions/\` öffnen und den Entwicklermodus aktivieren.
 4. „Entpackte Erweiterung laden“ wählen und den Ordner \`browser-extension\` auswählen.
-5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.21.0** stehen.
+5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.22.0** stehen.
 
 **Updates:** Neue Dateien in denselben entpackten Erweiterungsordner kopieren, unter \`chrome://extensions/\` „Neu laden“ klicken und den Vinted-Tab aktualisieren. Nur „Download ZIP“ auszuführen aktualisiert die installierte Erweiterung nicht. Es ist weder \`git pull\` noch das Mergen eines GitHub-PR erforderlich, wenn die Version bereits in \`main\` liegt.
 
@@ -133,6 +133,18 @@ Fehler bei Artikel **#67**: Sascha AI lieferte die **Original-Etikettgröße `6`
 Ab **3.21.0** gilt: Wenn es sich nach der Klassifikation um eine **Damenjeans** handelt, Vinted die Originalzahl nicht als auswählbare Größe anbietet und sie **ohne Länderangabe** nur aus einer ein- oder zweistelligen Zahl besteht (z. B. `6`, `36`), prüft die Extension die mitgelieferte **flach gemessene Bundweite**. Ist diese vorhanden und plausibel (28–62 cm), schlägt sie anhand des verdoppelten Umfangs eine **ungefähre Buchstabengröße** vor, wählt nur eine tatsächlich angezeigte Option und markiert das Ergebnis weiterhin als **geschätzt/umgerechnet**. Die `6` wird **nicht** pauschal als `US 6` oder `UK 6` interpretiert; die Originalgröße erscheint im Protokoll `[SIZE WOMEN NUMERIC WAIST]` sowie im Prüfhinweis für den Entwurf. **Beispiel ausschließlich zur Erklärung:** 39 cm flache Bundweite ergibt nach der allgemeinen Tabelle ungefähr `M`; für #67 ist keine Bundweite aus dem Fehlerprotokoll belegt.
 
 Der **automatische Entwurfsmodus** darf diese nachweislich ausgewählte Schätzgröße bei aktivierter Option „Geschätzte Jeansgrößen auch als Entwurf speichern“ übernehmen und speichert einen Prüfhinweis zur tatsächlichen Größenbestimmung. Keine automatische Veröffentlichung. Ohne Bundweite, ohne bestätigte Größenauswahl, bei falscher Kategorie oder deaktivierter Opt-in-Option bleibt der Stopp bestehen. Echte Buchstabengrößen und explizite `US 6`/`EU 36`/`W36`-Etiketten nutzen weiterhin ihre gesonderten Regeln und werden nicht durch Maße überschrieben.
+
+### Nach einer Hose mit #67 wirklich zur nächsten Hose (3.22.0)
+
+**Fehlerursache bestätigt:** Frühere Stapel sortierten Artikelnummern **aufsteigend** und verwendeten `rows.slice(selected)`. Wählte man #67, wurden beispielsweise #66, #65 und #64 vollständig aus der Warteschlange ausgeschlossen, obwohl sie fertig vorbereitet sein konnten. Dasselbe Problem bestand bei der Erweiterung eines alten Ein-Hosen-Stapels nach manueller Entwurfsbestätigung: Es wurden nur höhere Artikelnummern gesucht.
+
+**Neu:** Für einen Stapel ab der gewählten Hose werden alle geeigneten und noch unbestätigten Artikel aufgenommen: **zuerst die gewählte #67, dann #66, #65 usw. absteigend; anschließend gegebenenfalls höhere Nummern**. Der Popup-Zähler zeigt die Zahl der importierten geeigneten Hosen und die geplante Reihenfolge an. Bereits in dieser Extension bestätigte Artikelnummern werden vor der Verarbeitung weiterhin ausgeschlossen.
+
+Wenn die Extension einen Stapel bereits mit **„Fertig · 1/1“** abgeschlossen hat, erscheint neu **„Weitere fertige Hosen laden und Stapel fortsetzen“**. Die Schaltfläche lädt die aktuelle Liste geeigneter Hosen aus Sascha AI und hängt unbestätigte kleinere und größere Artikelnummern an die bestehende Warteschlange an. Der bereits bestätigte Entwurf wie **#67** wird dabei **nicht erneut übertragen**; der bisherige Fortschritt und Größenprüfhinweise bleiben erhalten. Auch das Bestätigen eines älteren, noch auf Bestätigung wartenden Einzel-Stapels kann jetzt kleinere Nummern nachladen.
+
+Falls die Web-App nur einen geeigneten Artikel liefert, erscheint statt eines falschen Erfolgsversprechens eine genaue Meldung: Prüfen, ob die übrigen Hosen fertig generiert sind, Fotos und Artikelnummer besitzen, nicht hochgeladen/verkauft/archiviert sind und ob die aktuelle Sascha-AI-Web-App auf Vercel bereitgestellt ist. Ohne weitere geeignete Hosen kann die Extension nicht automatisch fortsetzen.
+
+**Sicherheit:** Kein erneuter Speicher-Klick bei unklarer Vinted-Bestätigung, kein doppelter Entwurf für lokal bestätigte Nummern, keine automatische Veröffentlichung. Vinted-Entwürfe, die außerhalb dieser Extension angelegt oder nicht von ihr als bestätigt erfasst wurden, vor einem neuen Stapel selbst auf Dubletten kontrollieren.
 
 ## Automatischer Entwurfsstapel (Version 3.12)
 

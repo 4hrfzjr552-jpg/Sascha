@@ -34,11 +34,18 @@ function batchApi(overrides={}){
 }
 const pant=(nr,id)=>({artikelnummer:String(nr),id,title:"Diesel Jeans "+nr});
 
-test("starts at selected pant; remaining items sorted by numeric article number",()=>{
+test("starts selected and includes smaller numbers before wrapping to larger",()=>{
   const {api}=batchApi();
   const q=api.orderedQueue([pant(30,"c"),pant(9,"a"),pant(11,"b"),pant(10,"x")],"x");
-  assert.deepEqual(Array.from(q,x=>x.artikelnummer),[10,11,30]);
-  assert.deepEqual(Array.from(q,x=>x.id),["x","b","c"]);
+  assert.deepEqual(Array.from(q,x=>x.artikelnummer),[10,9,30,11]);
+  assert.deepEqual(Array.from(q,x=>x.id),["x","a","c","b"]);
+});
+test("starting at #67 must include #66, #65 and even other larger eligible pants",()=>{
+  const {api}=batchApi();
+  const q=api.orderedQueue([
+    pant(60,"a"),pant(66,"b"),pant(67,"c"),pant(70,"d"),pant(65,"e")
+  ],"c");
+  assert.deepEqual(Array.from(q,x=>x.artikelnummer),[67,66,65,60,70]);
 });
 test("missing or duplicate article numbers stop the batch before any post",()=>{
   const {api}=batchApi();
@@ -325,10 +332,10 @@ test("an old 0/1 queue can grow to include next ready pants on manual confirmati
   const response=await original({type:"CONFIRM_VINTED_DRAFT_SAVED",
     draftId:"pant73",articleNumber:73});
   assert.equal(response.success,true);
-  assert.equal(response.nextArticle,74);
+  assert.equal(response.nextArticle,75);
   assert.equal(box.store.vintedBatchState.index,1);
   assert.deepEqual(Array.from(box.store.vintedBatchState.queue,
-    x=>x.artikelnummer),[73,74,75]);
+    x=>x.artikelnummer),[73,75,74]);
 });
 test("confirmed article number is not re-enqueued from the refreshed list",async()=>{
   const box=batchApi({state:failedSaveState(),
@@ -356,4 +363,67 @@ test("a numeric women's label 6 estimated from actual waist can be saved as DRAF
   assert.equal(api.reviewableEstimatedSize({...result,success:false},true),false);
   assert.equal(api.reviewableEstimatedSize({...result,reviewType:"unknown"},true),false);
   assert.equal(api.reviewableEstimatedSize({...result,selectedSize:"6"},true),false);
+});
+
+test("legacy one-item #67 completion appends lower unconfirmed #66 #65 (never #67 twice)",async()=>{
+  const box=batchApi({
+    state:{...failedSaveState(),status:"awaiting_confirmation",
+      phase:"awaiting_confirmation",queue:[{id:"pant67",artikelnummer:67,title:"Diesel Jeans 67"}],
+      currentId:"pant67"},
+    queryTabs:async()=>[{id:90,url:"https://sascha-sage.vercel.app/"}],
+    sendMessage:async()=>({success:true,payload:[
+      pant(64,"p64"),pant(67,"pant67"),pant(66,"p66"),pant(65,"p65")
+    ]})
+  });
+  const response=await box.dispatch({
+    type:"CONFIRM_VINTED_DRAFT_SAVED",draftId:"pant67",articleNumber:67
+  });
+  assert.equal(response.success,true);
+  assert.equal(response.nextArticle,66);
+  assert.deepEqual(Array.from(box.store.vintedBatchState.queue,
+    x=>x.artikelnummer),[67,66,65,64]);
+  assert.equal(box.store.vintedBatchState.index,1);
+  assert.deepEqual(Array.from(box.store.vintedConfirmedArticleNumbers),[67]);
+});
+test("completed 1/1 #67 can resume from #66 without uploading #67",async()=>{
+  const previous={...failedSaveState(),status:"done",phase:"done",index:1,
+    queue:[{id:"pant67",artikelnummer:67,title:"Diesel Jeans 67"}],completed:["pant67"],currentId:null,error:null,
+    warnings:["Artikel #67: Größe XS geschätzt"]};
+  const box=batchApi({state:previous,store:{vintedConfirmedArticleNumbers:[67]},
+    queryTabs:async()=>[{id:90,url:"https://sascha-sage.vercel.app/"}],
+    sendMessage:async()=>({success:true,payload:[
+      pant(63,"p63"),pant(65,"p65"),pant(66,"p66"),pant(67,"pant67")
+    ]})
+  });
+  const response=await box.dispatch({type:"RESUME_REMAINING_VINTED_BATCH"});
+  assert.equal(response.success,true);
+  assert.equal(response.count,3);
+  assert.equal(response.nextArticle,66);
+  assert.deepEqual(Array.from(box.store.vintedBatchState.queue,
+    x=>x.artikelnummer),[67,66,65,63]);
+  assert.equal(box.store.vintedBatchState.index,1);
+  assert.deepEqual(Array.from(box.store.vintedBatchState.completed),["pant67"]);
+  assert.equal(box.store.vintedBatchState.warnings[0],"Artikel #67: Größe XS geschätzt");
+  assert.equal(box.store.vintedBatchState.status,"running");
+});
+test("completed queue resume stops without new eligible items and never repeats completed",async()=>{
+  const previous={...failedSaveState(),status:"done",phase:"done",index:1,
+    queue:[{id:"pant67",artikelnummer:67,title:"Diesel Jeans 67"}],completed:["pant67"],currentId:null,error:null};
+  const box=batchApi({state:previous,
+    store:{vintedConfirmedArticleNumbers:[67]},
+    queryTabs:async()=>[{id:90,url:"https://sascha-sage.vercel.app/"}],
+    sendMessage:async()=>({success:true,payload:[pant(67,"pant67")]})
+  });
+  const response=await box.dispatch({type:"RESUME_REMAINING_VINTED_BATCH"});
+  assert.equal(response.success,false);
+  assert.match(response.error,/keine weitere unbestätigte Hose/);
+  assert.equal(box.store.vintedBatchState.status,"done");
+});
+test("continuation will not requeue any article already confirmed in another batch",()=>{
+  const {api}=batchApi();
+  const previous={queue:[{id:"p67",artikelnummer:67}],index:1};
+  const next=api.continuationRows(previous,[
+    pant(67,"p67"),pant(65,"p65"),pant(66,"p66"),pant(64,"p64")
+  ],[66]);
+  assert.deepEqual(Array.from(next,x=>x.artikelnummer),[65,64]);
 });
