@@ -214,3 +214,31 @@ test("unrelated error is not manually confirmable",async()=>{
   assert.equal(response.success,false);
   assert.equal(box.store.vintedBatchState.index,0);
 });
+
+
+test("size error reports the actual Vinted engine reason instead of only 'size'",()=>{
+  const {api}=batchApi();
+  const msg=api.formFailureMessage({
+    success:true,stoppedAt:"size",
+    results:{size:{success:false,reason:"Taillenumfang geöffnet, aber W30 nicht als Option gefunden"}},
+    logs:["[SIZE INPUT] size=W30 gender=men waistCm=38",
+      "[SIZE OPTIONS] [\"W28\",\"W32\"]",
+      "[STOP] Größe: Taillenumfang geöffnet, aber W30 nicht als Option gefunden"]
+  });
+  assert.match(msg,/Größe: Taillenumfang geöffnet, aber W30 nicht als Option gefunden/);
+  assert.match(msg,/SIZE OPTIONS/);
+});
+test("size diagnostic distinguishes missing measurements from real label",()=>{
+  const {api}=batchApi();
+  assert.match(api.draftSizeSummary({size:"",measurements:{waist:""}}),
+    /Bundweite wurde NICHT in den Vinted-Entwurf übertragen/);
+  assert.match(api.draftSizeSummary({size:"W30",gender:"Herren",measurements:{waist:"38"}}),
+    /Größe in Sascha AI: W30; Bundweite: 38 cm; Bereich: Herren/);
+});
+test("unknown or empty Vinted fill response gets actionable error",()=>{
+  const {api}=batchApi();
+  assert.match(api.formFailureMessage(null),/keine Antwort/);
+  assert.match(api.formFailureMessage({success:false,error:"content-script crash"}),
+    /content-script crash/);
+  assert.equal(api.formFailureMessage({success:true,results:{}}),"");
+});
