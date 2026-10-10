@@ -8,6 +8,7 @@
 (() => {
   "use strict";
   const KEY="vintedBatchState";
+  const RECEIPT_KEY="vintedDraftSaveReceipt";
   const CONFIRMED_KEY="vintedConfirmedArticleNumbers";
   const NEXT_ALARM="saschaVintedBatchNext";
   const GUARD_ALARM="saschaVintedBatchGuard";
@@ -157,10 +158,32 @@
       (lastError||"Bitte Vinted-Anmeldung und die geöffnete Seite prüfen.")+
       " – Tab bleibt zur Prüfung offen.");
   }
-  async function verifySave(tabId,originalUrl,articleNumber){
+  // Never re-use a receipt for another pant, tab or old save attempt.
+  // A generic profile redirect alone is NOT a successful draft receipt.
+  function validSaveReceipt(receipt,token,articleNumber,now=Date.now()){
+    if(!receipt||typeof receipt!=="object"||
+       !token||receipt.token!==token||
+       Number(receipt.articleNumber)!==Number(articleNumber))return false;
+    const age=now-Number(receipt.savedAt);
+    if(!Number.isFinite(age)||age<0||age>120000)return false;
+    const e=String(receipt.evidence||"");
+    return /(?:entw[uü]rf.{0,75}gespeichert|als\s+entwurf.{0,60}gespeichert|draft.{0,75}saved|saved.{0,55}draft)/i.test(e)&&
+      !/(?:nicht\s+gespeichert|not\\s+saved|fehler|error|failed)/i.test(e);
+  }
+  async function storedSaveReceipt(token,articleNumber){
+    try{
+      const stored=(await chrome.storage.local.get(RECEIPT_KEY))[RECEIPT_KEY];
+      return validSaveReceipt(stored,token,articleNumber)?
+        {ok:true,evidence:"Vinted-Speicherhinweis (vor Profilweiterleitung): "+
+          String(stored.evidence).slice(0,110)}:null;
+    }catch(_){return null;}
+  }
+  async function verifySave(tabId,originalUrl,articleNumber,attemptToken){
     const started=Date.now();
     let last={};
     while(Date.now()-started<18000){
+      const receipt=await storedSaveReceipt(attemptToken,articleNumber);
+      if(receipt)return receipt;
       const tab=await chrome.tabs.get(tabId);
       const url=tab.url||"";
       if(savedUrl(url))return {ok:true,evidence:"Vinted-Entwurfsübersicht"};
@@ -476,8 +499,14 @@
     await put({...state,pendingReviewWarnings});
     if(stopRequested)throw Error("Stapel wurde vor dem Speichern gestoppt");
     // Explicit draft-only action: safe to retry neither it nor the workflow.
-    await log("Speichere #"+row.artikelnummer+" ausdrücklich als Entwurf",{phase:"saving"});
-    const click=await tabMessage(tab.id,{type:"SAVE_VINTED_DRAFT"},8500)
+    const attemptToken=String(state.startedAt||"")+":"+
+      row.id+":"+Date.now();
+    await log("Speichere #"+row.artikelnummer+" ausdrücklich als Entwurf",{
+      phase:"saving",saveAttempt:{token:attemptToken,articleNumber:row.artikelnummer}
+    });
+    const click=await tabMessage(tab.id,{
+      type:"SAVE_VINTED_DRAFT",attemptToken,articleNumber:row.artikelnummer
+    },8500)
       .catch(e=>({uncertain:true,error:e.message}));
     if(click?.clicked===false)throw Error("Speichern nicht gestartet: "+(click.error||"Button fehlt")+
       (Array.isArray(click.available)?" · Buttons: "+JSON.stringify(click.available):""));
@@ -490,7 +519,7 @@
     await log("Prüfe Vinted-Speicherbestätigung für #"+row.artikelnummer,{
       phase:"verifying"
     });
-    const saved=await verifySave(tab.id,tab.url||"",row.artikelnummer);
+    const saved=await verifySave(tab.id,tab.url||"",row.artikelnummer,attemptToken);
     await log("Entwurf #"+row.artikelnummer+" bestätigt: "+saved.evidence+
       (pendingReviewWarnings.length?" · GRÖSSE/FOTOS VOR VERÖFFENTLICHUNG PRÜFEN":""),
       {phase:"saved",
@@ -610,6 +639,26 @@
   });
 
   chrome.runtime.onMessage.addListener((msg,_sender,sendResponse)=>{
+    if(msg?.type==="VINTED_DRAFT_SAVE_RECEIPT"){
+      (async()=>{
+        const current=await getState();
+        const row=current?.queue?.[current.index];
+        if(current?.status!=="running"||
+           !["saving","verifying"].includes(current.phase)||
+           !row||row.id!==current.currentId||
+           current.vintedTabId!==_sender?.tab?.id||
+           current.saveAttempt?.token!==msg.token||
+           Number(current.saveAttempt?.articleNumber)!==Number(msg.articleNumber)||
+           !validSaveReceipt(msg,msg.token,msg.articleNumber))
+          throw Error("Speicherhinweis gehört nicht zum aktuellen Entwurf");
+        await chrome.storage.local.set({[RECEIPT_KEY]:{
+          token:msg.token,articleNumber:row.artikelnummer,
+          evidence:String(msg.evidence).slice(0,110),savedAt:msg.savedAt
+        }});
+        sendResponse({success:true});
+      })().catch(e=>sendResponse({success:false,error:e.message}));
+      return true;
+    }
     if(msg?.type==="GET_VINTED_BATCH_STATUS"){
       getState().then(s=>sendResponse({success:true,state:s}))
         .catch(e=>sendResponse({success:false,error:e.message}));
@@ -706,5 +755,6 @@
     module.exports={orderedQueue,articleNumber,validVintedUrl,savedUrl,saschaUrl,
       safeTabLocation,tabNavigationState,waitForEditor,recoverableSave,
       formFailureMessage,draftSizeSummary,reviewableEstimatedSize,
-      continuationRows,recoverablePreSaveFormFailure,skippableUnfilledForm};
+      continuationRows,recoverablePreSaveFormFailure,skippableUnfilledForm,
+      validSaveReceipt,storedSaveReceipt};
 })();

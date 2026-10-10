@@ -26,9 +26,9 @@ function batchApi(overrides={}){
   };
   vm.runInNewContext(code,{chrome,module,URL,console,setTimeout,clearTimeout});
   return {api:module.exports,listener,store,alarmCalls,
-    dispatch:async message=>new Promise(resolve=>{
+    dispatch:async(message,sender={})=>new Promise(resolve=>{
       const fn=listener.at(-1);
-      const ret=fn(message,{},resolve);
+      const ret=fn(message,sender,resolve);
       if(ret===false)resolve({ignored:true});
     })};
 }
@@ -493,4 +493,50 @@ test("only confirmed pre-save form errors may be skipped to the next pant",()=>{
     "Vinted hat das Speichern nicht eindeutig bestätigt"),false);
   assert.equal(api.skippableUnfilledForm("filling",
     "Chrome hat den Tab verloren"),false);
+});
+
+
+test("save receipt must match exact in-progress pant token and age",()=>{
+  const {api}=batchApi();
+  const token="xyz:66:123";
+  const now=Date.now();
+  const receipt={token,articleNumber:66,
+    evidence:"Entwurf erfolgreich gespeichert",savedAt:now};
+  assert.equal(api.validSaveReceipt(receipt,token,66,now),true);
+  assert.equal(api.validSaveReceipt({...receipt,token:"old"},token,66,now),false);
+  assert.equal(api.validSaveReceipt({...receipt,articleNumber:67},token,66,now),false);
+  assert.equal(api.validSaveReceipt({...receipt,savedAt:now-121000},token,66,now),false);
+  assert.equal(api.validSaveReceipt({...receipt,evidence:"Entwurf nicht gespeichert"},token,66,now),false);
+  assert.equal(api.validSaveReceipt({...receipt,evidence:"Profil"},token,66,now),false);
+});
+test("background verifier accepts persisted success toast after navigation, never needing profile click",async()=>{
+  const token="batch-1:pant66:aaa";
+  const box=batchApi({store:{
+    vintedDraftSaveReceipt:{token,articleNumber:66,
+      evidence:"Dein Entwurf wurde gespeichert!",savedAt:Date.now()}
+  }});
+  const found=await box.api.storedSaveReceipt(token,66);
+  assert.equal(found.ok,true);
+  assert.match(found.evidence,/Speicherhinweis/);
+  const denied=await box.api.storedSaveReceipt(token,65);
+  assert.equal(denied,null);
+});
+test("background ignores save receipts sent by a different Vinted tab or prior pant",async()=>{
+  const token="batch-1:pant66:abc";
+  const state={status:"running",phase:"verifying",
+    queue:[{id:"pant67",artikelnummer:67},{id:"pant66",artikelnummer:66}],
+    index:1,currentId:"pant66",vintedTabId:345,
+    saveAttempt:{token,articleNumber:66}};
+  const box=batchApi({state});
+  const payload={type:"VINTED_DRAFT_SAVE_RECEIPT",token,
+    articleNumber:66,evidence:"Entwurf erfolgreich gespeichert",savedAt:Date.now()};
+  let response=await box.dispatch(payload,{tab:{id:333}});
+  assert.equal(response.success,false);
+  assert.equal(box.store.vintedDraftSaveReceipt,undefined);
+  response=await box.dispatch({...payload,articleNumber:67},{tab:{id:345}});
+  assert.equal(response.success,false);
+  assert.equal(box.store.vintedDraftSaveReceipt,undefined);
+  response=await box.dispatch(payload,{tab:{id:345}});
+  assert.equal(response.success,true);
+  assert.equal(box.store.vintedDraftSaveReceipt.articleNumber,66);
 });

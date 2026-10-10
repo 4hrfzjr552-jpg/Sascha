@@ -976,7 +976,7 @@
   // Vinted's save toast can be very short-lived. Watch it from BEFORE
   // clicking Save draft so the background script does not miss a successful
   // response while it is polling tabs. No network interception required.
-  let draftSaveReceipt=null,draftSaveObserver=null;
+  let draftSaveReceipt=null,draftSaveObserver=null,draftSaveAttempt=null;
   function saveFeedbackText(raw){
     const value=String(raw||"").trim().replace(/\s+/g," ").slice(0,350);
     const saved=/(?:\bentw[uü]rf\w*.{0,65}\bgespeichert\b|\bals\s+entwurf\s+gespeichert\b|\bdrafts?\b.{0,65}\bsaved\b|\bsaved\b.{0,40}\bdrafts?\b)/i;
@@ -989,14 +989,41 @@
       '[data-testid*="notification" i],[class*="toast" i],'+
       '[class*="snackbar" i],[class*="notification" i]');
   }
+  // Save positive Vinted feedback against the exact save attempt. When
+  // Vinted redirects to the seller's profile the old content-script VM
+  // disappears, so an in-memory MutationObserver receipt alone is lost.
+  function persistDraftSaveReceipt(evidence){
+    if(!draftSaveAttempt||!evidence)return;
+    const receipt={
+      token:draftSaveAttempt.token,
+      articleNumber:draftSaveAttempt.articleNumber,
+      evidence:String(evidence).slice(0,110),
+      savedAt:Date.now()
+    };
+    try{
+      const written=chrome.storage?.local?.set?.({
+        vintedDraftSaveReceipt:receipt
+      });
+      written?.catch?.(()=>{});
+    }catch(_){}
+    try{
+      chrome.runtime.sendMessage?.({
+        type:"VINTED_DRAFT_SAVE_RECEIPT",...receipt
+      },()=>void chrome.runtime.lastError);
+    }catch(_){}
+  }
   function storePositiveFeedback(){
+    if(draftSaveReceipt)return;
     const match=saveFeedbackNodes().map(el=>saveFeedbackText(el.textContent||""))
       .find(Boolean);
-    if(match)draftSaveReceipt={saved:true,evidence:match.slice(0,110)};
+    if(match){
+      draftSaveReceipt={saved:true,evidence:match.slice(0,110)};
+      persistDraftSaveReceipt(match);
+    }
   }
-  // A navigation to the profile is NOT alone proof of a successful save.
-  // Only a DOM card explicitly identified as a DRAFT and containing this
-  // exact article number can verify a saved listing there.
+  // Broad enough for Vinted's profile item cards, but the save is only
+  // confirmed if the EXACT article number is on an identifiable DRAFT card.
+  // Matching a plain profile listing or a redirect alone is never enough.
   function profileDraftReceipt(articleNumber){
     const id=Number(articleNumber);
     if(!Number.isSafeInteger(id)||id<=0)return null;
@@ -1004,32 +1031,57 @@
       '[data-testid*="draft-card" i],'+
       '[data-testid*="draft-item" i],'+
       '[data-testid*="draft-listing" i],'+
-      '[data-testid*="draft-tile" i]'
+      '[data-testid*="draft-tile" i],'+
+      '[data-testid*="draft" i],'+
+      '[data-testid*="item-box" i],'+
+      '[data-testid*="item-card" i],'+
+      '[data-testid*="item-tile" i],'+
+      '[class*="item-box" i],'+
+      '[class*="item-card" i],'+
+      '[class*="item-tile" i],article,li'
     );
-    const card=elements.find(el=>{
-      const numbers=String(el.innerText||el.textContent||"").match(/#\d+\b/g)||[];
-      return numbers.some(number=>Number(number.slice(1))===id);
-    });
-    return card?{saved:true,evidence:"Entwurf #"+id+
-      " in Vinted-Entwurfskarte gefunden"}:null;
+    const explicitDraftPage=(()=>{
+      try{
+        const url=new URL(window.location.href);
+        return /\/drafts(?:\/|$)/i.test(url.pathname)||
+          /^(?:drafts?|saved-drafts)$/i.test(url.searchParams.get("tab")||"")||
+          /^(?:drafts?|saved-drafts)$/i.test(url.searchParams.get("type")||"");
+      }catch(_){return false;}
+    })();
+    for(const el of elements){
+      const content=String(el.innerText||el.textContent||"").trim();
+      if(!content||content.length>950)continue;
+      const numbers=content.match(/#\d+\b/g)||[];
+      if(!numbers.some(n=>Number(n.slice(1))===id))continue;
+      const marker=/(?:\bentw[uü]rf\b|\bdrafts?\b|weiter\s*bearbeiten|fertigstellen|finish\s+editing|finish\s+listing|continue\s+editing|complete\s+listing)/i;
+      const classInfo=String(el.getAttribute?.("data-testid")||"")+" "+
+        String(el.getAttribute?.("class")||"");
+      const specificallyDraftCard=/draft/i.test(classInfo);
+      if(explicitDraftPage||specificallyDraftCard||marker.test(content))
+        return {saved:true,evidence:"Entwurf #"+id+
+          " auf Vinted-Profil eindeutig als Entwurf erkannt"};
+    }
+    return null;
   }
   function draftSaveStatus(articleNumber){
     if(draftSaveReceipt)return draftSaveReceipt;
     storePositiveFeedback();
     return draftSaveReceipt||profileDraftReceipt(articleNumber)||{saved:false};
   }
-  function watchDraftSave(){
+  function watchDraftSave(token,articleNumber){
     draftSaveReceipt=null;
+    draftSaveAttempt=typeof token==="string"&&token.length>=12&&
+      Number.isSafeInteger(Number(articleNumber))?
+      {token,articleNumber:Number(articleNumber)}:null;
     try{draftSaveObserver?.disconnect?.();}catch(_){}
     draftSaveObserver=null;
     if(typeof MutationObserver!=="function"||!document.body)return;
-    // Listen for a new toast even if it is removed before next polling.
     draftSaveObserver=new MutationObserver(()=>storePositiveFeedback());
     draftSaveObserver.observe(document.body,{
       childList:true,subtree:true,characterData:true
     });
   }
-  function trySaveAsDraft(){
+  function trySaveAsDraft(attemptToken,articleNumber){
     const buttons=draftButtonCandidates();
     if(buttons.length!==1)return{
       clicked:false,error:buttons.length===0?
@@ -1039,7 +1091,7 @@
     };
     const element=buttons[0];
     element.scrollIntoView?.({block:"center"});
-    watchDraftSave();
+    watchDraftSave(attemptToken,articleNumber);
     element.click();
     return {clicked:true,label:String(element.textContent||element.value||"").trim().slice(0,80)};
   }
@@ -1054,7 +1106,7 @@
     }
     if(message?.type==="SAVE_VINTED_DRAFT"){
       if(running){sendResponse({clicked:false,error:"Ausfüllung läuft noch"});return false;}
-      try{sendResponse(trySaveAsDraft());}
+      try{sendResponse(trySaveAsDraft(message.attemptToken,message.articleNumber));}
       catch(e){sendResponse({clicked:false,error:e.message||String(e)});}
       return false;
     }
