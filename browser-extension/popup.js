@@ -23,6 +23,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnClearDraft = document.getElementById("btnClearDraft");
   const btnBatchStart = document.getElementById("btnBatchStart");
   const btnBatchStop = document.getElementById("btnBatchStop");
+  const btnBatchConfirmSaved = document.getElementById("btnBatchConfirmSaved");
   const batchStatus = document.getElementById("batchStatus");
 
   const statusBox = document.getElementById("statusBox");
@@ -405,6 +406,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 4. Explicit opt-in batch: save only as Vinted drafts.
   // The worker handles the queue, not this short-lived popup window.
+  // Recover even an old 3.16 "Speichern nicht bestätigt" error without
+  // uploading that existing Vinted draft for a second time.
+  let pendingSavedConfirmation=null;
+  function canConfirmSavedDraft(batch){
+    if(!batch||!Array.isArray(batch.queue))return false;
+    const row=batch.queue[batch.index];
+    if(!row||row.id!==batch.currentId)return false;
+    if(batch.status==="awaiting_confirmation"&&batch.phase==="awaiting_confirmation")return true;
+    return batch.status==="error"&&batch.phase==="failed"&&
+      /^Vinted hat das Speichern nicht eindeutig bestätigt\./.test(batch.error||"")&&
+      (batch.logs||[]).some(x=>x.includes("Prüfe Vinted-Speicherbestätigung für #"));
+  }
   function showBatchStatus(batch){
     if(!batch){
       batchStatus.style.display="none";
@@ -417,7 +430,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const current=batch.queue?.find(x=>x.id===batch.currentId);
     const stateLabels={
       running:"Läuft",done:"Fertig",error:"Gestoppt wegen Fehler",
-      stopped:"Angehalten"
+      stopped:"Angehalten",awaiting_confirmation:"Speicherung bitte prüfen"
     };
     const lines=[
       (stateLabels[batch.status]||batch.status||"Unbekannt")+
@@ -427,6 +440,15 @@ document.addEventListener("DOMContentLoaded", () => {
     if(batch.status==="running"&&batch.stopRequested)
       lines.push("Stopp angefordert – warte auf aktuellen Schritt");
     if(batch.error)lines.push("Fehler: "+batch.error);
+    const canConfirm=canConfirmSavedDraft(batch);
+    pendingSavedConfirmation=canConfirm?{
+      draftId:current?.id,
+      articleNumber:current?.artikelnummer
+    }:null;
+    btnBatchConfirmSaved.style.display=canConfirm?"inline-flex":"none";
+    if(canConfirm)lines.push("Falls dieser Entwurf wirklich im Vinted-Profil "+
+      "gespeichert ist, unten einmal als gespeichert bestätigen. "+
+      "Die Hose wird NICHT erneut hochgeladen.");
     if(Array.isArray(batch.warnings)&&batch.warnings.length)
       lines.push("Fotos nach Speichern prüfen:\n"+batch.warnings.slice(-5).join("\n"));
     if(Array.isArray(batch.logs)&&batch.logs.length)
@@ -434,7 +456,8 @@ document.addEventListener("DOMContentLoaded", () => {
     batchStatus.textContent=lines.join("\n");
     batchStatus.style.whiteSpace="pre-line";
     btnBatchStop.style.display=batch.status==="running"?"inline-flex":"none";
-    btnBatchStart.disabled=!currentDraft||batch.status==="running";
+    btnBatchStart.disabled=!currentDraft||batch.status==="running"||
+      canConfirm;
   }
   chrome.storage.local.get("vintedBatchState",response=>{
     showBatchStatus(response.vintedBatchState||null);
@@ -442,6 +465,29 @@ document.addEventListener("DOMContentLoaded", () => {
   chrome.storage.onChanged.addListener((changes,area)=>{
     if(area==="local"&&changes.vintedBatchState)
       showBatchStatus(changes.vintedBatchState.newValue||null);
+  });
+
+  btnBatchConfirmSaved.addEventListener("click",async()=>{
+    const pending=pendingSavedConfirmation;
+    if(!pending?.draftId||!pending.articleNumber)return;
+    if(!confirm("Hast du den Entwurf #"+pending.articleNumber+
+      " wirklich in deinem Vinted-Profil unter deinen Entwürfen gefunden? "+
+      "Nur dann bestätigen. Die Extension markiert ihn als erledigt "+
+      "und beginnt gegebenenfalls mit der NÄCHSTEN Hose. "+
+      "Sie lädt #"+pending.articleNumber+" NICHT erneut hoch."))return;
+    btnBatchConfirmSaved.disabled=true;
+    try{
+      const response=await chrome.runtime.sendMessage({
+        type:"CONFIRM_VINTED_DRAFT_SAVED",
+        draftId:pending.draftId,articleNumber:pending.articleNumber
+      });
+      if(!response?.success)throw Error(response?.error||"Bestätigung fehlgeschlagen");
+      logDebug("Entwurf #"+pending.articleNumber+
+        " vom Benutzer bestätigt. "+
+        (response.finished?"Stapel abgeschlossen.":"Nächste Hose folgt."));
+    }catch(e){
+      alert("Entwurfsbestätigung fehlgeschlagen: "+e.message);
+    }finally{btnBatchConfirmSaved.disabled=false;}
   });
 
   btnBatchStart.addEventListener("click",async()=>{
