@@ -24,6 +24,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnBatchStart = document.getElementById("btnBatchStart");
   const allowEstimatedSizeBatch = document.getElementById("allowEstimatedSizeBatch");
   const btnBatchResume = document.getElementById("btnBatchResume");
+  const btnBatchRetryForm = document.getElementById("btnBatchRetryForm");
   const btnBatchStop = document.getElementById("btnBatchStop");
   const btnBatchConfirmSaved = document.getElementById("btnBatchConfirmSaved");
   const batchStatus = document.getElementById("batchStatus");
@@ -448,11 +449,28 @@ document.addEventListener("DOMContentLoaded", () => {
       /^Vinted hat das Speichern nicht eindeutig bestätigt\./.test(batch.error||"")&&
       (batch.logs||[]).some(x=>x.includes("Prüfe Vinted-Speicherbestätigung für #"));
   }
+  function isSafeFormRetry(batch){
+    if(batch?.status!=="error"||batch.phase!=="failed")return false;
+    const row=batch.queue?.[batch.index];
+    if(!row||row.id!==batch.currentId)return false;
+    if(!/^(?:Formular nicht vollständig:|Feld [a-z]+ (?:wurde nicht bestätigt|muss noch manuell geprüft werden))/.test(String(batch.error||"")))
+      return false;
+    const logs=batch.logs||[];
+    const start=logs.findLastIndex(line=>String(line).endsWith(
+      ": Artikel #"+row.artikelnummer));
+    if(start<0)return false;
+    const relevant=logs.slice(start);
+    return relevant.some(line=>String(line).startsWith("Fülle #"+row.artikelnummer)) &&
+      !relevant.some(line=>String(line).startsWith(
+        "Speichere #"+row.artikelnummer+" ausdrücklich als Entwurf"));
+  }
+
   function showBatchStatus(batch){
     if(!batch){
       batchStatus.style.display="none";
       btnBatchStop.style.display="none";
       btnBatchResume.style.display="none";
+      btnBatchRetryForm.style.display="none";
       return;
     }
     batchStatus.style.display="block";
@@ -483,12 +501,19 @@ document.addEventListener("DOMContentLoaded", () => {
     if(Array.isArray(batch.warnings)&&batch.warnings.length)
       lines.push("GESPEICHERTE ENTWÜRFE VOR VERÖFFENTLICHUNG PRÜFEN:\n"+
         batch.warnings.slice(-10).join("\n"));
+    if(Array.isArray(batch.skipped)&&batch.skipped.length)
+      lines.push("NICHT GESPEICHERT – übersprungene Hosen ("+
+        batch.skipped.length+"):\n"+
+        batch.skipped.slice(-10).map(item=>"#"+item.artikelnummer+
+          ": "+String(item.reason||"Formularfehler").slice(0,160)).join("\n"));
     if(Array.isArray(batch.logs)&&batch.logs.length)
       lines.push("Letzter Schritt: "+batch.logs.at(-1));
     batchStatus.textContent=lines.join("\n");
     batchStatus.style.whiteSpace="pre-line";
     btnBatchStop.style.display=batch.status==="running"?"inline-flex":"none";
     btnBatchResume.style.display=batch.status==="done"&&done>0?
+      "inline-flex":"none";
+    btnBatchRetryForm.style.display=isSafeFormRetry(batch)?
       "inline-flex":"none";
     btnBatchStart.disabled=!currentDraft||batch.status==="running"||
       canConfirm;
@@ -553,6 +578,27 @@ document.addEventListener("DOMContentLoaded", () => {
     }catch(e){
       alert("Stapel konnte nicht gestartet werden: "+e.message);
       btnBatchStart.disabled=false;
+    }
+  });
+  btnBatchRetryForm.addEventListener("click",async()=>{
+    if(!confirm("Diese Hose wurde beim vorherigen Versuch NICHT gespeichert "+
+      "(Fehler vor dem Speichern-Klick). Nur diese fehlgeschlagene Hose "+
+      "jetzt erneut versuchen und anschließend die übrigen Hosen fortsetzen? "+
+      "Bereits bestätigte Vinted-Entwürfe werden nicht nochmals hochgeladen. "+
+      "Die Extension veröffentlicht nichts."))return;
+    btnBatchRetryForm.disabled=true;
+    try{
+      const response=await chrome.runtime.sendMessage({
+        type:"RETRY_VINTED_FAILED_FORM"
+      });
+      if(!response?.success)throw Error(response?.error||"Sicherer Wiederanlauf fehlgeschlagen");
+      showBatchStatus(response.state);
+      logDebug("Hose #"+response.currentArticle+
+        " erneut gestartet; bereits bestätigte Entwürfe bleiben erhalten.");
+    }catch(e){
+      alert("Neustart fehlgeschlagen: "+e.message);
+    }finally{
+      btnBatchRetryForm.disabled=false;
     }
   });
   btnBatchResume.addEventListener("click",async()=>{
