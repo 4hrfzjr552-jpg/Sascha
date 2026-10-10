@@ -214,6 +214,11 @@ header .subtitle {
   color: #f87171;
 }
 
+.status-review {
+  color: #fbbf24;
+  font-weight: bold;
+}
+
 .debug-section {
   border-top: 1px solid var(--card-border);
   padding-top: 12px;
