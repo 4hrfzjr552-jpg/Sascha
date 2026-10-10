@@ -8,17 +8,20 @@ const code=fs.readFileSync(path.join(__dirname,"..","vinted-batch.js"),"utf8");
 
 function batchApi(overrides={}){
   const module={exports:{}},listener=[],alarmCalls=[];
-  const store={vintedBatchState:overrides.state||null};
+  const store={vintedBatchState:overrides.state||null,
+    ...(overrides.store||{})};
   const chrome={
     runtime:{onMessage:{addListener(fn){listener.push(fn)}}},
     alarms:{onAlarm:{addListener(fn){listener.push(fn)}},
       clear:async name=>{alarmCalls.push(["clear",name]);return true;},
       create:async(name,options)=>{alarmCalls.push(["create",name,options]);}},
     storage:{local:{
-      get:async key=>({[key]:store[key]}),
+      get:async key=>Array.isArray(key)?
+        Object.fromEntries(key.map(k=>[k,store[k]])):{[key]:store[key]},
       set:async patch=>Object.assign(store,patch)
     }},
     tabs:{get:overrides.getTab,sendMessage:overrides.sendMessage,
+      query:overrides.queryTabs,
       create:()=>{throw Error("MUST NOT CREATE DUPLICATE DRAFT");}}
   };
   vm.runInNewContext(code,{chrome,module,URL,console,setTimeout,clearTimeout});
@@ -294,4 +297,50 @@ test("manual save confirmation retains pending estimated-size review warning",as
   assert.equal(result.success,true);
   assert.equal(box.store.vintedBatchState.pendingReviewWarnings.length,0);
   assert.ok(box.store.vintedBatchState.warnings.includes(warning));
+});
+
+
+test("confirmed article numbers are kept across batches after seller verifies save",async()=>{
+  const box=batchApi({state:failedSaveState()});
+  const result=await box.dispatch({
+    type:"CONFIRM_VINTED_DRAFT_SAVED",draftId:"pant73",articleNumber:73
+  });
+  assert.equal(result.success,true);
+  assert.deepEqual(Array.from(box.store.vintedConfirmedArticleNumbers),[73]);
+});
+test("an old 0/1 queue can grow to include next ready pants on manual confirmation",async()=>{
+  const box=batchApi({
+    state:failedSaveState(),
+    queryTabs:async()=>[{id:99,url:"https://sascha-sage.vercel.app/"}],
+    sendMessage:async(tabId,msg)=>{
+      assert.equal(tabId,99);
+      assert.equal(msg.type,"FETCH_DRAFT_LIST_FROM_SASCHA");
+      assert.equal(msg.includeEligiblePants,true);
+      return {success:true,payload:[pant(73,"pant73"),pant(75,"pant75"),pant(74,"pant74")]};
+    }
+  });
+  // Deliberately disable follow-up form execution; the test verifies the
+  // queue extension and scheduling without opening real Vinted tabs.
+  const original=box.dispatch;
+  const response=await original({type:"CONFIRM_VINTED_DRAFT_SAVED",
+    draftId:"pant73",articleNumber:73});
+  assert.equal(response.success,true);
+  assert.equal(response.nextArticle,74);
+  assert.equal(box.store.vintedBatchState.index,1);
+  assert.deepEqual(Array.from(box.store.vintedBatchState.queue,
+    x=>x.artikelnummer),[73,74,75]);
+});
+test("confirmed article number is not re-enqueued from the refreshed list",async()=>{
+  const box=batchApi({state:failedSaveState(),
+    store:{vintedConfirmedArticleNumbers:[74]},
+    queryTabs:async()=>[{id:99,url:"https://sascha-sage.vercel.app/"}],
+    sendMessage:async()=>({success:true,payload:[
+      pant(73,"pant73"),pant(74,"pant74"),pant(75,"pant75")
+    ]})
+  });
+  const response=await box.dispatch({
+    type:"CONFIRM_VINTED_DRAFT_SAVED",draftId:"pant73",articleNumber:73});
+  assert.equal(response.nextArticle,75);
+  assert.deepEqual(Array.from(box.store.vintedBatchState.queue,
+    x=>x.artikelnummer),[73,75]);
 });
