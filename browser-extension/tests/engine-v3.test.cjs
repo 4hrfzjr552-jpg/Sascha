@@ -22,7 +22,18 @@ class FakeInput{
 }
 class FakeEvent{constructor(name){this.type=name;}}
 function createEngine(document,extra={}){
-  const window={SaschaVintedCatalogV3:catalog,__SASCHA_TEST__:true};
+  const window={
+    SaschaVintedCatalogV3:catalog,
+    SaschaVintedImageEdit:extra.imageEditor===null?null:(extra.imageEditor||{
+      processImage:async(file,i)=>({
+        file:new (extra.File||File)([file],
+          "sascha_vinted_"+String(i+1).padStart(2,"0")+"_clean.jpg",
+          {type:"image/jpeg"}),
+        marked:0,replaced:0
+      })
+    }),
+    __SASCHA_TEST__:true
+  };
   let tick=0;
   class ClockDate extends Date{static now(){tick+=250;return tick;}}
   const sandbox={
@@ -377,8 +388,10 @@ test("when draft has five images, Vinted receives only first four in order",asyn
   const logs=[];
   const result=await createEngine(mock.document,mock.extra).images(mock.draft,line=>logs.push(line));
   assert.equal(mock.sent().length,4);
+  assert.ok(mock.sent().every(file=>file.name.endsWith("_clean.jpg")));
   assert.deepEqual(mock.sent().map(f=>f.name),[
-    "image1.jpg","image2.jpg","image3.jpg","image4.jpg"]);
+    "sascha_vinted_01_clean.jpg","sascha_vinted_02_clean.jpg",
+    "sascha_vinted_03_clean.jpg","sascha_vinted_04_clean.jpg"]);
   assert.equal(result.success,true);
   assert.equal(result.needsReview,true);
   assert.ok(logs.some(l=>l.includes("[IMAGES SUBMIT] first=4 total=5 skipped=1")));
@@ -406,4 +419,26 @@ test("a two-image draft transfers both and does not invent extra photos",async()
   assert.equal(mock.sent().length,2);
   assert.equal(result.count,2);
   assert.equal(result.success,true);
+});
+
+
+test("unavailable editor stops upload instead of silently using original files",async()=>{
+  const mock=imageTestEnv({sourceCount:5});
+  mock.extra.imageEditor=null;
+  await assert.rejects(()=>createEngine(mock.document,mock.extra).images(mock.draft,()=>{}),
+    /Bildbearbeitung fehlt/);
+  assert.equal(mock.sent().length,0);
+});
+test("failed image rendering stops upload before any image is submitted",async()=>{
+  const mock=imageTestEnv({sourceCount:5});
+  mock.extra.imageEditor={
+    processImage:async(file,i)=>{
+      if(i===2)throw Error("Canvas konnte Bild 3 nicht bearbeiten");
+      return {file:new mock.extra.File([file],
+        "vinted_"+i+".jpg",{type:"image/jpeg"}),marked:0,replaced:0};
+    }
+  };
+  await assert.rejects(()=>createEngine(mock.document,mock.extra).images(mock.draft,()=>{}),
+    /Canvas konnte Bild 3 nicht bearbeiten/);
+  assert.equal(mock.sent().length,0);
 });
