@@ -1,0 +1,28 @@
+name: Vinted extension v3 tests
+
+on:
+  push:
+    paths:
+      - 'browser-extension/**'
+      - '.github/workflows/vinted-extension-v3.yml'
+  pull_request:
+    paths:
+      - 'browser-extension/**'
+      - '.github/workflows/vinted-extension-v3.yml'
+
+jobs:
+  vinted-v3:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check Vinted JS syntax
+        run: |
+          node --check browser-extension/vinted-catalog-v3.js
+          node --check browser-extension/content-vinted-v3.js
+      - name: Run unit and simulated form tests
+        run: node --test browser-extension/tests/catalog-v3.test.cjs browser-extension/tests/engine-v3.test.cjs
