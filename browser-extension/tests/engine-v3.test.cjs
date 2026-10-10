@@ -585,3 +585,84 @@ test("saving is confirmed by visible alert, not by presence of a save button",()
   const unconfirmed=createEngine(buttonTestDocument([btn])).draftSaveStatus();
   assert.equal(unconfirmed.saved,false);
 });
+
+
+function mockWomenSizes(labels=["XS","S","M","L","XL","XXL","3XL"]){
+  const input=new FakeInput("size");
+  let opened=false,chosen=null;
+  input.click=()=>{opened=true;};
+  const item=label=>({
+    isConnected:true,innerText:label,textContent:label,
+    getClientRects:()=>[1],closest:()=>null,getAttribute:()=>null,
+    click(){chosen=label;input.value=label;opened=false;}
+  });
+  const grid={
+    isConnected:true,getClientRects:()=>[1],closest:()=>null,
+    querySelectorAll:()=>labels.map(item)
+  };
+  const doc={
+    querySelector(selector){return selector==="#size"?input:null;},
+    querySelectorAll(selector){
+      if(selector.includes("category-size-single-grid-content")&&opened)return [grid];
+      return [];
+    }
+  };
+  return {doc,input,chosen:()=>chosen};
+}
+test("women with 39 cm flat waist get M, flagged for review, no men's W submenu",async()=>{
+  const ui=mockWomenSizes(),logs=[];
+  const result=await createEngine(ui.doc).size({
+    size:"",gender:"Damen",fit:"straight",category:"Jeans",
+    measurements:{waist:"39 cm"}
+  },x=>logs.push(x));
+  assert.equal(result.success,true);
+  assert.equal(result.needsReview,true);
+  assert.equal(ui.chosen(),"M");
+  assert.ok(logs.some(x=>x.includes("Damen-Buchstabengröße M")));
+  assert.equal(logs.some(x=>x.includes("SIZE WAIST")),false);
+});
+test("women W36 is converted to XXL only for letter-only Vinted category, review mandatory",async()=>{
+  const ui=mockWomenSizes(),logs=[];
+  const result=await createEngine(ui.doc).size({
+    size:"W36",gender:"Damen",fit:"straight",category:"Jeans"
+  },x=>logs.push(x));
+  assert.equal(result.success,true);
+  assert.equal(result.needsReview,true);
+  assert.equal(ui.chosen(),"XXL");
+  assert.ok(logs.some(x=>x.includes("[SIZE WOMEN CONVERT] W36 → XXL")));
+  assert.ok(logs.some(x=>x.includes("[SIZE REVIEW]")));
+});
+test("women US8 converts to M and must be reviewed",async()=>{
+  const ui=mockWomenSizes(),logs=[];
+  const result=await createEngine(ui.doc).size({
+    size:"US 8",gender:"Damen",fit:"straight",category:"Jeans"
+  },x=>logs.push(x));
+  assert.equal(result.needsReview,true);
+  assert.equal(ui.chosen(),"M");
+  assert.ok(logs.some(x=>x.includes("US 8 → M")));
+});
+test("women direct letter label is kept exactly, with no review",async()=>{
+  const ui=mockWomenSizes(),logs=[];
+  const result=await createEngine(ui.doc).size({
+    size:"L",gender:"Damen",fit:"straight",category:"Jeans",
+    measurements:{waist:"39"}
+  },x=>logs.push(x));
+  assert.equal(result.needsReview,undefined);
+  assert.equal(ui.chosen(),"L");
+  assert.equal(logs.some(x=>x.includes("[SIZE WOMEN CONVERT]")),false);
+});
+test("women's ambiguous numeric 36 cannot be silently converted to a letter",async()=>{
+  const ui=mockWomenSizes(),logs=[];
+  await assert.rejects(()=>createEngine(ui.doc).size({
+    size:"36",gender:"Damen",fit:"straight",category:"Jeans"
+  },x=>logs.push(x)),/nicht in der aktuellen Vinted-Größenauswahl/);
+  assert.equal(ui.chosen(),null);
+});
+test("women conversion respects Vinted 2XL alias of XXL",async()=>{
+  const ui=mockWomenSizes(["S","M","L","XL","2XL"]),logs=[];
+  const result=await createEngine(ui.doc).size({
+    size:"W36",gender:"Damen",fit:"straight",category:"Jeans"
+  },x=>logs.push(x));
+  assert.equal(result.needsReview,true);
+  assert.equal(ui.chosen(),"2XL");
+});
