@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Sascha AI -> Vinted Assistant",
-  "version": "3.10.0",
+  "version": "3.11.0",
   "description": "Katalogbasierte Übertragung geprüfter Vinted-Entwürfe aus Sascha AI (ohne Veröffentlichung).",
   "permissions": [
     "storage",
