@@ -198,14 +198,16 @@
     const logs=[...(next.logs||[]),
       "Entwurf #"+row.artikelnummer+" "+evidence+
       ". Keine erneute Übertragung."].slice(-75);
+    const warnings=[...(next.warnings||[]),
+      ...(next.pendingReviewWarnings||[])].slice(-100);
     await chrome.alarms.clear(GUARD_ALARM);
     await chrome.alarms.clear(NEXT_ALARM);
     if(index>=next.queue.length){
       await put({...next,status:"done",phase:"done",index,
-        currentId:null,completed,error:null,logs});
+        currentId:null,completed,error:null,logs,warnings,pendingReviewWarnings:[]});
     }else{
       await put({...next,status:"running",phase:"ready",index,
-        currentId:null,completed,error:null,logs});
+        currentId:null,completed,error:null,logs,warnings,pendingReviewWarnings:[]});
       await chrome.alarms.create(NEXT_ALARM,{when:Date.now()+5000});
     }
     return {success:true,finished:index>=next.queue.length,
@@ -241,6 +243,18 @@
     return [status,measure,gender?"Bereich: "+gender:"Bereich nicht angegeben"].join("; ");
   }
 
+  // The engine must have confirmed the real Vinted size field. The
+  // uncertainty refers ONLY to whether the estimated size matches a
+  // manufacturer's label. Only a user-opted-in draft batch may proceed.
+  function reviewableEstimatedSize(result,allowEstimatedSizes){
+    if(allowEstimatedSizes!==true||!result?.success||result?.needsReview!==true||
+        result.reviewType!=="estimated-size")return false;
+    const picked=String(result.selectedSize||"").toUpperCase().trim();
+    const source=String(result.estimateSource||"");
+    return /^(?:W\d{2}|(?:X{0,6}S|[SML]|X{1,6}L|[2-7]XL))$/.test(picked) &&
+      ["measured-waist","w-label","us-label","eu-label"].includes(source);
+  }
+
   async function single(row,source){
     const tab=await chrome.tabs.create({
       url:"https://www.vinted.de"+NEW_ITEM_PATH,
@@ -273,19 +287,35 @@
       throw Error("Formular nicht vollständig: "+message);
     }
     const required=["title","description","category","brand","size","color","condition","price","images"];
+    const pendingReviewWarnings=[];
     for(const key of required){
-      if(!filled.results?.[key]?.success)
+      const result=filled.results?.[key];
+      if(!result?.success)
         throw Error("Feld "+key+" wurde nicht bestätigt");
-      if(filled.results[key].needsReview)
-        throw Error("Feld "+key+" muss noch manuell geprüft werden. "+
-          "Stapel gestoppt, nichts gespeichert.");
+      if(result.needsReview){
+        if(key==="size"&&reviewableEstimatedSize(result,state?.allowEstimatedSizes)){
+          const warning="Artikel #"+row.artikelnummer+": geschätzte/umgerechnete Größe "+
+            result.selectedSize+" – "+String(result.reason||"Herstellergröße nicht bestätigt")+
+            ". Unbedingt vor Veröffentlichung prüfen.";
+          pendingReviewWarnings.push(warning);
+          await log("[SIZE DRAFT-ONLY] "+warning);
+        }else{
+          throw Error("Feld "+key+" muss noch manuell geprüft werden. "+
+            "Stapel gestoppt, nichts gespeichert.");
+        }
+      }
     }
     const photoReview=filled.results?.images?.reviewAfterSave===true;
     if(photoReview){
-      await log("Foto-Hinweis zu #"+row.artikelnummer+": "+
-        "vier Bilder übergeben, Vinted-Galerie nicht technisch lesbar. "+
-        "Nach dem Speichern unbedingt Bild 1–4 im Entwurf prüfen.");
+      const warning="Artikel #"+row.artikelnummer+
+        ": Bildvorschau nicht verifiziert, erste vier Fotos im gespeicherten "+
+        "Entwurf kontrollieren";
+      pendingReviewWarnings.push(warning);
+      await log("[IMAGES REVIEW] "+warning);
     }
+    // Keep warnings when save confirmation is lost: a later manual
+    // acknowledgement will move them to the saved review checklist.
+    await put({...state,pendingReviewWarnings});
     if(stopRequested)throw Error("Stapel wurde vor dem Speichern gestoppt");
     // Explicit draft-only action: safe to retry neither it nor the workflow.
     await log("Speichere #"+row.artikelnummer+" ausdrücklich als Entwurf",{phase:"saving"});
@@ -304,12 +334,10 @@
     });
     const saved=await verifySave(tab.id,tab.url||"");
     await log("Entwurf #"+row.artikelnummer+" bestätigt: "+saved.evidence+
-      (photoReview?" · FOTOS IM ENTWURF PRÜFEN":""),
+      (pendingReviewWarnings.length?" · GRÖSSE/FOTOS VOR VERÖFFENTLICHUNG PRÜFEN":""),
       {phase:"saved",
-       ...(photoReview?{warnings:[...(state?.warnings||[]),
-         "Artikel #"+row.artikelnummer+": Bildvorschau nicht verifiziert, "+
-         "erste vier Fotos im gespeicherten Entwurf prüfen"].slice(-100)}:{})
-      });
+       warnings:[...(state?.warnings||[]),...pendingReviewWarnings].slice(-100),
+       pendingReviewWarnings:[]});
     // Close only a positively acknowledged saved listing tab; the next
     // iteration always starts from a clean form.
     try{await chrome.tabs.remove(tab.id);}catch(_){}
@@ -451,7 +479,8 @@
       await chrome.alarms.clear(NEXT_ALARM);
       await chrome.alarms.clear(GUARD_ALARM);
       await put({status:"running",phase:"ready",startedAt:Date.now(),queue,
-        index:0,currentId:null,completed:[],warnings:[],logs:[
+        allowEstimatedSizes:msg.allowEstimatedSizes===true,
+        index:0,currentId:null,completed:[],warnings:[],pendingReviewWarnings:[],logs:[
           "Stapel gestartet: "+queue.length+" Hosen, nur als Entwurf, keine Veröffentlichung"
         ],error:null,stopRequested:false});
       sendResponse({success:true,count:queue.length,state});
@@ -463,5 +492,5 @@
   if(typeof module!=="undefined"&&module.exports)
     module.exports={orderedQueue,articleNumber,validVintedUrl,savedUrl,saschaUrl,
       safeTabLocation,tabNavigationState,waitForEditor,recoverableSave,
-      formFailureMessage,draftSizeSummary};
+      formFailureMessage,draftSizeSummary,reviewableEstimatedSize};
 })();

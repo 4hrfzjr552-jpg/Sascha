@@ -242,3 +242,56 @@ test("unknown or empty Vinted fill response gets actionable error",()=>{
     /content-script crash/);
   assert.equal(api.formFailureMessage({success:true,results:{}}),"");
 });
+
+
+test("confirmed W30 estimate may continue only in explicitly opted-in draft batch",()=>{
+  const {api}=batchApi();
+  const result={
+    success:true,needsReview:true,reviewType:"estimated-size",
+    selectedSize:"W30",estimateSource:"measured-waist",
+    reason:"Größe W30 aus Bundweite 38 cm geschätzt"
+  };
+  assert.equal(api.reviewableEstimatedSize(result,true),true);
+  assert.equal(api.reviewableEstimatedSize(result,false),false);
+  assert.equal(api.reviewableEstimatedSize(result,undefined),false);
+});
+test("estimated women M and reviewed W36-to-XXL conversion are draft-only",()=>{
+  const {api}=batchApi();
+  for(const [size,source] of [["M","measured-waist"],
+      ["XXL","w-label"],["2XL","eu-label"],["L","us-label"]]){
+    const review={success:true,needsReview:true,reviewType:"estimated-size",
+      selectedSize:size,estimateSource:source};
+    assert.equal(api.reviewableEstimatedSize(review,true),true,size);
+  }
+});
+test("draft allowance NEVER ignores failed picker or non-size manual review",()=>{
+  const {api}=batchApi();
+  const good={success:true,needsReview:true,reviewType:"estimated-size",
+    selectedSize:"W30",estimateSource:"measured-waist"};
+  for(const bad of [
+    {...good,success:false},
+    {...good,needsReview:false},
+    {...good,reviewType:"color-review"},
+    {...good,selectedSize:""},
+    {...good,selectedSize:"W999"},
+    {...good,selectedSize:"XXL (nicht bestätigt)"},
+    {...good,estimateSource:"unknown"},
+    null
+  ]){
+    assert.equal(api.reviewableEstimatedSize(bad,true),false,
+      JSON.stringify(bad));
+  }
+});
+test("manual save confirmation retains pending estimated-size review warning",async()=>{
+  const warning="Artikel #73: geschätzte Größe W30 – vor Veröffentlichung prüfen";
+  const state={...failedSaveState(),
+    status:"awaiting_confirmation",phase:"awaiting_confirmation",
+    pendingReviewWarnings:[warning]};
+  const box=batchApi({state});
+  const result=await box.dispatch({
+    type:"CONFIRM_VINTED_DRAFT_SAVED",draftId:"pant73",articleNumber:73
+  });
+  assert.equal(result.success,true);
+  assert.equal(box.store.vintedBatchState.pendingReviewWarnings.length,0);
+  assert.ok(box.store.vintedBatchState.warnings.includes(warning));
+});
