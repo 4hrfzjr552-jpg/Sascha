@@ -540,3 +540,85 @@ test("background ignores save receipts sent by a different Vinted tab or prior p
   assert.equal(response.success,true);
   assert.equal(box.store.vintedDraftSaveReceipt.articleNumber,66);
 });
+
+
+test("ambiguous save may advance only after actual save-verification phase",()=>{
+  const {api}=batchApi();
+  const error="Vinted hat das Speichern nicht eindeutig bestätigt. Receiving end does not exist";
+  assert.equal(api.ambiguousSaveAtVerification("verifying",error),true);
+  assert.equal(api.ambiguousSaveAtVerification("verifying",
+    "Speichern unklar: Vinted-Tab wurde umgeleitet"),true);
+  assert.equal(api.ambiguousSaveAtVerification("filling",error),false);
+  assert.equal(api.ambiguousSaveAtVerification("saving",error),false);
+  assert.equal(api.ambiguousSaveAtVerification("verifying",
+    "Kein eindeutiger Entwurf-Speichern-Button"),false);
+});
+test("paused saved-or-unknown #51 can be marked UNVERIFIED and continue with #50 without counting it saved",async()=>{
+  const state={
+    status:"awaiting_confirmation",phase:"awaiting_confirmation",
+    index:1,currentId:"pant51",continueOnUnverifiedSave:false,
+    error:"Vinted hat das Speichern nicht eindeutig bestätigt. Could not establish connection",
+    queue:[{id:"pant52",artikelnummer:52},{id:"pant51",artikelnummer:51},
+      {id:"pant50",artikelnummer:50}],
+    completed:["pant52"],skipped:[{artikelnummer:58}],
+    pendingReviewWarnings:["Größe bei #51 noch prüfen"],warnings:["Größe bei #52 prüfen"],
+    logs:["Beginne 2/3: Artikel #51","Speichere #51 ausdrücklich als Entwurf",
+      "Prüfe Vinted-Speicherbestätigung für #51","PAUSE bei #51"]
+  };
+  const box=batchApi({state,store:{vintedConfirmedArticleNumbers:[52]}});
+  const result=await box.dispatch({type:"CONTINUE_VINTED_UNVERIFIED_SAVE",
+    draftId:"pant51",articleNumber:51,continueOnUnverifiedSave:true});
+  assert.equal(result.success,true);
+  assert.equal(result.finished,false);
+  assert.equal(result.unverifiedArticle,51);
+  assert.equal(result.nextArticle,50);
+  const next=box.store.vintedBatchState;
+  assert.equal(next.index,2);
+  assert.equal(next.status,"running");
+  assert.equal(next.phase,"ready");
+  assert.equal(next.currentId,null);
+  assert.equal(next.continueOnUnverifiedSave,true);
+  assert.deepEqual(Array.from(next.completed),["pant52"]);
+  assert.equal(next.unverified.length,1);
+  assert.equal(next.unverified[0].artikelnummer,51);
+  assert.deepEqual(Array.from(next.unverified[0].reviewWarnings),["Größe bei #51 noch prüfen"]);
+  assert.deepEqual(Array.from(box.store.vintedConfirmedArticleNumbers),[52]);
+  assert.deepEqual(Array.from(box.store.vintedUnverifiedDraftArticles,x=>x.artikelnummer),[51]);
+  assert.equal(box.alarmCalls.some(x=>x[0]==="create"),true);
+});
+test("unverified save is excluded from saved article numbers and later duplicate batches",async()=>{
+  const old={
+    status:"awaiting_confirmation",phase:"awaiting_confirmation",
+    currentId:"pant51",index:0,queue:[{id:"pant51",artikelnummer:51}],
+    completed:[],error:"Vinted hat das Speichern nicht eindeutig bestätigt.",
+    logs:["Speichere #51 ausdrücklich als Entwurf"]
+  };
+  const box=batchApi({state:old});
+  const result=await box.dispatch({type:"CONTINUE_VINTED_UNVERIFIED_SAVE",
+    draftId:"pant51",articleNumber:51,continueOnUnverifiedSave:false});
+  assert.equal(result.success,true);
+  assert.equal(result.finished,true);
+  assert.equal(box.store.vintedBatchState.completed.length,0);
+  assert.equal(box.store.vintedBatchState.status,"done");
+  assert.equal(box.store.vintedUnverifiedDraftArticles[0].artikelnummer,51);
+  assert.equal(box.store.vintedConfirmedArticleNumbers,undefined);
+  assert.deepEqual(Array.from(box.api.unverifiedArticleNumbers(
+    box.store.vintedUnverifiedDraftArticles)),[51]);
+});
+test("skip-unverified button cannot affect another hose or a form that has not saved",async()=>{
+  const old={
+    status:"error",phase:"failed",currentId:"p51",index:0,
+    error:"Formular nicht vollständig: category",
+    queue:[{id:"p51",artikelnummer:51}],completed:[],logs:[]
+  };
+  const box=batchApi({state:old});
+  let result=await box.dispatch({type:"CONTINUE_VINTED_UNVERIFIED_SAVE",
+    draftId:"p51",articleNumber:51});
+  assert.equal(result.success,false);
+  assert.equal(box.store.vintedUnverifiedDraftArticles,undefined);
+  old.status="awaiting_confirmation";old.phase="awaiting_confirmation";
+  result=await box.dispatch({type:"CONTINUE_VINTED_UNVERIFIED_SAVE",
+    draftId:"p52",articleNumber:52});
+  assert.equal(result.success,false);
+  assert.equal(box.store.vintedUnverifiedDraftArticles,undefined);
+});
