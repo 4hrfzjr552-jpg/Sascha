@@ -1,182 +1,116 @@
-/* Sascha AI -> Vinted local image preparation (Chrome classic content script).
-   Cleans blue pen marks from neutral background, then applies subtle color
-   grading calibrated from the user's original/edited reference image pair.
-   Garment shape, texture and visible condition remain unchanged. No promise
-   that a marketplace will accept or retain an edited image.
-   Images never leave the browser for processing. */
+/* Sascha AI → Vinted image preparation.
+   Apply a subtle, consistent brightness/contrast/color correction based on
+   the user's before/after example. Do not detect or erase blue writing; the
+   user's blue number was only a visual label to compare two photos.
+   Keep the crop, perspective, background and condition of the jeans intact.
+   Produce new JPEGs, with no guarantee of marketplace acceptance.
+   Everything is processed locally in the browser. */
 ((root) => {
   "use strict";
-  const MAX_EDGE=2048;
-  const JPEG_QUALITY=0.94;
-  const norm=v=>String(v??"").toLowerCase();
 
-  function blueMarkupPixel(r,g,b){
-    // Original sample: blue pen is highly saturated; denim/background is muted.
-    return b-r>50 && b-g>20 && g-r>8 && b>120;
-  }
-  function inOuterBackground(x,y,w,h){
-    return x<w*0.23 || x>w*0.77 || y<h*0.10 || y>h*0.92;
-  }
-  function isNeutral(r,g,b){
-    return Math.max(r,g,b)-Math.min(r,g,b)<40 &&
-      r>65&&g>65&&b>65&&r<250&&g<250&&b<250;
-  }
-  function makeMask(pixels,width,height) {
-    const src=pixels.data||pixels;
-    const original=new Uint8Array(width*height);
-    let marked=0;
-    for(let y=0;y<height;y++){
-      for(let x=0;x<width;x++){
-        if(!inOuterBackground(x,y,width,height))continue;
-        const pos=(y*width+x)*4;
-        if(!blueMarkupPixel(src[pos],src[pos+1],src[pos+2]))continue;
-        // Protect product fabric: cleanup only near a neutral surrounding.
-        let neutralNeighbors=0;
-        for(const [dx,dy] of [[22,0],[-22,0],[36,0],[-36,0],[0,22],[0,-22],[0,36],[0,-36]]){
-          const sx=x+dx,sy=y+dy;
-          if(sx<0||sy<0||sx>=width||sy>=height)continue;
-          const q=(sy*width+sx)*4;
-          if(isNeutral(src[q],src[q+1],src[q+2]))neutralNeighbors++;
-        }
-        if(neutralNeighbors<2)continue;
-        original[y*width+x]=1;
-        marked++;
-      }
-    }
-    if(marked<8)return {mask:new Uint8Array(width*height),count:0};
-    // Include anti-aliased edges of blue ink; keep coverage narrowly confined
-    // to avoid replacing garment pixels with background.
-    const mask=original.slice(),rad=2;
-    for(let y=0;y<height;y++){
-      for(let x=0;x<width;x++){
-        if(!original[y*width+x])continue;
-        for(let oy=-rad;oy<=rad;oy++)for(let ox=-rad;ox<=rad;ox++){
-          if(ox*ox+oy*oy>rad*rad)continue;
-          const xx=x+ox,yy=y+oy;
-          if(xx<0||yy<0||xx>=width||yy>=height)continue;
-          if(inOuterBackground(xx,yy,width,height))mask[yy*width+xx]=1;
-        }
-      }
-    }
-    return {mask,count:marked};
-  }
+  const MAX_EDGE = 2048;
+  const JPEG_QUALITY = 0.94;
 
-  function cleanupBackground(imageData){
-    const {width,height}=imageData;
-    const src=imageData.data;
-    if(!src||!width||!height)return {data:imageData,marked:0,replaced:0};
-    const {mask,count}=makeMask(src,width,height);
-    if(!count)return {data:imageData,marked:0,replaced:0};
-    const old=new Uint8ClampedArray(src);
-    let replaced=0;
-    // Source-patch inpainting: clone neutral background from a nearby offset.
-    // Do not blur/repaint the jeans or touch fabric texture.
-    for(let y=0;y<height;y++){
-      for(let x=0;x<width;x++){
-        if(!mask[y*width+x])continue;
-        const attempts=[
-          [20,12],[-20,12],[20,-12],[-20,-12],
-          [32,4],[-32,4],[4,32],[4,-32],
-          [40,20],[-40,-20],[54,0],[-54,0]
-        ];
-        const shift=(x*17+y*31)%attempts.length;
-        let donor=-1;
-        for(let step=0;step<attempts.length;step++){
-          const [dx,dy]=attempts[(step+shift)%attempts.length];
-          const xx=x+dx,yy=y+dy;
-          if(xx<0||yy<0||xx>=width||yy>=height ||
-              mask[yy*width+xx])continue;
-          const pos=(yy*width+xx)*4;
-          if(!isNeutral(old[pos],old[pos+1],old[pos+2]))continue;
-          donor=pos;break;
-        }
-        if(donor===-1)continue;
-        const dest=(y*width+x)*4;
-        src[dest]=old[donor];
-        src[dest+1]=old[donor+1];
-        src[dest+2]=old[donor+2];
-        replaced++;
-      }
-    }
-    return {data:imageData,marked:count,replaced};
-  }
-
-  // Calibrated against the two original/edited sample images provided
-  // in conversation (identical composition, blue "1" on original).
-  // Target reference has lifted shadows, softer contrast, slightly more
-  // neutral denim blue and a brighter gray background. Apply the SAME subtle
-  // look to all first four photos; avoid random edits or artificial color casts.
-  // These per-channel fits are approximate: do not use to conceal defects.
-  const REFERENCE_COLOR_LOOK=Object.freeze({
-    id:"user-reference-soft-neutral-v1",
-    redGain:0.856,redLift:28.0,
-    greenGain:0.861,greenLift:26.9,
-    blueGain:0.813,blueLift:34.9
+  const REFERENCE_LOOK = Object.freeze({
+    id: "soft-reference-look-v2",
+    brightness: 1.035,
+    contrast: 0.965,
+    saturation: 0.97,
+    gamma: 0.985,
+    redMul: 1.01,
+    greenMul: 1.01,
+    blueMul: 0.985,
+    redAdd: 2,
+    greenAdd: 2,
+    blueAdd: 1
   });
-  function gradeReferenceColors(imageData) {
-    const src=imageData?.data;
-    if(!src)return {pixels:0,look:REFERENCE_COLOR_LOOK.id};
-    let changed=0;
-    for(let i=0;i<src.length;i+=4){
-      const r=src[i],g=src[i+1],b=src[i+2];
-      const nr=Math.max(0,Math.min(255,Math.round(r*REFERENCE_COLOR_LOOK.redGain+
-        REFERENCE_COLOR_LOOK.redLift)));
-      const ng=Math.max(0,Math.min(255,Math.round(g*REFERENCE_COLOR_LOOK.greenGain+
-        REFERENCE_COLOR_LOOK.greenLift)));
-      const nb=Math.max(0,Math.min(255,Math.round(b*REFERENCE_COLOR_LOOK.blueGain+
-        REFERENCE_COLOR_LOOK.blueLift)));
-      if(nr!==r||ng!==g||nb!==b)changed++;
-      src[i]=nr;src[i+1]=ng;src[i+2]=nb;
-      // Retain the original alpha. Fabric/shadows/imperfections stay visible.
+
+  function clamp(v) {
+    return Math.max(0, Math.min(255, v));
+  }
+
+  function applyReferenceLook(imageData) {
+    const src = imageData?.data;
+    if (!src) return { pixels: 0, look: REFERENCE_LOOK.id };
+    let changed = 0;
+    for (let i = 0; i < src.length; i += 4) {
+      const oldR = src[i], oldG = src[i + 1], oldB = src[i + 2];
+      let r = oldR * REFERENCE_LOOK.brightness;
+      let g = oldG * REFERENCE_LOOK.brightness;
+      let b = oldB * REFERENCE_LOOK.brightness;
+
+      r = 255 * Math.pow(clamp(r) / 255, REFERENCE_LOOK.gamma);
+      g = 255 * Math.pow(clamp(g) / 255, REFERENCE_LOOK.gamma);
+      b = 255 * Math.pow(clamp(b) / 255, REFERENCE_LOOK.gamma);
+
+      r = (r - 128) * REFERENCE_LOOK.contrast + 128;
+      g = (g - 128) * REFERENCE_LOOK.contrast + 128;
+      b = (b - 128) * REFERENCE_LOOK.contrast + 128;
+
+      const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+      r = gray + (r - gray) * REFERENCE_LOOK.saturation;
+      g = gray + (g - gray) * REFERENCE_LOOK.saturation;
+      b = gray + (b - gray) * REFERENCE_LOOK.saturation;
+
+      const nr = Math.round(clamp(r * REFERENCE_LOOK.redMul + REFERENCE_LOOK.redAdd));
+      const ng = Math.round(clamp(g * REFERENCE_LOOK.greenMul + REFERENCE_LOOK.greenAdd));
+      const nb = Math.round(clamp(b * REFERENCE_LOOK.blueMul + REFERENCE_LOOK.blueAdd));
+
+      if (nr !== oldR || ng !== oldG || nb !== oldB) changed++;
+      src[i] = nr;
+      src[i + 1] = ng;
+      src[i + 2] = nb;
+      // Alpha is deliberately unchanged.
     }
-    return {pixels:changed,look:REFERENCE_COLOR_LOOK.id};
+    return { pixels: changed, look: REFERENCE_LOOK.id };
   }
 
-  async function toJpegBlob(canvas){
-    if(typeof canvas.toBlob!=="function")
+  async function toJpegBlob(canvas) {
+    if (typeof canvas.toBlob !== "function")
       throw Error("JPEG-Export im Browser nicht verfügbar");
-    return new Promise((resolve,reject)=>{
-      canvas.toBlob(blob=>blob && blob.size?resolve(blob):
-        reject(Error("Bild konnte nicht als JPG gespeichert werden")),
-        "image/jpeg",JPEG_QUALITY);
-    });
+    return new Promise((resolve, reject) =>
+      canvas.toBlob(blob => blob?.size ?
+        resolve(blob) : reject(Error("Bild konnte nicht als JPG gespeichert werden")),
+      "image/jpeg", JPEG_QUALITY)
+    );
   }
 
-  async function processImage(file,index){
-    if(!(file instanceof File))throw Error("Ungültige Bilddatei");
-    if(typeof createImageBitmap!=="function")
+  async function processImage(file, index) {
+    if (!(file instanceof File)) throw Error("Ungültige Bilddatei");
+    if (typeof createImageBitmap !== "function")
       throw Error("Bildbearbeitung im Browser nicht verfügbar");
-    const bitmap=await createImageBitmap(file);
-    try{
-      const scale=Math.min(1,MAX_EDGE/Math.max(bitmap.width,bitmap.height));
-      const width=Math.max(1,Math.round(bitmap.width*scale));
-      const height=Math.max(1,Math.round(bitmap.height*scale));
-      const canvas=document.createElement("canvas");
-      canvas.width=width;canvas.height=height;
-      const ctx=canvas.getContext("2d",{willReadFrequently:true});
-      if(!ctx)throw Error("Canvas-Bildbearbeitung nicht verfügbar");
-      ctx.imageSmoothingEnabled=true;
-      ctx.imageSmoothingQuality="high";
-      ctx.drawImage(bitmap,0,0,width,height);
-      const pixels=ctx.getImageData(0,0,width,height);
-      // Mark removal operates on ORIGINAL colors before grading,
-      // so the blue pen can be detected without changing thresholds.
-      const result=cleanupBackground(pixels);
-      const grade=gradeReferenceColors(pixels);
-      ctx.putImageData(pixels,0,0);
-      const blob=await toJpegBlob(canvas);
-      return {file:new File([blob],
-          "sascha_vinted_"+String(index+1).padStart(2,"0")+"_clean.jpg",
-          {type:"image/jpeg"}),
-        originalName:file.name,marked:result.marked,replaced:result.replaced,
-        colorLook:grade.look,gradedPixels:grade.pixels,width,height};
-    }finally{
+    const bitmap = await createImageBitmap(file);
+    try {
+      const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+      const width = Math.max(1, Math.round(bitmap.width * scale));
+      const height = Math.max(1, Math.round(bitmap.height * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      if (!ctx) throw Error("Canvas-Bildbearbeitung nicht verfügbar");
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(bitmap, 0, 0, width, height);
+      const pixels = ctx.getImageData(0, 0, width, height);
+      const grade = applyReferenceLook(pixels);
+      ctx.putImageData(pixels, 0, 0);
+      const blob = await toJpegBlob(canvas);
+      return {
+        file: new File([blob],
+          "sascha_vinted_" + String(index + 1).padStart(2, "0") + "_edited.jpg",
+          { type: "image/jpeg" }),
+        originalName: file.name,
+        colorLook: grade.look,
+        gradedPixels: grade.pixels,
+        width, height
+      };
+    } finally {
       bitmap.close?.();
     }
   }
 
-  const api=Object.freeze({blueMarkupPixel,inOuterBackground,isNeutral,
-    makeMask,cleanupBackground,gradeReferenceColors,REFERENCE_COLOR_LOOK,processImage});
-  if(typeof module!=="undefined"&&module.exports)module.exports=api;
-  root.SaschaVintedImageEdit=api;
-})(typeof window!=="undefined"?window:globalThis);
+  const api = Object.freeze({ REFERENCE_LOOK, applyReferenceLook, processImage });
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
+  root.SaschaVintedImageEdit = api;
+})(typeof window !== "undefined" ? window : globalThis);

@@ -718,8 +718,7 @@
       files.push(rendered.file);
       log("[IMAGE EDIT] "+(i+1)+"/"+selected.length+
         " new="+rendered.file.name+
-        " blueMarks="+Number(rendered.marked||0)+
-        " cleanedPixels="+Number(rendered.replaced||0)+
+        " gradedPixels="+Number(rendered.gradedPixels||0)+
         " colorLook="+(rendered.colorLook||"not-reported"));
     }
     const transfer=new DataTransfer();

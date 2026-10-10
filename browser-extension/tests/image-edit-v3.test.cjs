@@ -1,139 +1,134 @@
 // node --test browser-extension/tests/image-edit-v3.test.cjs
-// Pure synthetic pixels: no user product photographs are bundled with the repo.
+// Unit tests for subtle whole-image color and contrast, without number or
+// blue-mark detection. Source photos remain user's own, not in the repo.
 const {test}=require("node:test");
 const assert=require("node:assert/strict");
 const fs=require("node:fs");
 const path=require("node:path");
 const vm=require("node:vm");
-const file=fs.readFileSync(path.join(__dirname,"..","vinted-image-edit.js"),"utf8");
-function loadAPI(extras={}){
+
+const code=fs.readFileSync(path.join(__dirname,"..","vinted-image-edit.js"),"utf8");
+function editor(extras={}){
   const window={},module={exports:{}};
-  vm.runInNewContext(file,{window,module,...extras},{filename:"vinted-image-edit.js"});
+  vm.runInNewContext(code,{window,module,...extras},{filename:"vinted-image-edit.js"});
   return module.exports;
 }
-function fixture(width=128,height=128){
-  const data=new Uint8ClampedArray(width*height*4);
-  const pixel=(x,y,rgb)=>{
-    const i=(y*width+x)*4;
-    data[i]=rgb[0];data[i+1]=rgb[1];data[i+2]=rgb[2];data[i+3]=255;
-  };
-  for(let y=0;y<height;y++)for(let x=0;x<width;x++)
-    pixel(x,y,[183+((x+y)%3),180+(y%3),170+((x*5+y)%4)]);
-  for(let y=25;y<118;y++)for(let x=45;x<108;x++)
-    pixel(x,y,[123,147,165]); // jeans must not change
-  for(let y=10;y<43;y++)for(let x=8;x<16;x++)
-    pixel(x,y,[20,130,240]); // visible bright blue mark on background
-  return {width,height,data,pixel};
-}
-test("recognizes vivid blue pen but not light blue denim",()=>{
-  const api=loadAPI();
-  assert.equal(api.blueMarkupPixel(20,130,240),true);
-  assert.equal(api.blueMarkupPixel(130,145,170),false);
+const image=(r,g,b,a=255)=>({
+  width:1,height:1,data:new Uint8ClampedArray([r,g,b,a])
 });
-test("blue mark on neutral outer background is removed without editing the jeans",()=>{
-  const api=loadAPI(),img=fixture();
-  const garment=(60+60*img.width)*4;
-  const original=Array.from(img.data.slice(garment,garment+4));
-  const {marked,replaced}=api.cleanupBackground(img);
-  assert.ok(marked>150,"Expected visible blue mark detection");
-  assert.ok(replaced>150,"Expected neutral texture donor inpainting");
-  let blueLeft=0;
-  for(let y=10;y<43;y++)for(let x=8;x<16;x++){
-    const at=(y*img.width+x)*4;
-    if(api.blueMarkupPixel(img.data[at],img.data[at+1],img.data[at+2]))
-      blueLeft++;
-  }
-  assert.equal(blueLeft,0,"No bright blue pixels should remain inside annotation");
-  assert.deepEqual(Array.from(img.data.slice(garment,garment+4)),original,
-    "Denim pixels must remain byte-for-byte unchanged");
+
+test("reference preset contains brightness, contrast, color, and gamma corrections",()=>{
+  const {REFERENCE_LOOK:look}=editor();
+  assert.equal(look.id,"soft-reference-look-v2");
+  assert.ok(look.brightness>1);
+  assert.ok(look.contrast<1);
+  assert.ok(look.saturation<1);
+  assert.ok(look.gamma<1);
 });
-test("do not edit saturated blue garment pixels in the center of the image",()=>{
-  const api=loadAPI(),img=fixture();
-  for(let y=54;y<72;y++)for(let x=70;x<85;x++)img.pixel(x,y,[20,130,240]);
-  const idx=(60*img.width+75)*4;
-  const before=Array.from(img.data.slice(idx,idx+4));
-  api.cleanupBackground(img);
-  assert.deepEqual(Array.from(img.data.slice(idx,idx+4)),before);
+
+test("corrects neutral midtone and preserves alpha",()=>{
+  const api=editor(),img=image(170,167,161,111);
+  const result=api.applyReferenceLook(img);
+  assert.equal(result.look,"soft-reference-look-v2");
+  assert.equal(result.pixels,1);
+  assert.equal(img.data[3],111);
+  assert.ok(img.data[0]>170,"midtone red should lift");
+  assert.ok(img.data[1]>167,"midtone green should lift");
+  assert.ok(img.data[2]>161,"midtone blue should lift");
 });
-test("ordinary photo without blue handwriting is left untouched before JPEG export",()=>{
-  const api=loadAPI(),img=fixture();
-  for(let y=10;y<43;y++)for(let x=8;x<16;x++)
-    img.pixel(x,y,[184,178,171]);
-  const before=Array.from(img.data);
-  const result=api.cleanupBackground(img);
-  assert.equal(result.marked,0);
-  assert.deepEqual(Array.from(img.data),before);
+
+test("reduces denim saturation a little without destroying blue shade",()=>{
+  const api=editor(),img=image(120,150,178);
+  const originalGap=img.data[2]-img.data[0];
+  api.applyReferenceLook(img);
+  assert.ok(img.data[2]>img.data[1]&&img.data[1]>img.data[0]);
+  assert.ok(img.data[2]-img.data[0]<originalGap);
 });
-test("creates new JPEG file, not a renamed original, and releases bitmap",async()=>{
-  const pixels=fixture();
+
+test("no special detection or removal for blue hand-written numbers",()=>{
+  const api=editor(),img=image(12,120,240);
+  api.applyReferenceLook(img);
+  assert.ok(img.data[2]>img.data[1]+60,
+    "a blue marker must not be erased; only normal grade applies");
+  assert.equal(typeof api.cleanupBackground,"undefined");
+  assert.equal(typeof api.blueMarkupPixel,"undefined");
+  assert.equal(typeof api.makeMask,"undefined");
+});
+
+test("all pixels receive same consistent preset, never per-photo random changes",()=>{
+  const api=editor();
+  const a=image(130,148,173),b=image(130,148,173);
+  const resultA=api.applyReferenceLook(a);
+  const resultB=api.applyReferenceLook(b);
+  assert.deepEqual(Array.from(a.data),Array.from(b.data));
+  assert.equal(resultA.look,resultB.look);
+});
+
+test("new JPG is rendered from canvas without crop or zoom",async()=>{
+  const captured={};
+  const pixels=image(138,148,170);
   const ctx={
-    imageSmoothingEnabled:false,
-    imageSmoothingQuality:"low",
-    drawImage(){},
+    drawImage(...args){captured.drawArgs=args;},
     getImageData:()=>pixels,
-    putImageData(){},
+    putImageData(data,x,y){captured.pixels=data;captured.position=[x,y];}
+  };
+  const canvas={
+    getContext:()=>ctx,
+    toBlob(cb,type,quality){
+      captured.type=type;captured.quality=quality;
+      cb({size:2000,type:"image/jpeg"});
+    }
+  };
+  let closed=false;
+  class MockFile{
+    constructor(bytes,name,options){this.name=name;this.type=options.type;this.bytes=bytes;}
+  }
+  const api=editor({
+    File:MockFile,
+    createImageBitmap:async()=>({width:1200,height:1200,close(){closed=true;}}),
+    document:{createElement:t=>{assert.equal(t,"canvas");return canvas;}}
+  });
+  const original=new MockFile([1],"original.png",{type:"image/png"});
+  const processed=await api.processImage(original,0);
+  assert.equal(canvas.width,1200);
+  assert.equal(canvas.height,1200);
+  assert.deepEqual(captured.drawArgs.slice(1),[0,0,1200,1200]);
+  assert.deepEqual(captured.position,[0,0]);
+  assert.equal(captured.type,"image/jpeg");
+  assert.ok(captured.quality>=0.90);
+  assert.equal(processed.file.name,"sascha_vinted_01_edited.jpg");
+  assert.equal(processed.file.type,"image/jpeg");
+  assert.equal(processed.colorLook,"soft-reference-look-v2");
+  assert.equal(closed,true);
+});
+
+test("source larger than max edge is resized preserving aspect ratio",async()=>{
+  const dimensions={};
+  class MockFile{constructor(bytes,name,options){this.name=name;this.type=options.type;}}
+  const ctx={
+    drawImage(...args){dimensions.draw=args.slice(1);},
+    getImageData:()=>image(140,150,170),
+    putImageData(){}
   };
   const canvas={getContext:()=>ctx,
-    toBlob(cb,type,quality){
-      assert.equal(type,"image/jpeg");
-      assert.ok(quality>=0.9);
-      cb({size:3000,type:"image/jpeg",distinct:true});
-    }
-  };
-  let bitmapClosed=false;
-  class FakeFile{
-    constructor(bytes,name,metadata){
-      this.name=name;this.type=metadata.type;this.bytes=bytes;
-    }
-  }
-  const api=loadAPI({
-    File:FakeFile,
-    createImageBitmap:async()=>({width:128,height:128,close(){bitmapClosed=true;}}),
-    document:{createElement:tag=>{assert.equal(tag,"canvas");return canvas;}}
+    toBlob(cb){cb({size:500,type:"image/jpeg"});}};
+  const api=editor({
+    File:MockFile,
+    document:{createElement:()=>canvas},
+    createImageBitmap:async()=>({width:4000,height:2000,close(){}})
   });
-  const source=new FakeFile([{size:1024}],"my_original.png",{type:"image/png"});
-  const edited=await api.processImage(source,0);
-  assert.notEqual(edited.file,source);
-  assert.equal(edited.file.name,"sascha_vinted_01_clean.jpg");
-  assert.equal(edited.file.type,"image/jpeg");
-  assert.equal(edited.file.bytes[0].distinct,true);
-  assert.equal(bitmapClosed,true);
-});
-test("no silent fallback to originals when browser cannot edit",async()=>{
-  class FakeFile{constructor(bytes,name,opts){this.name=name;this.type=opts.type;}}
-  const api=loadAPI({File:FakeFile});
-  await assert.rejects(()=>api.processImage(
-    new FakeFile([1],"original.jpg",{type:"image/jpeg"}),0),/nicht verfügbar/);
+  const result=await api.processImage(new MockFile([1],"source.jpg",{type:"image/jpeg"}),1);
+  assert.equal(result.width,2048);
+  assert.equal(result.height,1024);
+  assert.deepEqual(dimensions.draw,[0,0,2048,1024]);
+  assert.equal(result.file.name,"sascha_vinted_02_edited.jpg");
 });
 
-
-test("reference color look brightens and softens neutral backgrounds",()=>{
-  const api=loadAPI();
-  const img={width:1,height:1,data:new Uint8ClampedArray([178,174,167,255])};
-  const result=api.gradeReferenceColors(img);
-  assert.equal(result.look,"user-reference-soft-neutral-v1");
-  // Pixel values are measured from the original/edit reference pair.
-  assert.deepEqual(Array.from(img.data),[180,177,171,255]);
-});
-test("reference look reduces overly blue contrast while keeping denim blue",()=>{
-  const api=loadAPI();
-  const denim={width:1,height:1,data:new Uint8ClampedArray([125,145,167,255])};
-  api.gradeReferenceColors(denim);
-  const after=[...denim.data];
-  assert.deepEqual(after,[135,152,171,255]);
-  assert.ok(after[2]>after[1]&&after[1]>after[0],
-    "Jeans should remain recognizably blue");
-  assert.ok(after[2]-after[0]<167-125,
-    "Reference has less chroma than original fabric");
-});
-test("reference look is applied even when no blue mark is present",()=>{
-  const api=loadAPI(),img=fixture();
-  for(let y=10;y<43;y++)for(let x=8;x<16;x++)
-    img.pixel(x,y,[184,178,171]);
-  const before=[...img.data.slice(0,4)];
-  const cleaned=api.cleanupBackground(img);
-  assert.equal(cleaned.replaced,0);
-  const grade=api.gradeReferenceColors(img);
-  assert.ok(grade.pixels>0);
-  assert.notDeepEqual(Array.from(img.data.slice(0,4)),before);
+test("refuses to pass through original if editing unavailable",async()=>{
+  class MockFile{constructor(bytes,name,options){this.name=name;this.type=options.type;}}
+  const api=editor({File:MockFile});
+  await assert.rejects(
+    ()=>api.processImage(new MockFile([1],"original.jpg",{type:"image/jpeg"}),0),
+    /nicht verfügbar/
+  );
 });

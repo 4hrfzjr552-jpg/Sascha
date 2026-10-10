@@ -27,9 +27,9 @@ function createEngine(document,extra={}){
     SaschaVintedImageEdit:extra.imageEditor===null?null:(extra.imageEditor||{
       processImage:async(file,i)=>({
         file:new (extra.File||File)([file],
-          "sascha_vinted_"+String(i+1).padStart(2,"0")+"_clean.jpg",
+          "sascha_vinted_"+String(i+1).padStart(2,"0")+"_edited.jpg",
           {type:"image/jpeg"}),
-        marked:0,replaced:0
+        colorLook:"soft-reference-look-v2",gradedPixels:500
       })
     }),
     __SASCHA_TEST__:true
@@ -389,14 +389,15 @@ test("when draft has five images, Vinted receives only first four in order",asyn
   const logs=[];
   const result=await createEngine(mock.document,mock.extra).images(mock.draft,line=>logs.push(line));
   assert.equal(mock.sent().length,4);
-  assert.ok(mock.sent().every(file=>file.name.endsWith("_clean.jpg")));
+  assert.ok(mock.sent().every(file=>file.name.endsWith("_edited.jpg")));
   assert.deepEqual(mock.sent().map(f=>f.name),[
-    "sascha_vinted_01_clean.jpg","sascha_vinted_02_clean.jpg",
-    "sascha_vinted_03_clean.jpg","sascha_vinted_04_clean.jpg"]);
+    "sascha_vinted_01_edited.jpg","sascha_vinted_02_edited.jpg",
+    "sascha_vinted_03_edited.jpg","sascha_vinted_04_edited.jpg"]);
   assert.equal(result.success,true);
   assert.equal(result.needsReview,true);
   assert.ok(logs.some(l=>l.includes("[IMAGES SUBMIT] first=4 total=5 skipped=1")));
   assert.ok(logs.some(l=>l.includes("[IMAGES REVIEW]")));
+  assert.ok(logs.some(l=>l.includes("colorLook=soft-reference-look-v2")));
 });
 test("four Vinted preview thumbnails confirm the upload even after input reset",async()=>{
   const mock=imageTestEnv({sourceCount:5,resetAfterChange:true,withPreview:true});
@@ -436,7 +437,7 @@ test("failed image rendering stops upload before any image is submitted",async()
     processImage:async(file,i)=>{
       if(i===2)throw Error("Canvas konnte Bild 3 nicht bearbeiten");
       return {file:new mock.extra.File([file],
-        "vinted_"+i+".jpg",{type:"image/jpeg"}),marked:0,replaced:0};
+        "vinted_"+i+".jpg",{type:"image/jpeg"}),colorLook:"soft-reference-look-v2",gradedPixels:500};
     }
   };
   await assert.rejects(()=>createEngine(mock.document,mock.extra).images(mock.draft,()=>{}),
