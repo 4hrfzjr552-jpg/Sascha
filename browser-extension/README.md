@@ -1,4 +1,4 @@
-# Sascha AI → Vinted Assistant 3.13
+# Sascha AI → Vinted Assistant 3.14
 
 Die Chrome-Erweiterung übernimmt einen vollständigen Entwurf aus Sascha AI in die geöffnete Vinted-Verkaufsmaske. **Sie veröffentlicht und speichert nichts automatisch.** Alle Angaben vor dem Speichern prüfen.
 
@@ -39,22 +39,24 @@ Die folgende Zuordnung stammt aus realen Vinted-Katalog-Suchergebnissen und ist 
 2. ZIP entpacken und den **Ordner \`browser-extension\`** an einem festen Ort behalten.
 3. In Chrome \`chrome://extensions/\` öffnen und den Entwicklermodus aktivieren.
 4. „Entpackte Erweiterung laden“ wählen und den Ordner \`browser-extension\` auswählen.
-5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.13.0** stehen.
+5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.14.0** stehen.
 
 **Updates:** Neue Dateien in denselben entpackten Erweiterungsordner kopieren, unter \`chrome://extensions/\` „Neu laden“ klicken und den Vinted-Tab aktualisieren. Nur „Download ZIP“ auszuführen aktualisiert die installierte Erweiterung nicht. Es ist weder \`git pull\` noch das Mergen eines GitHub-PR erforderlich, wenn die Version bereits in \`main\` liegt.
 
-## Größe aus Bundweite schätzen (3.13)
+## Größe aus Bundweite schätzen (3.14)
 
 Wenn **keine Etikettgröße angegeben** ist, nutzt die Extension bei eindeutig erkannten Herren-/Damen-Jeans die in Sascha AI gespeicherte **flach gemessene Bundweite**. Als Näherung gilt:
 
 `W ≈ (Bundweite in cm × 2) / 2,54` – auf die nächste ganze W-Größe gerundet.
 
-Beispiel: 39 cm Bundweite flach entsprechen rechnerisch 78 cm Umfang bzw. circa **W31**. Die tatsächliche Herstellergröße kann durch Schnitt, Stoffdehnung und Größenabweichungen durchaus **1–2 W-Größen** abweichen.
+Beispiel: 39 cm Bundweite flach entsprechen rechnerisch 78 cm Umfang. Bei **Herrenjeans** wird ungefähr **W31** vorgeschlagen, bei **Damenjeans** ungefähr **M** (aus einer allgemeinen, nicht markenspezifischen Damengrößentabelle). Die tatsächliche Herstellergröße kann durch Schnitt, Stoffdehnung und Größenabweichungen deutlich abweichen.
 
 - Eine vorhandene Größenangabe, beispielsweise `W36`, hat **immer Vorrang** und wird nicht überschrieben.
 - Ohne zuverlässige flach gemessene Bundweite wird **keine Größe geraten**. Gesamtlänge, Innenbeinlänge oder Beinöffnung reichen für eine Taillenweite nicht aus.
-- Es werden nur **echte Vinted-W-Größen aus dem Taillenumfang-Menü** gewählt, keine Umrechnung auf `XS–XXL`.
-- Das Einzelergebnis zeigt `[SIZE ESTIMATE]` und `[SIZE REVIEW]`. Die Auswahl ist ausdrücklich **eine Schätzung, kein Größenetikett**.
+- Bei Herren werden nur **echte Vinted-W-Größen aus dem Taillenumfang-Menü** gewählt. Bei Damenjeans werden verfügbare **Buchstabengrößen XS/S/M/L/XL/XXL/3XL** verwendet, statt nach einer nicht angebotenen W-Größe zu suchen.
+- Hat eine Damenjeans ein Etikett mit W-Größe (z. B. `W36`), aber Vinted bietet nur Buchstabengrößen, wird eine **vorläufige Umrechnung** vorgeschlagen. Auch ausdrücklich als `US 8` oder `EU 40` angegebene Etikettgrößen können näherungsweise umgerechnet werden. Eine nackte `36` ohne Größenformat wird **nicht geraten**.
+- Liegt eine echte Damen-Buchstabengröße wie `M` oder `L` vor, bleibt sie erhalten. Wenn Vinted die Original-Etikettgröße tatsächlich anbietet, bleibt sie ebenfalls erhalten.
+- Das Einzelergebnis zeigt `[SIZE ESTIMATE]` und `[SIZE REVIEW]`. Bei einer Umrechnung ist die Original-Etikettgröße nicht identisch mit der angebotenen Buchstabengröße; das Ergebnis muss deshalb geprüft werden.
 - **Stapelmodus-Schutz:** Bei einer aus Maßen geschätzten Größe wird die Hose zunächst ausgefüllt, aber **nicht automatisch als Entwurf gespeichert**. Der Stapel stoppt und wartet auf deine Prüfung. Du kannst die Größe vor dem manuellen Speichern korrigieren.
 
 So entstehen bei unbekannten Herstellergrößen keine unbemerkt falsch ausgezeichneten Vinted-Entwürfe.
