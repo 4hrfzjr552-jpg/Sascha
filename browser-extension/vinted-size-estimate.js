@@ -11,7 +11,10 @@
   const WOMEN_LETTERS=Object.freeze(["XS","S","M","L","XL","XXL","3XL"]);
   function isMissingSize(value){
     const text=String(value??"").trim().toLowerCase();
-    return !text||/^(?:-|--|n\/a|na|unknown|unbekannt|keine angabe|nicht bekannt|fehlt|ohne gr[oö][ßs]e|size unknown|nicht angegeben|k\.?\s*a\.?)$/.test(text);
+    // OCR/AI may output a textual reason instead of a size. These are
+    // explicit "no readable label" markers, not manufacturer sizes.
+    // Never treat an arbitrary unfamiliar size as missing.
+    return !text||/^(?:-|--|n\/a|na|unknown|unbekannt|keine angabe|nicht bekannt|fehlt|ohne gr[oö][ßs]e|size unknown|nicht angegeben|k\.?\s*a\.?|nicht lesbar|nicht erkennbar|nicht zu erkennen|unleserlich|unlesbar|kaum lesbar|nicht entzifferbar|gr[oö][ßs]e nicht lesbar|gr[oö][ßs]e unleserlich|size unreadable|unreadable|illegible|not readable|not legible|not visible)$/.test(text);
   }
   function parseFlatWaistCm(raw){
     if(typeof raw!=="string"&&typeof raw!=="number")return null;

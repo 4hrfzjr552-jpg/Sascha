@@ -1,4 +1,4 @@
-# Sascha AI → Vinted Assistant 3.22
+# Sascha AI → Vinted Assistant 3.23
 
 Die Chrome-Erweiterung übernimmt einen vollständigen Entwurf aus Sascha AI in die geöffnete Vinted-Verkaufsmaske. **Sie veröffentlicht und speichert nichts automatisch.** Alle Angaben vor dem Speichern prüfen.
 
@@ -39,7 +39,7 @@ Die folgende Zuordnung stammt aus realen Vinted-Katalog-Suchergebnissen und ist 
 2. ZIP entpacken und den **Ordner \`browser-extension\`** an einem festen Ort behalten.
 3. In Chrome \`chrome://extensions/\` öffnen und den Entwicklermodus aktivieren.
 4. „Entpackte Erweiterung laden“ wählen und den Ordner \`browser-extension\` auswählen.
-5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.22.0** stehen.
+5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.23.0** stehen.
 
 **Updates:** Neue Dateien in denselben entpackten Erweiterungsordner kopieren, unter \`chrome://extensions/\` „Neu laden“ klicken und den Vinted-Tab aktualisieren. Nur „Download ZIP“ auszuführen aktualisiert die installierte Erweiterung nicht. Es ist weder \`git pull\` noch das Mergen eines GitHub-PR erforderlich, wenn die Version bereits in \`main\` liegt.
 
@@ -145,6 +145,16 @@ Wenn die Extension einen Stapel bereits mit **„Fertig · 1/1“** abgeschlosse
 Falls die Web-App nur einen geeigneten Artikel liefert, erscheint statt eines falschen Erfolgsversprechens eine genaue Meldung: Prüfen, ob die übrigen Hosen fertig generiert sind, Fotos und Artikelnummer besitzen, nicht hochgeladen/verkauft/archiviert sind und ob die aktuelle Sascha-AI-Web-App auf Vercel bereitgestellt ist. Ohne weitere geeignete Hosen kann die Extension nicht automatisch fortsetzen.
 
 **Sicherheit:** Kein erneuter Speicher-Klick bei unklarer Vinted-Bestätigung, kein doppelter Entwurf für lokal bestätigte Nummern, keine automatische Veröffentlichung. Vinted-Entwürfe, die außerhalb dieser Extension angelegt oder nicht von ihr als bestätigt erfasst wurden, vor einem neuen Stapel selbst auf Dubletten kontrollieren.
+
+### „Nicht lesbar“ und Stapel #66 nach #67 (3.23.0)
+
+Beim Stapel aus **22 Hosen** wurde #67 als Entwurf bestätigt, #66 brach mit `Größe Nicht lesbar nicht in der Vinted-Größenauswahl gefunden` ab. Die Größenanalyse hatte `Nicht lesbar` als Text statt als **fehlende Etikettgröße** behandelt. Ab 3.23.0 gelten `Nicht lesbar`, `unleserlich`, `nicht erkennbar`, `unlesbar` und enge englische Entsprechungen als **fehlende Größenangaben**. Für eindeutig erkannte Jeans wird bei vorhandener gültiger flacher Bundweite eine Schätzung berechnet, z. B. 33 cm ergibt ungefähr Damen **XS**. Die Schätzung wird als `needsReview` protokolliert und darf nur bei aktivierter Checkbox ausdrücklich als **Vinted-Entwurf** übernommen werden. Ein reales Herstelleretikett wird dadurch **nicht** ersetzt. Fehlt die Bundweite, wird keine Größe erfunden.
+
+**Der 22er-Stapel läuft künftig auch bei eindeutig fehlgeschlagenen Formularfeldern weiter, solange noch kein „Entwurf speichern“-Klick stattgefunden hat.** Die betroffene Hose wird **NICHT gespeichert**, sondern mit Artikelnummer und Fehlergrund in „NICHT GESPEICHERT – übersprungene Hosen“ angezeigt. Sie wird ausdrücklich **nicht als erfolgreich bestätigt** gezählt und nicht in die bestätigten Artikelnummern aufgenommen. Nach diesem klaren Formularfehler folgt die nächste Hose. Bei einem unbekannten Fehler, möglichem Speicher-Klick, nicht nachweisbarer Entwurfsbestätigung oder Unterbrechung stoppt die Extension dagegen weiterhin sicherheitshalber; **niemals blind erneut senden**.
+
+Für den bereits gespeicherten Stand **1/22 mit #67 bestätigt und #66 beim Formular gestoppt** gibt es die Schaltfläche **„Fehlgeschlagene Hose erneut versuchen – gespeicherte Hosen überspringen“**. Sie ist nur sichtbar, wenn gespeicherte Ablaufdaten belegen, dass das Formular für #66 ausgefüllt wurde, ohne dass der Speicher-Schritt erreicht wurde. So kann nach dem Update #66 mit der neuen Größenerkennung erneut versucht werden und anschließend #65 usw. folgen. #67 bleibt gespeichert und wird nicht erneut übertragen. **Die vorhandene Extension aktualisieren, nicht löschen**, damit Status und Bestätigung erhalten bleiben.
+
+**Hinweis:** Automatisierte Tests sind simulierte Browserabläufe. Der eingeloggte Vinted-Speichervorgang lässt sich nicht vollständig testen, ohne die aktualisierte Extension beim Nutzer auszuführen. Es wird niemals automatisch veröffentlicht.
 
 ## Automatischer Entwurfsstapel (Version 3.12)
 

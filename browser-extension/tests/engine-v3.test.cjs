@@ -707,6 +707,28 @@ function mockWomenSizes(labels=["XS","S","M","L","XL","XXL","3XL"]){
   };
   return {doc,input,chosen:()=>chosen};
 }
+test("unreadable Damen jeans label with measured waist selects letter XS for draft and flags review",async()=>{
+  const ui=mockWomenSizes(),logs=[];
+  const result=await createEngine(ui.doc).size({
+    size:"Nicht lesbar",gender:"Damen",fit:"straight",category:"Jeans",
+    measurements:{waist:"33 cm"}
+  },x=>logs.push(x));
+  assert.equal(result.success,true);
+  assert.equal(result.needsReview,true);
+  assert.equal(result.reviewType,"estimated-size");
+  assert.equal(result.estimateSource,"measured-waist");
+  assert.equal(result.selectedSize,"XS");
+  assert.equal(ui.chosen(),"XS");
+  assert.ok(logs.some(x=>x.includes("[SIZE ESTIMATE] Bundweite flach 33 cm")));
+});
+test("unreadable Damen label without valid Bundweite never selects arbitrary XS",async()=>{
+  const ui=mockWomenSizes(),logs=[];
+  await assert.rejects(()=>createEngine(ui.doc).size({
+    size:"Nicht lesbar",gender:"Damen",fit:"straight",category:"Jeans",
+    measurements:{waist:""}
+  },x=>logs.push(x)),/Keine Etikettgröße.*Bundweite/);
+  assert.equal(ui.chosen(),null);
+});
 test("women with 39 cm flat waist get M, flagged for review, no men's W submenu",async()=>{
   const ui=mockWomenSizes(),logs=[];
   const result=await createEngine(ui.doc).size({
