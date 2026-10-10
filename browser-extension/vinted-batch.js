@@ -167,8 +167,8 @@
     const age=now-Number(receipt.savedAt);
     if(!Number.isFinite(age)||age<0||age>120000)return false;
     const e=String(receipt.evidence||"");
-    return /(?:entw[uü]rf.{0,75}gespeichert|als\\s+entwurf.{0,60}gespeichert|draft.{0,75}saved|saved.{0,55}draft)/i.test(e)&&
-      !/(?:nicht\\s+gespeichert|not\\s+saved|fehler|error|failed)/i.test(e);
+    return /(?:entw[uü]rf.{0,75}gespeichert|als\s+entwurf.{0,60}gespeichert|draft.{0,75}saved|saved.{0,55}draft)/i.test(e)&&
+      !/(?:nicht\s+gespeichert|not\\s+saved|fehler|error|failed)/i.test(e);
   }
   async function storedSaveReceipt(token,articleNumber){
     try{
