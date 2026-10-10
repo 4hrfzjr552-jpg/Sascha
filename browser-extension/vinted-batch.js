@@ -8,6 +8,8 @@
 (() => {
   "use strict";
   const KEY="vintedBatchState";
+  const NEXT_ALARM="saschaVintedBatchNext";
+  const GUARD_ALARM="saschaVintedBatchGuard";
   const MAX_BATCH=100;
   const NEW_ITEM_PATH="/items/new";
   const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -183,6 +185,8 @@
     if(busy)return;
     busy=true;
     try{
+      state=await getState();
+      if(!state||state.status!=="running"||state.phase!=="ready")return;
       const sascha=await findSascha();
       const queue=state.queue;
       while(state.index<queue.length){
@@ -194,6 +198,9 @@
         await log("Beginne "+(state.index+1)+"/"+queue.length+
           ": Artikel #"+row.artikelnummer,{currentId:row.id,phase:"starting"});
         try{
+          // If Chrome suspends the service worker DURING a save, never
+          // automatically repeat that possibly successful operation.
+          await chrome.alarms.create(GUARD_ALARM,{when:Date.now()+180000});
           await single(row,sascha);
         }catch(e){
           await log("STOP bei #"+row.artikelnummer+": "+(e?.message||String(e)),{
@@ -204,8 +211,16 @@
         }
         await put({...state,index:state.index+1,currentId:null,
           completed:[...state.completed,row.id],phase:"ready"});
-        await delay(2000);
+        if(state.index<queue.length){
+          await log("Nächste Hose folgt automatisch nach kurzer Wartezeit",{
+            phase:"ready"
+          });
+          await chrome.alarms.clear(GUARD_ALARM);
+          await chrome.alarms.create(NEXT_ALARM,{when:Date.now()+5000});
+          return;
+        }
       }
+      await chrome.alarms.clear(GUARD_ALARM);
       await log("Alle "+queue.length+" Vinted-Entwürfe bestätigt",{
         status:"done",phase:"done",currentId:null
       });
@@ -216,6 +231,26 @@
     }finally{busy=false;stopRequested=false;}
   }
 
+  chrome.alarms.onAlarm.addListener(async alarm=>{
+    if(![NEXT_ALARM,GUARD_ALARM].includes(alarm?.name))return;
+    const current=await getState();
+    if(!current||current.status!=="running")return;
+    if(busy)return; // Current item is actively being processed.
+    if(alarm.name===NEXT_ALARM&&current.phase==="ready"){
+      state=current;
+      void run();return;
+    }
+    if(alarm.name===GUARD_ALARM && current.phase==="ready")return;
+    if(current.phase!=="ready"){
+      await put({...current,status:"error",phase:"interrupted",
+        error:"Chrome hat den Stapel während der aktuellen Hose unterbrochen. "+
+        "Vinted-Entwürfe kontrollieren und erst danach neu starten.",
+        logs:[...(current.logs||[]),
+          "Sicherheitsstopp: Unterbrochenen Speichervorgang nicht automatisch wiederholen."
+        ].slice(-75)});
+    }
+  });
+
   chrome.runtime.onMessage.addListener((msg,_sender,sendResponse)=>{
     if(msg?.type==="GET_VINTED_BATCH_STATUS"){
       getState().then(s=>sendResponse({success:true,state:s}))
@@ -224,6 +259,8 @@
     }
     if(msg?.type==="STOP_VINTED_BATCH"){
       stopRequested=true;
+      void chrome.alarms.clear(NEXT_ALARM);
+      void chrome.alarms.clear(GUARD_ALARM);
       getState().then(async current=>{
         if(current?.status==="running")
           await put({...current,stopRequested:true,
@@ -243,6 +280,8 @@
       const saved=(await chrome.storage.local.get("savedDrafts")).savedDrafts;
       const queue=orderedQueue(saved,msg.selectedDraftId);
       stopRequested=false;
+      await chrome.alarms.clear(NEXT_ALARM);
+      await chrome.alarms.clear(GUARD_ALARM);
       await put({status:"running",phase:"ready",startedAt:Date.now(),queue,
         index:0,currentId:null,completed:[],logs:[
           "Stapel gestartet: "+queue.length+" Hosen, nur als Entwurf, keine Veröffentlichung"
