@@ -5,7 +5,9 @@ const assert=require("node:assert/strict");
 const fs=require("node:fs");
 const vm=require("node:vm");
 const path=require("node:path");
-const catalog=require("../vinted-catalog-v3.js");
+const catalogContext={window:{},module:{exports:{}}};
+vm.runInNewContext(fs.readFileSync(path.join(__dirname,"..","vinted-catalog-v3.js"),"utf8"),catalogContext);
+const catalog=catalogContext.module.exports;
 const src=fs.readFileSync(path.join(__dirname,"..","content-vinted-v3.js"),"utf8");
 class FakeInput{
   constructor(id,value=""){this.id=id;this._value=value;this.isConnected=true;}
