@@ -22,7 +22,7 @@ function batchApi(overrides={}){
     }},
     tabs:{get:overrides.getTab,sendMessage:overrides.sendMessage,
       query:overrides.queryTabs,
-      create:()=>{throw Error("MUST NOT CREATE DUPLICATE DRAFT");}}
+      create:overrides.createTab}
   };
   vm.runInNewContext(code,{chrome,module,URL,console,setTimeout,clearTimeout});
   return {api:module.exports,listener,store,alarmCalls,
