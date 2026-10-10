@@ -344,3 +344,16 @@ test("confirmed article number is not re-enqueued from the refreshed list",async
   assert.deepEqual(Array.from(box.store.vintedBatchState.queue,
     x=>x.artikelnummer),[73,75]);
 });
+
+
+test("a numeric women's label 6 estimated from actual waist can be saved as DRAFT only with opt-in",()=>{
+  const {api}=batchApi();
+  const result={success:true,needsReview:true,reviewType:"estimated-size",
+    selectedSize:"M",estimateSource:"ambiguous-label-waist",
+    reason:"Etikettgröße 6 unklar; M nur aus Bundweite geschätzt"};
+  assert.equal(api.reviewableEstimatedSize(result,true),true);
+  assert.equal(api.reviewableEstimatedSize(result,false),false);
+  assert.equal(api.reviewableEstimatedSize({...result,success:false},true),false);
+  assert.equal(api.reviewableEstimatedSize({...result,reviewType:"unknown"},true),false);
+  assert.equal(api.reviewableEstimatedSize({...result,selectedSize:"6"},true),false);
+});
