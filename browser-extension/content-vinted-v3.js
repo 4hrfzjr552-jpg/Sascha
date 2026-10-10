@@ -270,15 +270,24 @@
     const clickTarget=found.matches('[role="checkbox"],[role="option"],[role="radio"]')?
       found:found.querySelector('[role="checkbox"],[role="option"],[role="radio"]')||found;
     clickTarget.click();
-    const accepted=await until(()=>{
+    const inField=()=>{
       const fieldValue=value(q("#"+field));
       return aliases.includes(fieldValue)||fieldValue.split(/[,;/]/).some(v=>aliases.includes(norm(v)));
-    },3200);
+    };
+    // Checkbox pickers can defer writing the readonly input until closed.
+    let accepted=await until(inField,950,130);
     if(!accepted){
+      const ariaChecked=clickTarget.getAttribute("aria-checked")==="true" ||
+        found.getAttribute("aria-checked")==="true";
+      if(ariaChecked){
+        log("[PENDING "+field+"] Checkbox markiert; prüfe nach Schließen des Menüs");
+      }
       closeActiveDialog(control);
-      throw Error(NAMES[field]+" angeklickt, aber nicht als Feldwert bestätigt");
+      accepted=await until(inField,2700,170);
+    } else {
+      closeActiveDialog(control);
     }
-    closeActiveDialog(control);
+    if(!accepted)throw Error(NAMES[field]+" angeklickt, aber nicht als Feldwert bestätigt");
     log("["+field.toUpperCase()+" SELECTED] "+requested);
     return {success:true};
   }
