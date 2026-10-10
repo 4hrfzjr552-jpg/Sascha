@@ -483,7 +483,7 @@
         desired=converted.size;
         log("[SIZE WOMEN CONVERT] "+converted.originalLabel+" → "+desired+
           " (Damen-Buchstabengröße nur angenähert; Prüfung erforderlich)");
-      }else if(/^\\d{1,2}$/.test(desired)){
+      }else if(/^\d{1,2}$/.test(desired)){
         // A bare "6" might be US or UK 6. Do NOT assume either one:
         // use actual measured flat waistband instead, only when available.
         if(!estimator?.estimateWomenNumericByWaist)
