@@ -427,3 +427,70 @@ test("continuation will not requeue any article already confirmed in another bat
   ],[66]);
   assert.deepEqual(Array.from(next,x=>x.artikelnummer),[65,64]);
 });
+
+
+test("after a v3.22 pre-save size error #66 can be retried preserving saved #67",async()=>{
+  const state={
+    status:"error",phase:"failed",queue:[
+      {id:"pant67",artikelnummer:67},
+      {id:"pant66",artikelnummer:66},
+      {id:"pant65",artikelnummer:65}
+    ],index:1,currentId:"pant66",
+    error:"Formular nicht vollständig: Größe: Größe Nicht lesbar nicht in der aktuellen Vinted-Größenauswahl gefunden",
+    logs:[
+      "Stapel gestartet: 22 Hosen ab #67",
+      "Beginne 1/22: Artikel #67",
+      "Speichere #67 ausdrücklich als Entwurf",
+      "Entwurf #67 bestätigt",
+      "Beginne 2/22: Artikel #66",
+      "Lade Sascha-AI-Entwurf #66",
+      "Fülle #66",
+      "STOP bei #66: Formular nicht vollständig: Größe: Größe Nicht lesbar nicht in der aktuellen Vinted-Größenauswahl gefunden"
+    ],completed:["pant67"],warnings:["Artikel #67: Größe XS geschätzt"],
+    allowEstimatedSizes:true,skipped:[]
+  };
+  const box=batchApi({state,store:{vintedConfirmedArticleNumbers:[67]}});
+  assert.equal(box.api.recoverablePreSaveFormFailure(state),true);
+  const response=await box.dispatch({type:"RETRY_VINTED_FAILED_FORM"});
+  assert.equal(response.success,true);
+  assert.equal(response.currentArticle,66);
+  assert.equal(box.store.vintedBatchState.status,"running");
+  assert.equal(box.store.vintedBatchState.phase,"ready");
+  assert.equal(box.store.vintedBatchState.index,1);
+  assert.equal(box.store.vintedBatchState.allowEstimatedSizes,true);
+  assert.deepEqual(Array.from(box.store.vintedBatchState.completed),["pant67"]);
+  assert.equal(box.store.vintedBatchState.warnings.length,1);
+  assert.deepEqual(Array.from(box.store.vintedConfirmedArticleNumbers),[67]);
+});
+test("restarting a possibly already saved Vinted draft is forbidden",async()=>{
+  const base={
+    status:"error",phase:"failed",queue:[{id:"p66",artikelnummer:66}],
+    index:0,currentId:"p66",
+    error:"Formular nicht vollständig: Größe Nicht lesbar",
+    logs:["Beginne 1/1: Artikel #66","Fülle #66",
+      "Speichere #66 ausdrücklich als Entwurf","STOP bei #66: timeout"],
+    completed:[]
+  };
+  const box=batchApi({state:base});
+  assert.equal(box.api.recoverablePreSaveFormFailure(base),false);
+  const response=await box.dispatch({type:"RETRY_VINTED_FAILED_FORM"});
+  assert.equal(response.success,false);
+  assert.equal(box.store.vintedBatchState.status,"error");
+});
+test("only confirmed pre-save form errors may be skipped to the next pant",()=>{
+  const {api}=batchApi();
+  assert.equal(api.skippableUnfilledForm("filling",
+    "Formular nicht vollständig: Größe: Nicht lesbar"),true);
+  assert.equal(api.skippableUnfilledForm("filling",
+    "Feld color wurde nicht bestätigt"),true);
+  assert.equal(api.skippableUnfilledForm("filling",
+    "Feld size muss noch manuell geprüft werden"),true);
+  assert.equal(api.skippableUnfilledForm("saving",
+    "Formular nicht vollständig: Größe: Nicht lesbar"),false);
+  assert.equal(api.skippableUnfilledForm("verifying",
+    "Formular nicht vollständig: Größe: Nicht lesbar"),false);
+  assert.equal(api.skippableUnfilledForm("filling",
+    "Vinted hat das Speichern nicht eindeutig bestätigt"),false);
+  assert.equal(api.skippableUnfilledForm("filling",
+    "Chrome hat den Tab verloren"),false);
+});
