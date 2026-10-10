@@ -263,3 +263,58 @@ test("condition Sehr gut matches the heading before its descriptive text",()=>{
   assert.equal(engine.isCorrectFieldOption("condition",option,["sehr gut","very good"]),true);
   assert.equal(engine.isCorrectFieldOption("condition",option,["gut","good"]),false);
 });
+
+
+test("price parser handles comma, dot, euros, and thousands formatting",()=>{
+  const engine=createEngine({querySelectorAll(){return [];}});
+  const examples=[
+    ["25",2500],["25,00",2500],["25.00 €",2500],
+    ["25,50 €",2550],["€ 25,50",2550],["25.5",2550],
+    ["1.234,50 €",123450],["1,234.50",123450],
+    ["1.234",123400],["25 EUR",2500],["",null],["abc",null]
+  ];
+  for(const [label,cents] of examples)
+    assert.equal(engine.priceCents(label),cents,"Money parser: "+label);
+});
+test("price is accepted after Vinted formats input on blur",async()=>{
+  const input=new FakeInput("price");
+  input.tagName="INPUT";
+  input.getAttribute=name=>name==="type"?"text":null;
+  input.blur=()=>{input.value="25,00 €";};
+  const document={
+    querySelectorAll(selector){
+      return selector.includes("#price")?[input]:[];
+    },
+    querySelector(){return null;}
+  };
+  const logs=[];
+  const result=await createEngine(document).price({price:"25,00"},x=>logs.push(x));
+  assert.equal(result.success,true);
+  assert.ok(logs.some(x=>x.includes("confirmed=true")));
+});
+test("a number input accepts decimal dot and confirms correct amount",async()=>{
+  const input=new FakeInput("price");
+  input.tagName="INPUT";
+  input.getAttribute=name=>name==="type"?"number":null;
+  input.blur=()=>{};
+  const document={querySelectorAll(selector){
+    return selector.includes("#price")?[input]:[];
+  }};
+  const logs=[];
+  const result=await createEngine(document).price({price:"19,50 €"},x=>logs.push(x));
+  assert.equal(result.success,true);
+  assert.equal(input.value,"19.5");
+});
+test("if Vinted overwrites the input with a different price, stop",async()=>{
+  const input=new FakeInput("price");
+  input.tagName="INPUT";
+  input.getAttribute=name=>name==="type"?"text":null;
+  input.blur=()=>{input.value="20,00 €";};
+  const document={querySelectorAll(selector){
+    return selector.includes("#price")?[input]:[];
+  }};
+  const logs=[];
+  await assert.rejects(()=>createEngine(document).price({price:"25,00"},x=>logs.push(x)),
+    /nicht sicher bestätigt/);
+  assert.ok(logs.some(x=>x.includes("confirmed=false")));
+});

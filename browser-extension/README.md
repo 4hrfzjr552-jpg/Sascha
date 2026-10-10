@@ -1,4 +1,4 @@
-# Sascha AI → Vinted Assistant 3.3
+# Sascha AI → Vinted Assistant 3.4
 
 Die Chrome-Erweiterung übernimmt einen vollständigen Entwurf aus Sascha AI in die geöffnete Vinted-Verkaufsmaske. **Sie veröffentlicht und speichert nichts automatisch.** Alle Angaben vor dem Speichern prüfen.
 
@@ -39,7 +39,7 @@ Die folgende Zuordnung stammt aus realen Vinted-Katalog-Suchergebnissen und ist 
 2. ZIP entpacken und den **Ordner \`browser-extension\`** an einem festen Ort behalten.
 3. In Chrome \`chrome://extensions/\` öffnen und den Entwicklermodus aktivieren.
 4. „Entpackte Erweiterung laden“ wählen und den Ordner \`browser-extension\` auswählen.
-5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.3.0** stehen.
+5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.4.0** stehen.
 
 **Updates:** Neue Dateien in denselben entpackten Erweiterungsordner kopieren, unter \`chrome://extensions/\` „Neu laden“ klicken und den Vinted-Tab aktualisieren. Nur „Download ZIP“ auszuführen aktualisiert die installierte Erweiterung nicht. Es ist weder \`git pull\` noch das Mergen eines GitHub-PR erforderlich, wenn die Version bereits in \`main\` liegt.
 
@@ -60,6 +60,12 @@ Im Log stehen [SIZE GROUPS], [SIZE WAIST] und [SIZE SELECTED]. Vor Veröffentlic
 ### Zustandsauswahl
 
 Vinted hängt an Zustände wie „Sehr gut“ längere Beschreibungen an. Die Extension erkennt deshalb den Zustandsnamen am Anfang des Auswahltexts und prüft anschließend, ob „Sehr gut“ auch wirklich als Feldwert übernommen wurde.
+
+### Preisbestätigung
+
+Der Preis wird **nach dem Verlassen des Eingabefelds** geprüft. Vinted kann `25,00`, `25.00` oder `25,00 €` anzeigen; diese Darstellungen entsprechen demselben Betrag. Die Extension vergleicht Cent-Beträge und kontrolliert, ob der Wert nach der Formatierung erhalten bleibt.
+
+Bei Problemen protokolliert `[PRICE VERIFY]` Sollbetrag, tatsächlichen Feldtext und Prüfergebnis. Ein wirklich abweichender Preis wird weiterhin nicht als Erfolg gewertet.
 
 ### Fehlersuche
 

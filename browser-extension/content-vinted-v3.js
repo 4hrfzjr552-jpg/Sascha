@@ -535,20 +535,66 @@
     log("["+field.toUpperCase()+" SELECTED] "+requested);
     return {success:true};
   }
-  async function price(draft){
-    const amount=String(draft.price??"").replace(/[€\s]/g,"").replace(",",".");
-    if(!Number.isFinite(Number(amount))||Number(amount)<=0)
-      throw Error("Preis ungültig oder fehlt");
-    const el=await until(()=>{const inp=q('#price, input[name="price"]');return shown(inp)&&inp;},4400);
+  // Vinted's text/number inputs can display the same price as "25",
+  // "25,00", "25.00 €" or "1.234,50 €". Normalize to integer cents
+  // rather than comparing Number("25,00 €") (which is NaN).
+  function priceCents(raw) {
+    const compact=String(raw??"").replace(/\u00a0/g," ")
+      .replace(/\bEUR\b/gi,"").replace(/€/g,"").replace(/\s+/g,"").trim();
+    if(!compact||!/^\d+(?:[.,]\d+)*$/.test(compact))return null;
+    const last=Math.max(compact.lastIndexOf(","),compact.lastIndexOf("."));
+    let whole=compact,fraction="";
+    if(last!==-1){
+      const after=compact.slice(last+1);
+      // 3 digits after one separator is generally a thousands group.
+      const decimals=after.length===1||after.length===2;
+      if(decimals){
+        whole=compact.slice(0,last);
+        fraction=after.padEnd(2,"0");
+      }
+    }
+    const stripped=whole.replace(/[.,]/g,"");
+    if(!/^\d+$/.test(stripped))return null;
+    const cents=Number(stripped)*100+Number(fraction||"0");
+    return Number.isSafeInteger(cents)?cents:null;
+  }
+  function editablePriceField(){
+    return visible('#price, input[name="price"], input[data-testid*="price" i]')
+      .find(el=>el.tagName==="INPUT")||null;
+  }
+  async function price(draft,log){
+    const expected=priceCents(draft.price);
+    if(expected===null||expected<=0)throw Error("Preis ungültig oder fehlt");
+    const el=await until(editablePriceField,4400);
     if(!el)throw Error("Preisfeld nicht sichtbar");
-    await bringIntoView(el,"price");
-    setReactValue(el,String(draft.price).replace(/[€\s]/g,""));
-    const confirmed=await until(()=>{
-      const actual=(q("#price, input[name=price]")?.value||"").replace(",",".");
-      return Number(actual)===Number(amount);
-    },1700);
-    if(!confirmed)throw Error("Preiswert nicht bestätigt");
-    el.blur();
+    await bringIntoView(el,"price",log);
+    const type=norm(el.getAttribute("type")||el.type||"text");
+    const clean=String(draft.price).replace(/\bEUR\b/gi,"")
+      .replace(/[€\s]/g,"");
+    // Native number inputs require a decimal point. Vinted's common text
+    // input receives the original localized representation instead.
+    const written=type==="number" ?
+      String(expected/100) : clean;
+    setReactValue(el,written);
+    el.blur(); // React/Vinted may commit and localize on blur.
+    await sleep(260);
+    const read=()=> {
+      const live=editablePriceField();
+      if(!live)return {raw:"",cents:null};
+      const raw=live.value || live.getAttribute("aria-valuenow") || "";
+      return {raw:String(raw),cents:priceCents(raw)};
+    };
+    const confirmed=await until(()=>read().cents===expected,3200,180);
+    // Require the value to survive at least one additional render cycle:
+    // this avoids confirming a write that React subsequently overwrites.
+    if(confirmed)await sleep(320);
+    const actual=read();
+    log("[PRICE VERIFY] expected="+(expected/100).toFixed(2)+
+      " actual="+JSON.stringify(actual.raw)+
+      " parsed="+(actual.cents===null?"invalid":(actual.cents/100).toFixed(2))+
+      " confirmed="+Boolean(confirmed&&actual.cents===expected));
+    if(!confirmed||actual.cents!==expected)
+      throw Error("Preis nicht sicher bestätigt – sichtbaren Wert bitte prüfen");
     return {success:true};
   }
   async function imageFile(image,index){
@@ -589,7 +635,7 @@
       ["size",()=>size(draft,log)],
       ["color",()=>choiceField("color",draft,log)],
       ["condition",()=>choiceField("condition",draft,log)],
-      ["price",()=>price(draft)],
+      ["price",()=>price(draft,log)],
       ["images",()=>images(draft)]
     ];
     const results={};
@@ -637,6 +683,7 @@
   // Available only for local, isolated automated tests (not an API for Vinted).
   if(window.__SASCHA_TEST__)window.__SASCHA_ENGINE_TEST__={
     articleTitle,liveCatalogRows,optionText,nameAlternatives,run,chooseCategory,size,
-    sizeOptions,sizeMenuDiagnostic,openSizeMenu,selectWaistSizing,waistModeMatch,isCorrectFieldOption
+    sizeOptions,sizeMenuDiagnostic,openSizeMenu,selectWaistSizing,waistModeMatch,isCorrectFieldOption,
+    price,priceCents,editablePriceField
   };
 })();
