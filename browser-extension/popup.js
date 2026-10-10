@@ -106,7 +106,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Price & Images
     draftPrice.textContent = draft.price !== undefined ? `${draft.price} €` : "-- €";
     const imgCount = draft.imageCount !== undefined ? draft.imageCount : (draft.images ? draft.images.length : 0);
-    draftImageCount.textContent = `${imgCount} Bild${imgCount === 1 ? "" : "er"}`;
+    draftImageCount.textContent = `${imgCount} Bilder im Entwurf · ${Math.min(imgCount,4)} für Vinted`;
 
     // Meta details
     draftBrand.textContent = draft.brand || "-";
@@ -358,7 +358,9 @@ document.addEventListener("DOMContentLoaded", () => {
   function displayFillResults(results, logs, stoppedAt) {
     statusBox.style.display = "block";
     statusList.innerHTML = "";
-    statusSummaryTitle.textContent=stoppedAt ? "Gestoppt: "+stoppedAt+" nicht bestätigt" : "Felder einzeln ausgefüllt – bitte prüfen";
+    statusSummaryTitle.textContent=stoppedAt ? "Gestoppt: "+stoppedAt+" nicht bestätigt" :
+      Object.values(results).some(x=>x?.needsReview) ? "Übertragen – bitte Bildanzahl überprüfen" :
+      "Felder einzeln ausgefüllt – bitte prüfen";
 
     if (logs && Array.isArray(logs)) {
       logs.forEach((line) => logDebug(line));
@@ -381,7 +383,11 @@ document.addEventListener("DOMContentLoaded", () => {
       const li = document.createElement("li");
       li.className = "status-item";
 
-      if (res && res.success) {
+      if (res && res.success && res.needsReview) {
+        li.innerHTML = `<span class="status-review">!</span> <strong>${field.label}</strong>`;
+        li.appendChild(document.createTextNode(" ("+
+          (res.reason || "Bitte prüfen")+")"));
+      } else if (res && res.success) {
         li.innerHTML = `<span class="status-success">✓</span> <strong>${field.label}</strong>`;
       } else {
         const reason = res?.reason ? ` (${res.reason})` : "";
