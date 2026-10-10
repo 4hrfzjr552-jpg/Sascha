@@ -105,3 +105,39 @@ test("women's XXL/2XL aliases are narrow and deterministic",()=>{
   assert.deepEqual(Array.from(letterAliases("XXL")),["XXL","2XL"]);
   assert.deepEqual(Array.from(letterAliases("M")),["M"]);
 });
+
+
+test("ambiguous Damen label 6 uses real waist only; 39 cm => estimated M",()=>{
+  const {estimateWomenNumericByWaist}=moduleForTest.exports;
+  const found=estimateWomenNumericByWaist({size:"6",measurements:{waist:"39 cm"}},women);
+  assert.equal(found.ok,true);
+  assert.equal(found.size,"M");
+  assert.equal(found.waistCm,39);
+  assert.equal(found.originalLabel,"6");
+  assert.equal(found.source,"ambiguous-label-waist");
+  assert.equal(found.estimated,true);
+  assert.match(found.reason,/Etikettgröße 6/);
+  assert.match(found.reason,/nur aus Bundweite 39 cm/);
+});
+test("bare numeric 36 is not assumed EU or W; 40 cm measurements drive L",()=>{
+  const {estimateWomenNumericByWaist}=moduleForTest.exports;
+  const found=estimateWomenNumericByWaist({size:"36",measurements:{waist:"40"}},women);
+  assert.equal(found.size,"L");
+  assert.match(found.reason,/ohne Größenformat/);
+  assert.equal(found.source,"ambiguous-label-waist");
+});
+test("numeric label without valid waist must stop rather than guess US size",()=>{
+  const {estimateWomenNumericByWaist}=moduleForTest.exports;
+  for(const waist of ["",undefined,"waist unknown","99"]){
+    const found=estimateWomenNumericByWaist({size:"6",measurements:{waist}},women);
+    assert.equal(found.ok,false);
+    assert.match(found.reason,/keine gültige/);
+  }
+});
+test("numeric waist fallback never applies to men or nonnumeric labels",()=>{
+  const {estimateWomenNumericByWaist}=moduleForTest.exports;
+  assert.equal(estimateWomenNumericByWaist({size:"6",measurements:{waist:"39"}},men).ok,false);
+  assert.equal(estimateWomenNumericByWaist({size:"US 6",measurements:{waist:"39"}},women).ok,false);
+  assert.equal(estimateWomenNumericByWaist({size:"W36",measurements:{waist:"39"}},women).ok,false);
+  assert.equal(estimateWomenNumericByWaist({size:"L",measurements:{waist:"39"}},women).ok,false);
+});
