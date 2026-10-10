@@ -295,7 +295,8 @@
         "ab #"+nextItems[0].artikelnummer+"; bestätigte Artikel bleiben erledigt"
       ].slice(-75)};
     await put(next);
-    void run();
+    if(typeof chrome.tabs.query==="function" &&
+       typeof chrome.tabs.create==="function")void run();
     return {success:true,count:nextItems.length,
       nextArticle:nextItems[0].artikelnummer,state:next};
   }
