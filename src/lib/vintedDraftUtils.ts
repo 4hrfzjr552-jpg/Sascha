@@ -9,6 +9,7 @@ import {
   getBulkImagesByIds,
 } from "./indexedDb";
 import { getSignedImageUrl } from "./supabase";
+import { freshVintedImageSource, prepareVintedImageDataUrl } from "./vintedImageTransfer";
 
 /**
  * Checks whether a PantItem is eligible for preparing a Vinted draft.
@@ -82,42 +83,6 @@ export function createVintedDraftFromPant(
     createdAt: now,
     updatedAt: now,
   };
-}
-
-/**
- * The Vinted extension runs on vinted.de, where fetching our Supabase images
- * can be blocked by CORS. Convert remote images inside the Sascha AI tab,
- * where they are already accessible, into portable data:image/... URLs.
- *
- * Signed Supabase image links are short lived; callers must refresh links
- * before passing them to this function rather than forwarding a cached URL.
- */
-export async function prepareVintedImageDataUrl(source: string): Promise<string> {
-  if (source.startsWith("data:image/")) return source;
-  if (!/^https?:\/\//i.test(source)) {
-    throw new Error("Ungültige oder fehlende Bildquelle.");
-  }
-  const response = await fetch(source, { cache: "no-store" });
-  if (!response.ok) {
-    throw new Error("Bildserver antwortet mit HTTP " + response.status);
-  }
-  const blob = await response.blob();
-  if (!blob.size || (blob.type && !blob.type.startsWith("image/"))) {
-    throw new Error("Bildserver hat keine gültige Bilddatei geliefert.");
-  }
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const data = reader.result;
-      if (typeof data === "string" && data.startsWith("data:image/")) {
-        resolve(data);
-      } else {
-        reject(new Error("Bilddaten konnten nicht gelesen werden."));
-      }
-    };
-    reader.onerror = () => reject(new Error("Bild konnte nicht gelesen werden."));
-    reader.readAsDataURL(blob);
-  });
 }
 
 /**
@@ -211,14 +176,10 @@ export async function getVintedDraftPayload(
       // unconditionally whenever we have the original storage path.
       if (found?.storagePath) {
         try {
-          const signedUrl = await getSignedImageUrl(found.storagePath);
-          if (signedUrl) {
-            dataUrl = signedUrl;
-            source = "refreshed-storage-signed-url";
-          } else {
-            // Never re-use a possibly expired cached link.
-            dataUrl = "";
-          }
+          dataUrl = await freshVintedImageSource(
+            dataUrl, found.storagePath, getSignedImageUrl
+          );
+          source = dataUrl ? "refreshed-storage-signed-url" : "signed-url-unavailable";
         } catch (err) {
           dataUrl = "";
           console.warn("[VintedDraftPayload] Signed-URL konnte nicht erneuert werden:", err);
