@@ -1,4 +1,4 @@
-# Sascha AI → Vinted Assistant 3.25
+# Sascha AI → Vinted Assistant 3.26
 
 Die Chrome-Erweiterung übernimmt einen vollständigen Entwurf aus Sascha AI in die geöffnete Vinted-Verkaufsmaske. **Sie veröffentlicht und speichert nichts automatisch.** Alle Angaben vor dem Speichern prüfen.
 
@@ -39,7 +39,7 @@ Die folgende Zuordnung stammt aus realen Vinted-Katalog-Suchergebnissen und ist 
 2. ZIP entpacken und den **Ordner \`browser-extension\`** an einem festen Ort behalten.
 3. In Chrome \`chrome://extensions/\` öffnen und den Entwicklermodus aktivieren.
 4. „Entpackte Erweiterung laden“ wählen und den Ordner \`browser-extension\` auswählen.
-5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.25.0** stehen.
+5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.26.0** stehen.
 
 **Updates:** Neue Dateien in denselben entpackten Erweiterungsordner kopieren, unter \`chrome://extensions/\` „Neu laden“ klicken und den Vinted-Tab aktualisieren. Nur „Download ZIP“ auszuführen aktualisiert die installierte Erweiterung nicht. Es ist weder \`git pull\` noch das Mergen eines GitHub-PR erforderlich, wenn die Version bereits in \`main\` liegt.
 
@@ -179,6 +179,18 @@ Bei #51 meldet Chrome z. B. `Could not establish connection. Receiving end does 
 Die ungeklärten Artikelnummern werden zusätzlich im lokalen Speicher der bestehenden Extension vor automatischer erneuter Übertragung geschützt – auch in späteren Stapeln oder nach Neustart. **Wichtig:** Diese Liste ist keine Vinted-Bestätigung. **ALLE als ungeklärt markierten Artikel später auf Vinted manuell kontrollieren**: Wenn sie nicht existieren, die Artikel gezielt wieder vorbereiten, statt ohne Kontrolle alles nochmals zu senden. Ein solcher Abgleich ist bisher eine manuelle Aufgabe. Die Extension veröffentlicht niemals automatisch.
 
 Die Liste der ungeklärten Artikel erscheint weiterhin im Popup. Wer die automatische Weiterarbeit nicht aktiviert, bekommt weiter die bisherige sichere Pause zur Kontrolle. **Die bestehende Extension nicht deinstallieren**, um laufende Stapel, bestätigte Artikelnummern und ungeklärte Fälle zu behalten.
+
+### Vinted öffnet nur ein halb ausgefülltes Formular und springt weiter (3.26.0)
+
+Beim Stapel **6/22** wurde für #58, #48 und #32 protokolliert: `Formular nicht vollständig: category: Jeans-Schnitt nicht eindeutig erkannt`. Früher wurden zuerst Titel und Beschreibung in einen bereits geöffneten Vinted-Tab geschrieben; dann brach die Kategorisierung ab. Die Hose wurde als **NICHT GESPEICHERT** protokolliert und der Stapel ging zur nächsten Hose. Das war kein erfolgreicher Entwurf.
+
+Der bisherige Kategorienklassifizierer mischte außerdem strukturiertes Fit-Merkmal, Titel und Beschreibung inklusive SEO-/Keyword-Listen in eine Textsuche. Ein eindeutiges „Straight“ im Titel konnte durch Erwähnungen von „Slim“, „Skinny“, „Bootcut“ in der Beschreibung mehrdeutig werden. **Neu:** Eindeutige Fit-Information aus den strukturierten Sascha-AI-Daten hat Vorrang, dann der eigentliche Titel, danach der Untertyp, und erst zuletzt die Beschreibung. Ein **tatsächlich mehrdeutiger** oder nicht für Vinted bestätigter Jeans-Schnitt wird weiterhin **nicht erfunden**. Die bisherigen geprüften Vinted-Kategorie-IDs bleiben unverändert.
+
+Die Extension lädt dafür ab **3.26** die Sascha-AI-Produktdaten **vor dem Öffnen eines Vinted-Tabs**, prüft die Kategorie bereits im Hintergrund und legt bei eindeutig fehlendem Schnitt den Artikel sofort in die Liste **„NICHT GESPEICHERT“**, anstatt ein halb ausgefülltes Verkaufsformular offen zu lassen. Das wird ausdrücklich als **vor dem Speichern fehlgeschlagen** behandelt, nicht als ungeklärte Speicherung oder bestätigter Entwurf. Weitere Hosen werden wie bisher bearbeitet.
+
+**Stopp angefordert:** Dieser Zustand wird in der vorhandenen Extension durch eine `STOP_VINTED_BATCH`-Nachricht gesetzt; mit 3.26 wird beim Empfang der Stopp-Anforderung zusätzlich **Artikelnummer und laufende Phase** ins Protokoll geschrieben. Ob die Stopp-Anforderung absichtlich ausgelöst wurde, kann aus einem Screenshot allein nicht ermittelt werden. Aktualisiere die vorhandene Extension **nicht während eines Speichervorgangs** und deinstalliere sie nicht, damit der Bestätigungs-/Prüffortschritt erhalten bleibt.
+
+Die aktuell übersprungenen #58, #48, #32 wurden nach dem vorliegenden Status **nicht gespeichert**. Bei ihnen muss ein tatsächliches Fit-Merkmal in den Daten vorhanden sein, damit die Erweiterung automatisch eine geprüfte Kategorie auswählen kann. Tests simulieren die Browseroberfläche, nicht ein eingeloggtes Vinted-Konto.
 
 ## Automatischer Entwurfsstapel (Version 3.12)
 
