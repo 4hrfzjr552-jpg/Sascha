@@ -1,4 +1,4 @@
-# Sascha AI → Vinted Assistant 3.11
+# Sascha AI → Vinted Assistant 3.12
 
 Die Chrome-Erweiterung übernimmt einen vollständigen Entwurf aus Sascha AI in die geöffnete Vinted-Verkaufsmaske. **Sie veröffentlicht und speichert nichts automatisch.** Alle Angaben vor dem Speichern prüfen.
 
@@ -39,9 +39,25 @@ Die folgende Zuordnung stammt aus realen Vinted-Katalog-Suchergebnissen und ist 
 2. ZIP entpacken und den **Ordner \`browser-extension\`** an einem festen Ort behalten.
 3. In Chrome \`chrome://extensions/\` öffnen und den Entwicklermodus aktivieren.
 4. „Entpackte Erweiterung laden“ wählen und den Ordner \`browser-extension\` auswählen.
-5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.11.0** stehen.
+5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.12.0** stehen.
 
 **Updates:** Neue Dateien in denselben entpackten Erweiterungsordner kopieren, unter \`chrome://extensions/\` „Neu laden“ klicken und den Vinted-Tab aktualisieren. Nur „Download ZIP“ auszuführen aktualisiert die installierte Erweiterung nicht. Es ist weder \`git pull\` noch das Mergen eines GitHub-PR erforderlich, wenn die Version bereits in \`main\` liegt.
+
+## Automatischer Entwurfsstapel (Version 3.12)
+
+Die Extension kann die in Sascha AI **bereits vorbereiteten** Jeans-Hosen nacheinander als **Vinted-Entwürfe** speichern. Sie veröffentlicht niemals ein Angebot. Vinted dokumentiert einen eigenen Befehl zum Speichern als Entwurf; der Stapel darf ausschließlich einen genau als „Entwurf speichern“/„Save draft“ gekennzeichneten Button anklicken.
+
+1. Sascha AI geöffnet lassen und in der Extension „Entwurf aus Sascha AI übernehmen“ klicken.
+2. Bei mehreren Hosen im Dropdown die **Start-Hose** auswählen.
+3. Auf „**Alle ab dieser Hose als Vinted-Entwürfe speichern**“ klicken und bestätigen.
+4. Die Extension verarbeitet die Hosen in aufsteigender **numerischer Artikelnummer**, erzeugt für jede Hose ein neues Vinted-Verkaufsformular, überträgt alle Felder sowie **nur die ersten vier bearbeiteten Bilder** und klickt einmal auf **Entwurf speichern**.
+5. **Erst nach einer eindeutig sichtbaren Speicherbestätigung oder bestätigten Vinted-Entwurfsseite** wird die Hose als fertig markiert und die nächste automatisch begonnen. Zwischen den Hosen kann eine kurze Chrome-bedingte Wartezeit liegen.
+
+Der Stapel läuft im Erweiterungs-Hintergrund weiter, wenn das Popup geschlossen wird. Zwischen den Hosen wird der Fortschritt gespeichert und über `chrome.alarms` fortgesetzt. **Bei Browser-/Erweiterungsneustart während eines Speichervorgangs ist keine automatische Wiederholung vorgesehen**, weil sonst doppelte Entwürfe entstehen könnten. In diesem Fall Vinted-Entwürfe prüfen und den Stapel gegebenenfalls mit der nächsten noch offenen Hose erneut starten.
+
+**Sicherheitsregeln:** Der Vorgang stoppt bei fehlender oder doppelter Artikelnummer, einem nicht bestätigten Formularfeld, unklarer Bildvorschau, fehlendem Entwurf-Speichern-Button oder unbestätigter Vinted-Speicherung. Die Extension klickt niemals „Veröffentlichen“. „Stapel stoppen“ hält nach einem bereits laufenden Vorgang sicher an. Die Liste der fertigen IDs wird lokal gespeichert. Bereits begonnene oder unbestätigte Einträge nicht blind ein zweites Mal starten.
+
+**Hinweis:** Die Vinted-Speicheroberfläche wurde noch nicht in einer echten angemeldeten Sitzung getestet. Wenn Vinted nach dem Klick keinen eindeutigen Hinweis zeigt oder anders navigiert, stoppt die Extension absichtlich. Der erste Praxistest sollte mit wenigen Entwürfen durchgeführt werden, bevor ein größerer Stapel gestartet wird.
 
 ## Ausfüllen
 
