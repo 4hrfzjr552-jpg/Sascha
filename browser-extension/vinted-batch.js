@@ -218,6 +218,7 @@
   // confirms that existing draft in Vinted, discover the subsequent
   // eligible pants instead of declaring that old batch finished.
   async function extendOldSingleQueue(current){
+    state=current;
     if(current.index<current.queue.length-1)return current;
     const row=current.queue[current.index];
     if(!row)return current;
