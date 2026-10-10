@@ -439,8 +439,19 @@
   }
 
   async function size(draft,log){
-    const desired=String(draft.size||"").trim();
-    if(!desired)throw Error("Größe fehlt im Entwurf");
+    let desired=String(draft.size||"").trim();
+    let estimated=null;
+    const estimator=window.SaschaVintedWaistEstimate;
+    if(estimator?.isMissingSize(desired)||!desired){
+      if(!estimator?.estimate)throw Error("Größen-Schätzfunktion fehlt – Extension aktualisieren");
+      const result=estimator.estimate(draft,catalog.classify(draft));
+      if(!result.ok)throw Error("Keine Etikettgröße. "+result.reason);
+      estimated=result;
+      desired=result.size;
+      log("[SIZE ESTIMATE] "+result.waistCm+" cm Bundweite flach × 2 / 2,54 = "+
+        result.inches+" Zoll; vorgeschlagen "+desired+". "+
+        "Nur Schätzung, Etikett und tatsächliche Maße prüfen.");
+    }
     const control=await until(()=>{const el=q("#size");return shown(el)&&el},4000);
     if(!control)throw Error("Größenfeld fehlt oder wurde noch nicht gerendert");
     await bringIntoView(control,"size",log);
@@ -466,6 +477,13 @@
       throw Error("Größe angeklickt, aber nicht als Feldwert bestätigt");
     }
     if(shown(sizeGrid()))closeActiveDialog(control);
+    if(estimated){
+      const reason=desired+" nur aus Bundweite "+estimated.waistCm+
+        " cm geschätzt (Herstellergröße kann abweichen) – vor Speichern prüfen";
+      log("[SIZE REVIEW] "+reason);
+      log("[SIZE SELECTED] "+result.size.toUpperCase()+" (Schätzung, kein Etikett)");
+      return {success:true,needsReview:true,reason};
+    }
     log("[SIZE SELECTED] "+result.size.toUpperCase()+" (Originalgröße)");
     return {success:true};
   }
