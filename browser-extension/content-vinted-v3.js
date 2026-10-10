@@ -442,31 +442,56 @@
     let desired=String(draft.size||"").trim();
     let estimated=null;
     const estimator=window.SaschaVintedWaistEstimate;
+    const group=catalog.classify(draft);
     if(estimator?.isMissingSize(desired)||!desired){
       if(!estimator?.estimate)throw Error("Größen-Schätzfunktion fehlt – Extension aktualisieren");
-      const result=estimator.estimate(draft,catalog.classify(draft));
+      const result=estimator.estimate(draft,group);
       if(!result.ok)throw Error("Keine Etikettgröße. "+result.reason);
       estimated=result;
       desired=result.size;
-      log("[SIZE ESTIMATE] "+result.waistCm+" cm Bundweite flach × 2 / 2,54 = "+
-        result.inches+" Zoll; vorgeschlagen "+desired+". "+
-        "Nur Schätzung, Etikett und tatsächliche Maße prüfen.");
+      log("[SIZE ESTIMATE] Bundweite flach "+result.waistCm+" cm; "+
+        "Umfang "+result.circumferenceCm+" cm. "+
+        (group.gender==="women"?"Damen-Buchstabengröße ":"Herren-Taillenumfang ")+
+        desired+" vorgeschlagen (nur Schätzung, bitte prüfen).");
     }
     const control=await until(()=>{const el=q("#size");return shown(el)&&el},4000);
     if(!control)throw Error("Größenfeld fehlt oder wurde noch nicht gerendert");
     await bringIntoView(control,"size",log);
     if(!await openSizeMenu(control,log))
       throw Error("Vinted-Größenraster nach Eingabe, Container-Klick und Scrollen nicht geöffnet");
-    await selectWaistSizing(draft,desired,log);
+
+    // Women's jeans generally expose letters on Vinted. A women's W/US/EU
+    // label is preserved if Vinted really offers it; otherwise the
+    // provisional conversion requires manual review before batch saving.
+    const exactOriginal=sizeOptions().some(o=>norm(o.label)===norm(desired));
+    if(group.gender==="women"&&!estimated&&!exactOriginal){
+      const converted=estimator?.convertWomenLabel?.(desired,group);
+      if(converted?.ok){
+        estimated=converted;
+        desired=converted.size;
+        log("[SIZE WOMEN CONVERT] "+converted.originalLabel+" → "+desired+
+          " (Damen-Buchstabengröße nur angenähert; Prüfung erforderlich)");
+      }
+    }
+    // Never open the men's W waist submenu for a women's letter size.
+    if(group.gender!=="women"||/^w\d{2}$/i.test(desired))
+      await selectWaistSizing(draft,desired,log);
     const options=sizeOptions();
     if(options.some(o=>/fruhchen|neugeboren|1-3 monate/i.test(o.label)))
       throw Error("Vinted zeigt Babygrößen – falsche Kategorie");
-    const result=catalog.sizeChoice(desired,options.map(o=>o.label),draft);
-    // No automatic W-to-letter size conversion: Vinted has a separate
-    // Taillenumfang picker; the original W label must be preserved.
+    let result=catalog.sizeChoice(desired,options.map(o=>o.label),draft);
+    // Some Vinted variants display 2XL instead of XXL, or XXXL instead
+    // of 3XL. Accept only known equivalent letter labels.
+    if(!result.ok&&group.gender==="women"&&estimator?.letterAliases){
+      const aliases=estimator.letterAliases(desired);
+      const available=options.find(o=>aliases.some(a=>norm(a)===norm(o.label)));
+      if(available)result=catalog.sizeChoice(available.label,options.map(o=>o.label),draft);
+    }
     if(!result.ok){
       log("[SIZE OPTIONS] "+JSON.stringify(options.map(o=>o.label)));
-      throw Error("Originalgröße "+desired+" nicht bestätigt; keine Umrechnung auf XXL");
+      throw Error("Größe "+desired+" nicht in der aktuellen Vinted-Größenauswahl gefunden"+
+        (group.gender==="women"?"; keine unbestätigte Damen-Größe einsetzen":
+          "; Taillenumfang ohne Umrechnung auf XS–XXL prüfen"));
     }
     const choice=options.find(o=>norm(o.label)===norm(result.size));
     if(!choice)throw Error("Zielgröße "+result.size+" steht nicht zur Auswahl");
@@ -478,10 +503,13 @@
     }
     if(shown(sizeGrid()))closeActiveDialog(control);
     if(estimated){
-      const reason=desired+" nur aus Bundweite "+estimated.waistCm+
-        " cm geschätzt (Herstellergröße kann abweichen) – vor Speichern prüfen";
+      const reason=estimated.source==="measured-waist"?
+        "Größe "+result.size.toUpperCase()+" aus Bundweite "+estimated.waistCm+
+          " cm geschätzt (keine Etikettgröße) – vor Speichern prüfen":
+        estimated.reason+" – vor Speichern prüfen";
       log("[SIZE REVIEW] "+reason);
-      log("[SIZE SELECTED] "+result.size.toUpperCase()+" (Schätzung, kein Etikett)");
+      log("[SIZE SELECTED] "+result.size.toUpperCase()+
+        " (geschätzte Damen-/W-Größe, keine bestätigte Herstellergrößen-Zuordnung)");
       return {success:true,needsReview:true,reason};
     }
     log("[SIZE SELECTED] "+result.size.toUpperCase()+" (Originalgröße)");
