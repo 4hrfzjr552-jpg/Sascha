@@ -858,7 +858,7 @@
   let running=false;
   chrome.runtime.onMessage.addListener((message,sender,sendResponse)=>{
     if(message?.type==="PING_VINTED_ENGINE"){
-      sendResponse({ready:true});return false;
+      sendResponse({ready:!!q("#title")&&!!q("#description")});return false;
     }
     if(message?.type==="CHECK_VINTED_DRAFT_SAVE"){
       sendResponse(draftSaveStatus());return false;
