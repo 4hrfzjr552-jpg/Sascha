@@ -1,4 +1,4 @@
-# Sascha AI → Vinted Assistant 3.8
+# Sascha AI → Vinted Assistant 3.9
 
 Die Chrome-Erweiterung übernimmt einen vollständigen Entwurf aus Sascha AI in die geöffnete Vinted-Verkaufsmaske. **Sie veröffentlicht und speichert nichts automatisch.** Alle Angaben vor dem Speichern prüfen.
 
@@ -39,7 +39,7 @@ Die folgende Zuordnung stammt aus realen Vinted-Katalog-Suchergebnissen und ist 
 2. ZIP entpacken und den **Ordner \`browser-extension\`** an einem festen Ort behalten.
 3. In Chrome \`chrome://extensions/\` öffnen und den Entwicklermodus aktivieren.
 4. „Entpackte Erweiterung laden“ wählen und den Ordner \`browser-extension\` auswählen.
-5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.8.0** stehen.
+5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.9.0** stehen.
 
 **Updates:** Neue Dateien in denselben entpackten Erweiterungsordner kopieren, unter \`chrome://extensions/\` „Neu laden“ klicken und den Vinted-Tab aktualisieren. Nur „Download ZIP“ auszuführen aktualisiert die installierte Erweiterung nicht. Es ist weder \`git pull\` noch das Mergen eines GitHub-PR erforderlich, wenn die Version bereits in \`main\` liegt.
 
@@ -71,11 +71,11 @@ Bei Problemen protokolliert `[PRICE VERIFY]` Sollbetrag, tatsächlichen Feldtext
 
 Aus dem Sascha-AI-Entwurf werden **nur Bilder 1–4 in ihrer ursprünglichen Reihenfolge** übernommen. Bild 5 und alle späteren Bilder werden ausdrücklich ausgelassen; bei weniger als vier Bildern werden nur die vorhandenen übertragen.
 
-**Die Erweiterung bereitet alle vier Bilder vor dem Upload lokal neu auf:** Sie entfernt deutlich gesättigte blaue handschriftliche Markierungen auf neutralen äußeren Hintergrundflächen – wie die blaue Ziffer „1“ im bereitgestellten Beispiel – und exportiert jedes Foto als neue JPG-Datei. Die Jeans selbst wird dabei nicht absichtlich neu gefärbt, geglättet oder verändert. Anschließend erhalten **alle vier Bilder** den auf den vom Nutzer gezeigten Original-/Bearbeitungsbildern beruhenden Farblook: etwas hellere Schatten, weicherer Kontrast und ein leicht neutraleres Blau. Die Referenz ist eine Orientierung, kein exakter automatischer Farbabgleich für alle Lichtverhältnisse. Sichtbare Details und Mängel sollen erhalten bleiben.
+**Alle ersten vier Bilder werden vor dem Upload lokal neu aufbereitet:** Die Extension wendet auf das ganze Bild denselben dezenten Helligkeits-, Kontrast- und Farblook nach dem vom Nutzer vorgegebenen Vergleichsfoto an. Keine Entfernung von Schrift oder blauen Markierungen, kein Hintergrundtausch und kein absichtlicher Crop oder Zoom. Die blaue Zahl im Beispiel diente nur zur Unterscheidung der beiden Referenzbilder. Die Jeans, Nähte und sichtbaren Gebrauchsspuren bleiben erkennbar.
 
-Auf Bildern ohne solche Markierungen erfolgt ebenfalls diese Farbkorrektur und ein erneuter JPG-Export.
+Anschließend werden die ersten vier Fotos als neue JPG-Dateien exportiert. Bild 5 und weitere Fotos werden nicht übernommen. Bildbearbeitung kann keine Akzeptanz durch Vinted garantieren. Kontrolliere vor dem Speichern, dass die tatsächliche Jeansfarbe korrekt dargestellt wird.
 
-Nicht alle Arten von Schrift, Markierungen oder Hintergründen können damit zuverlässig entfernt werden. Es ist keine generative Hintergrundersetzung und garantiert nicht, dass Vinted ein Angebot akzeptiert oder keine Duplikate erkennt. Bitte die vier Fotos **vor dem Speichern kontrollieren**. Wenn die Bildaufbereitung fehlschlägt, werden keine unbearbeiteten Originaldateien ersatzweise übertragen.
+Die Extension führt keine Markierungsentfernung und keine generative Hintergrundersetzung aus. Bitte alle vier Bilder **vor dem Speichern kontrollieren**. Bei fehlgeschlagener Bearbeitung werden keine unbearbeiteten Originaldateien ersatzweise übertragen.
 
 Vinted kann das native Dateifeld direkt nach der Übernahme leeren. Das ist für sich allein kein Upload-Fehler. Die Erweiterung kontrolliert daher nach Möglichkeit die Vinted-Fotovorschau. Kann sie die angezeigten Vorschaubilder nicht sicher zählen, meldet sie **„Bilder bitte prüfen“** und bezeichnet den Upload nicht als bestätigt.
 
