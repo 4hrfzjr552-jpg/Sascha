@@ -1,4 +1,4 @@
-# Sascha AI → Vinted Assistant 3.0
+# Sascha AI → Vinted Assistant 3.3
 
 Die Chrome-Erweiterung übernimmt einen vollständigen Entwurf aus Sascha AI in die geöffnete Vinted-Verkaufsmaske. **Sie veröffentlicht und speichert nichts automatisch.** Alle Angaben vor dem Speichern prüfen.
 
@@ -39,7 +39,7 @@ Die folgende Zuordnung stammt aus realen Vinted-Katalog-Suchergebnissen und ist 
 2. ZIP entpacken und den **Ordner \`browser-extension\`** an einem festen Ort behalten.
 3. In Chrome \`chrome://extensions/\` öffnen und den Entwicklermodus aktivieren.
 4. „Entpackte Erweiterung laden“ wählen und den Ordner \`browser-extension\` auswählen.
-5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.0.0** stehen.
+5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.3.0** stehen.
 
 **Updates:** Neue Dateien in denselben entpackten Erweiterungsordner kopieren, unter \`chrome://extensions/\` „Neu laden“ klicken und den Vinted-Tab aktualisieren. Nur „Download ZIP“ auszuführen aktualisiert die installierte Erweiterung nicht. Es ist weder \`git pull\` noch das Mergen eines GitHub-PR erforderlich, wenn die Version bereits in \`main\` liegt.
 
@@ -51,7 +51,15 @@ Die Erweiterung verwendet keine Vinted-API, liest keine Kennwörter oder Cookies
 
 ### Größen
 
-Bei Jeans mit W-Größen wird zuerst die **Originalgröße** gesucht. Gibt Vinted nur Buchstabengrößen an, können Hersteller- und Vinted-Tabellen voneinander abweichen. Eine W36 einer Diesel-Herrenjeans entspricht nach der bisherigen Referenztabelle ungefähr XXL, ist aber **keine automatisch bestätigte Etikettgröße**. Die Extension markiert solche Fälle im Log mit \`[SIZE REVIEW]\`. Unbekannte und nicht unterstützte Umrechnungen werden nicht geraten.
+Vinted bietet bei manchen Jeans-Kategorien zuerst die allgemeinen Buchstabengrößen XS–7XL an. Bei einer Originalgröße wie W36 wählt die Extension zuerst die Unterkategorie **„Taillenumfang“** und danach **W36 bzw. 36**, sofern Vinted diese Größe wirklich anbietet.
+
+**Es erfolgt keine automatische Umrechnung W36 → XXL mehr.** Wenn das Taillenumfang-Menü oder die exakte Originalgröße nicht erkennbar ist, stoppt die Extension, statt eine möglicherweise falsche Buchstabengröße einzutragen.
+
+Im Log stehen [SIZE GROUPS], [SIZE WAIST] und [SIZE SELECTED]. Vor Veröffentlichung bitte die Originalgröße und alle Angaben kontrollieren.
+
+### Zustandsauswahl
+
+Vinted hängt an Zustände wie „Sehr gut“ längere Beschreibungen an. Die Extension erkennt deshalb den Zustandsnamen am Anfang des Auswahltexts und prüft anschließend, ob „Sehr gut“ auch wirklich als Feldwert übernommen wurde.
 
 ### Fehlersuche
 

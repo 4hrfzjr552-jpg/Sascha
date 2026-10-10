@@ -362,6 +362,82 @@
     log("[SIZE DIAG] "+JSON.stringify(sizeMenuDiagnostic()));
     return false;
   }
+  // Vinted separates international XS–7XL from jeans waist sizing.
+  // Selecting 'Taillenumfang' changes the SAME size dropdown's option grid.
+  const waistModeNames=[
+    "taillenumfang","taillenweite","bundweite","waist",
+    "waist size","waist measurement","w-größe","w-grosse"
+  ];
+  const waistModeMatch=raw=>{
+    const label=norm(raw).replace(/\s*[:：]\s*$/,"");
+    return waistModeNames.includes(label) ||
+      /^(?:taillenumfang|taillenweite|bundweite|waist size)\s*(?:\([^)]{1,15}\)|w\d{2}\s*-\s*w\d{2})$/.test(label);
+  };
+  function waistGroups(){
+    // Scan the visible picker, not Vinted's general form fields. Vinted can
+    // portal the size modal outside the #size input's ancestor structure.
+    const roots=sizePopupRoots();
+    const base=[...roots, ...roots.flatMap(root=>{
+      const ancestors=[];let el=root.parentElement;
+      for(let i=0;i<3&&el&&el!==document.body;i++,el=el.parentElement)
+        ancestors.push(el);
+      return ancestors;
+    }),document.body].filter(Boolean);
+    const selector='[role="tab"],button,[role="button"],label,[data-testid*="size" i],span,div,li';
+    const found=[],seen=new Set();
+    for(const root of base){
+      const candidates=[...(root.matches?.(selector)?[root]:[]),...qa(selector,root)];
+      for(const el of candidates){
+        if(!shown(el))continue;
+        const label=optionText(el);
+        const aria=norm(el.getAttribute?.("aria-label")||"");
+        if(!waistModeMatch(label)&&!waistModeMatch(aria))continue;
+        // Prefer the actual tab/button when the text is in its child span.
+        const target=el.closest?.('[role="tab"],button,[role="button"]')||
+          el.closest?.('[data-testid*="size-group" i]')||el;
+        if(!shown(target)||seen.has(target))continue;
+        seen.add(target);found.push({el:target,label});
+      }
+    }
+    // If a parent wrapper and a child both say "Taillenumfang",
+    // use the innermost visible clickable candidate, not two matches.
+    return found.filter(item=>!found.some(other=>other!==item &&
+      item.el.contains?.(other.el)));
+  }
+  function isWaistOption(label,waist){
+    const option=norm(label).replace(/\s+/g,"");
+    return option===String(waist)||option==="w"+waist;
+  }
+  async function selectWaistSizing(draft,desired,log){
+    const parsed=String(desired).replace(/\s+/g,"").toUpperCase()
+      .match(/^W?(\d{2})(?:[/-]?L\d{2})?$/);
+    if(!parsed)return; // S/M/L/XL are already explicit sizes.
+    const waist=+parsed[1];
+    if(sizeOptions().some(o=>isWaistOption(o.label,waist))){
+      log("[SIZE WAIST] Originalgröße W"+waist+" bereits sichtbar");
+      return;
+    }
+    const groups=waistGroups();
+    log("[SIZE GROUPS] "+JSON.stringify(groups.slice(0,12).map(x=>x.label)));
+    if(groups.length!==1){
+      log("[SIZE WAIST OPTIONS] "+JSON.stringify(sizeOptions().map(o=>o.label)));
+      throw Error(groups.length?
+        "Taillenumfang-Menü mehrfach gefunden; bitte Größe manuell auswählen":
+        "Taillenumfang-Untermenü nicht erkannt; wähle bitte W"+waist+" manuell");
+    }
+    const tab=groups[0].el;
+    await bringIntoView(tab,"Taillenumfang",log);
+    log("[SIZE WAIST] öffne Untermenü "+groups[0].label);
+    tab.click();
+    const ready=await until(()=>sizeOptions().some(o=>isWaistOption(o.label,waist)),3500,160);
+    if(!ready){
+      log("[SIZE WAIST OPTIONS] "+JSON.stringify(sizeOptions().map(o=>o.label)));
+      log("[SIZE DIAG] "+JSON.stringify(sizeMenuDiagnostic()));
+      throw Error("Taillenumfang geöffnet, aber W"+waist+" nicht als Option gefunden");
+    }
+    log("[SIZE WAIST] W"+waist+" gefunden");
+  }
+
   async function size(draft,log){
     const desired=String(draft.size||"").trim();
     if(!desired)throw Error("Größe fehlt im Entwurf");
@@ -370,17 +446,16 @@
     await bringIntoView(control,"size",log);
     if(!await openSizeMenu(control,log))
       throw Error("Vinted-Größenraster nach Eingabe, Container-Klick und Scrollen nicht geöffnet");
+    await selectWaistSizing(draft,desired,log);
     const options=sizeOptions();
     if(options.some(o=>/fruhchen|neugeboren|1-3 monate/i.test(o.label)))
       throw Error("Vinted zeigt Babygrößen – falsche Kategorie");
     const result=catalog.sizeChoice(desired,options.map(o=>o.label),draft);
-    if(!result.ok && !result.needsReview) {
+    // No automatic W-to-letter size conversion: Vinted has a separate
+    // Taillenumfang picker; the original W label must be preserved.
+    if(!result.ok){
       log("[SIZE OPTIONS] "+JSON.stringify(options.map(o=>o.label)));
-      throw Error(result.reason||"Größe nicht zuordenbar");
-    }
-    if(result.needsReview) {
-      log("[SIZE REVIEW] "+desired+" → "+result.size.toUpperCase()+
-        " ("+result.source+"). Nur Richtwert – vor Veröffentlichung Etikett prüfen.");
+      throw Error("Originalgröße "+desired+" nicht bestätigt; keine Umrechnung auf XXL");
     }
     const choice=options.find(o=>norm(o.label)===norm(result.size));
     if(!choice)throw Error("Zielgröße "+result.size+" steht nicht zur Auswahl");
@@ -391,14 +466,24 @@
       throw Error("Größe angeklickt, aber nicht als Feldwert bestätigt");
     }
     if(shown(sizeGrid()))closeActiveDialog(control);
-    log("[SIZE SELECTED] "+result.size.toUpperCase()+(result.needsReview?" (bitte überprüfen)":""));
-    return {success:true,needsReview:!!result.needsReview};
+    log("[SIZE SELECTED] "+result.size.toUpperCase()+" (Originalgröße)");
+    return {success:true};
   }
   function nameAlternatives(field,requested) {
     const val=norm(requested);
     const dict=field==="color"?COLORS:CONDITIONS;
     const pair=Object.entries(dict).find(([k,arr])=>[k,...arr].map(norm).includes(val));
     return pair?[...new Set([pair[0],...pair[1]].map(norm))]:[val];
+  }
+  function isCorrectFieldOption(field,element,aliases) {
+    const label=optionText(element);
+    if(aliases.includes(label))return true;
+    if(field!=="condition")return false;
+    // Vinted condition rows embed a long description after the heading,
+    // e.g. "Sehr gut Ein nur selten benutzter Artikel ...".
+    // Match only a *leading* heading, not any phrase within the description.
+    return aliases.some(a=>label.startsWith(a+" ") || label.startsWith(a+",") ||
+      label.startsWith(a+".") || label.startsWith(a+":"));
   }
   function fieldOptions(field,control) {
     const pref=field==="color"?
@@ -419,7 +504,7 @@
     await bringIntoView(control,field,log);
     control.click();
     const found=await until(()=>{
-      return fieldOptions(field,control).find(el=>aliases.includes(optionText(el)))||null;
+      return fieldOptions(field,control).find(el=>isCorrectFieldOption(field,el,aliases))||null;
     },4000);
     if(!found){
       log("[OPTIONS "+field+"] "+JSON.stringify(fieldOptions(field,control)
@@ -552,6 +637,6 @@
   // Available only for local, isolated automated tests (not an API for Vinted).
   if(window.__SASCHA_TEST__)window.__SASCHA_ENGINE_TEST__={
     articleTitle,liveCatalogRows,optionText,nameAlternatives,run,chooseCategory,size,
-    sizeOptions,sizeMenuDiagnostic,openSizeMenu
+    sizeOptions,sizeMenuDiagnostic,openSizeMenu,selectWaistSizing,waistModeMatch,isCorrectFieldOption
   };
 })();

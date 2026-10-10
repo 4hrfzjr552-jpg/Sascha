@@ -86,37 +86,44 @@ test("child-category radio cannot be clicked as men's straight jeans",async()=>{
     gender:"Herren",fit:"straight",category:"Jeans"},x=>logs.push(x)),/nicht an/);
   assert.equal(fixture.wasClicked(),false);
 });
-test("Diesel W36 uses XXL checkbox but flags manual review",async()=>{
-  const input=new FakeInput("size");let opened=false,chosen="";
+test("W36 switches from XS–7XL to the Taillenumfang submenu and selects W36",async()=>{
+  const input=new FakeInput("size");let opened=false,mode="letters",selected="";
   input.click=()=>{opened=true;};
-  const labels=["XS","S","M","L","XL","XXL","XXXL","4XL"];
-  const entries=labels.map(label=>({
-    innerText:label,isConnected:true,
-    getClientRects:()=>[1],closest:()=>null,
-    click(){chosen=label;input.value=label;opened=false;}
-  }));
+  const choices=()=>mode==="letters"?["XS","S","M","L","XL","XXL"]:["W32","W34","W36","W38"];
+  const mkOption=label=>({
+    isConnected:true,innerText:label,textContent:label,
+    getClientRects:()=>[1],closest:()=>null,getAttribute:()=>null,
+    click(){selected=label;input.value=label;opened=false;}
+  });
+  const tab={
+    innerText:"Taillenumfang",textContent:"Taillenumfang",
+    isConnected:true,getClientRects:()=>[1],closest:()=>null,
+    getAttribute:()=>null,click(){mode="waist";}
+  };
   const grid={
     isConnected:true,getClientRects:()=>[1],closest:()=>null,
-    querySelectorAll(){return entries;}
-  };
-  const document={
-    querySelector(selector){
-      if(selector==="#size")return input;
-      if(selector.includes("category-size-single-grid-content"))return opened?grid:null;
-      return null;
-    },
     querySelectorAll(selector){
-      return selector.includes('category-size-single-grid-content')&&opened?[grid]:[];
+      return selector.includes('[role="tab"]')?[tab]:choices().map(mkOption);
     }
   };
-  const engine=createEngine(document),logs=[];
-  const output=await engine.size({
-    gender:"Herren",category:"Jeans",brand:"Diesel",size:"W36"
-  },x=>logs.push(x));
+  const body={querySelectorAll:()=>[]};
+  const document={
+    body,
+    querySelector(selector){return selector==="#size"?input:null;},
+    querySelectorAll(selector){
+      if(selector.includes("size-single-grid-content")&&opened)return [grid];
+      return [];
+    }
+  };
+  const logs=[];
+  const output=await createEngine(document).size(
+    {gender:"Herren",category:"Jeans",brand:"Diesel",size:"W36"},x=>logs.push(x));
   assert.equal(output.success,true);
-  assert.equal(output.needsReview,true);
-  assert.equal(chosen,"XXL");
-  assert.ok(logs.some(x=>x.includes("[SIZE REVIEW]")));
+  assert.equal(output.needsReview,undefined);
+  assert.equal(selected,"W36");
+  assert.equal(input.value,"W36");
+  assert.ok(logs.some(x=>x.includes("[SIZE WAIST] öffne Untermenü")));
+  assert.ok(logs.some(x=>x.includes("[SIZE SELECTED] W36")));
 });
 
 
@@ -190,7 +197,7 @@ test("if no size menu appears, report diagnostics instead of guessing",async()=>
 });
 
 
-test("chips size widget finds a portal listbox even without grid-content testid",async()=>{
+test("chips picker offering only XXL is rejected for W36 when waist submenu is absent",async()=>{
   const input=new FakeInput("size");
   input.getAttribute=attr=>attr==="data-testid"?"category-size-single-grid_chips-input":null;
   let opened=false,chosen="",inputClicks=0;
@@ -215,12 +222,13 @@ test("chips size widget finds a portal listbox even without grid-content testid"
     }
   };
   const engine=createEngine(document),logs=[];
-  const result=await engine.size({gender:"Herren",category:"Jeans",brand:"Diesel",size:"W36"},x=>logs.push(x));
-  assert.equal(result.success,true);
-  assert.equal(result.needsReview,true);
-  assert.equal(chosen,"XXL");
+  await assert.rejects(()=>engine.size({
+    gender:"Herren",category:"Jeans",brand:"Diesel",size:"W36"
+  },x=>logs.push(x)),/Taillenumfang-Untermenü nicht erkannt/);
+  assert.equal(chosen,"");
   assert.equal(inputClicks,1);
   assert.ok(logs.some(x=>x.includes("[SIZE OPEN] choices=6 via=input")));
+  assert.ok(logs.some(x=>x.includes("[SIZE GROUPS]")));
 });
 test("chips field does not click the dropdown arrow again when chevron is already up",async()=>{
   const input=new FakeInput("size");
@@ -244,4 +252,14 @@ test("chips field does not click the dropdown arrow again when chevron is alread
   assert.equal(clicks,1);
   assert.ok(logs.some(x=>x.includes('"opened":true')));
   assert.ok(logs.some(x=>x.includes("[SIZE DIAG]")));
+});
+
+test("condition Sehr gut matches the heading before its descriptive text",()=>{
+  const engine=createEngine({querySelector(){return null;},querySelectorAll(){return [];}});
+  const option={
+    innerText:"Sehr gut Ein nur selten benutzter Artikel mit möglichen Unvollkommenheiten.",
+    textContent:"Sehr gut Ein nur selten benutzter Artikel",
+  };
+  assert.equal(engine.isCorrectFieldOption("condition",option,["sehr gut","very good"]),true);
+  assert.equal(engine.isCorrectFieldOption("condition",option,["gut","good"]),false);
 });

@@ -85,11 +85,16 @@ test("wrong-gender variants rejected even if name matches",()=>{
   assert.equal(result.find(x=>x.id===1845).eligible,false);
   assert.equal(result.find(x=>x.id===1559).eligible,false);
 });
-test("waist-to-letter conversion is explicitly marked for seller review",()=>{
+test("W36 never converts to XXL when the Taillenumfang group is required",()=>{
   const r=sizeChoice("W36",["XS","S","M","L","XL","XXL"],{gender:"Herren",category:"Jeans",brand:"Diesel"});
-  assert.equal(r.needsReview,true);
-  assert.equal(r.size,"xxl");
   assert.equal(r.ok,false);
+  assert.equal(r.size,undefined);
+  assert.match(r.reason,/Taillenumfang/);
+});
+test("native Taillenumfang numeric 36 is selected as original W36",()=>{
+  const r=sizeChoice("W36 L32",["32","34","36","38","40"],{gender:"Herren",category:"Jeans",brand:"Diesel"});
+  assert.equal(r.ok,true);
+  assert.equal(r.size,"36");
 });
 test("W36 is preferred over any inferred letter size",()=>{
   const r=sizeChoice("W36",["W36","XXL"],{gender:"Herren",category:"Jeans",brand:"Diesel"});
