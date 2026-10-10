@@ -114,36 +114,11 @@
     const n=+found[1], waist="w"+n;
     if(values.includes(waist))return {ok:true,size:waist,source:"Etikett"};
     if(values.includes(String(n)))return {ok:true,size:String(n),source:"Etikett"};
-    // Approximate size tables: ALWAYS return needsReview so the original W
-    // label is never silently represented as a verified clothing size.
-    const product=classify(draft);
-    if(product.kind!=="jeans" || !["men","women"].includes(product.gender))
-      return {ok:false,reason:"Artikelart oder Herren/Damen-Größe nicht eindeutig"};
-    const brand=norm(draft.brand);
-    let letter="",reference="";
-    if(product.gender==="men" && brand==="diesel"){
-      const diesel={26:"XS",27:"S",28:"S",29:"M",30:"M",31:"L",32:"L",
-        33:"XL",34:"XL",36:"XXL",38:"XXXL",40:"4XL"};
-      letter=diesel[n]||"";
-      reference="Diesel-Herrenjeans-Größentabelle";
-    }else if(product.gender==="men"){
-      const chart=[[23,27,"XS"],[29,31,"S"],[32,34,"M"],[35,36,"L"],
-        [38,40,"XL"],[41,44,"XXL"],[46,50,"XXXL"],[51,55,"4XL"]];
-      letter=chart.find(([min,max])=>n>=min&&n<=max)?.[2]||"";
-      reference="Vinted-Herrenbekleidung-Größentabelle";
-    }else{
-      const women={26:"XS",27:"S",28:"S",29:"M",30:"M",31:"L",32:"L",
-        33:"XL",34:"XL",35:"XXL",36:"XXL",37:"XXXL",38:"XXXL",
-        39:"4XL",40:"4XL",41:"5XL",42:"5XL",43:"6XL",44:"6XL",
-        45:"7XL",46:"7XL"};
-      letter=women[n]||"";
-      reference="Vinted-Damenjeans-Größentabelle";
-    }
-    const special=norm(letter).replace(/^xxxl$/,"3xl").replace(/^xxl$/,"2xl");
-    const candidate=values.find(v=>v===norm(letter)||v===special);
-    if(candidate)return {ok:false,size:candidate,needsReview:true,source:reference,
-      reason:"Buchstabengröße aus einer Größentabelle, keine Etikettbestätigung"};
-    return {ok:false,reason:"Keine identische Vinted-Größe verfügbar; manuelle Zuordnung erforderlich"};
+    // Vinted's Jeans picker offers a separate "Taillenumfang" group
+    // containing real W sizes. Brand charts are unsuitable as a substitute:
+    // W36 must never become XXL automatically.
+    return {ok:false,reason:"Taillenumfang W"+n+
+      " ist nicht sichtbar; keine Umrechnung auf XS–7XL"};
   }
   const api=Object.freeze({norm,CATEGORIES,byId,classify,intentForDraft,matchingRows,
     selectLiveCategory,sizeChoice});
