@@ -21,6 +21,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnOpenVinted = document.getElementById("btnOpenVinted");
   const btnFillVinted = document.getElementById("btnFillVinted");
   const btnClearDraft = document.getElementById("btnClearDraft");
+  const btnBatchStart = document.getElementById("btnBatchStart");
+  const btnBatchStop = document.getElementById("btnBatchStop");
+  const batchStatus = document.getElementById("batchStatus");
 
   const statusBox = document.getElementById("statusBox");
   const statusList = document.getElementById("statusList");
@@ -89,6 +92,7 @@ document.addEventListener("DOMContentLoaded", () => {
       draftContent.style.display = "none";
       draftSelect.style.display = "none";
       btnFillVinted.disabled = true;
+      btnBatchStart.disabled = true;
       btnClearDraft.style.display = "none";
       return;
     }
@@ -96,6 +100,7 @@ document.addEventListener("DOMContentLoaded", () => {
     noDraftMessage.style.display = "none";
     draftContent.style.display = "block";
     btnFillVinted.disabled = false;
+    btnBatchStart.disabled = false;
     btnClearDraft.style.display = "inline-flex";
 
     // Header Title
@@ -397,6 +402,80 @@ document.addEventListener("DOMContentLoaded", () => {
       statusList.appendChild(li);
     });
   }
+
+  // 4. Explicit opt-in batch: save only as Vinted drafts.
+  // The worker handles the queue, not this short-lived popup window.
+  function showBatchStatus(batch){
+    if(!batch){
+      batchStatus.style.display="none";
+      btnBatchStop.style.display="none";
+      return;
+    }
+    batchStatus.style.display="block";
+    const done=batch.completed?.length||0;
+    const total=batch.queue?.length||0;
+    const current=batch.queue?.find(x=>x.id===batch.currentId);
+    const stateLabels={
+      running:"Läuft",done:"Fertig",error:"Gestoppt wegen Fehler",
+      stopped:"Angehalten"
+    };
+    const lines=[
+      (stateLabels[batch.status]||batch.status||"Unbekannt")+
+        " · "+done+"/"+total+" Vinted-Entwürfe bestätigt",
+      current?"Aktuell: #"+current.artikelnummer:""
+    ].filter(Boolean);
+    if(batch.status==="running"&&batch.stopRequested)
+      lines.push("Stopp angefordert – warte auf aktuellen Schritt");
+    if(batch.error)lines.push("Fehler: "+batch.error);
+    if(Array.isArray(batch.logs)&&batch.logs.length)
+      lines.push("Letzter Schritt: "+batch.logs.at(-1));
+    batchStatus.textContent=lines.join("\n");
+    batchStatus.style.whiteSpace="pre-line";
+    btnBatchStop.style.display=batch.status==="running"?"inline-flex":"none";
+    btnBatchStart.disabled=!currentDraft||batch.status==="running";
+  }
+  chrome.storage.local.get("vintedBatchState",response=>{
+    showBatchStatus(response.vintedBatchState||null);
+  });
+  chrome.storage.onChanged.addListener((changes,area)=>{
+    if(area==="local"&&changes.vintedBatchState)
+      showBatchStatus(changes.vintedBatchState.newValue||null);
+  });
+
+  btnBatchStart.addEventListener("click",async()=>{
+    if(!currentDraft||!Array.isArray(draftsList)||!draftsList.length){
+      alert("Bitte erst Entwürfe aus Sascha AI übernehmen.");
+      return;
+    }
+    const list=draftsList.filter(d=>d.id===currentDraft.id ||
+      Number(String(d.artikelnummer||"").replace("#","")) >=
+        Number(String(currentDraft.artikelnummer||"").replace("#","")));
+    if(!confirm("Ab der ausgewählten Hose nacheinander Vinted-ENTWÜRFE speichern? "+
+      "Es wird nichts veröffentlicht. Bei fehlender Bestätigung stoppt der Stapel. "+
+      "Du solltest die fertigen Entwürfe anschließend prüfen."))return;
+    btnBatchStart.disabled=true;
+    try{
+      const response=await chrome.runtime.sendMessage({
+        type:"START_VINTED_BATCH",selectedDraftId:currentDraft.id
+      });
+      if(!response?.success)throw Error(response?.error||"Stapelstart fehlgeschlagen");
+      showBatchStatus(response.state);
+      logDebug("Stapel gestartet: "+response.count+" Hosen. Nur Entwürfe.");
+    }catch(e){
+      alert("Stapel konnte nicht gestartet werden: "+e.message);
+      btnBatchStart.disabled=false;
+    }
+  });
+  btnBatchStop.addEventListener("click",async()=>{
+    btnBatchStop.disabled=true;
+    try{
+      const response=await chrome.runtime.sendMessage({type:"STOP_VINTED_BATCH"});
+      if(!response?.success)throw Error(response?.error||"Stopp fehlgeschlagen");
+      logDebug("Stopp für automatischen Entwurfsstapel angefordert.");
+    }catch(e){
+      alert(e.message);
+    }finally{btnBatchStop.disabled=false;}
+  });
 
   // 4. Clear Draft
   btnClearDraft.addEventListener("click", () => {

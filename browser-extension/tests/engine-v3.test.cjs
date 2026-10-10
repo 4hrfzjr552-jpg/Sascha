@@ -474,3 +474,62 @@ test("expired HTTP image reports status instead of silently returning null",asyn
   assert.equal(mock.sent().length,0);
   assert.ok(logs.some(x=>x.includes("kind=remote-https")));
 });
+
+
+function buttonTestDocument(buttons,toast=[]){
+  return {
+    querySelector(){return null;},
+    querySelectorAll(selector){
+      if(selector.includes('button')||selector.includes('input[type="submit"]'))
+        return buttons;
+      if(selector.includes('[role="alert"]'))return toast;
+      return [];
+    }
+  };
+}
+function fakeButton(label,testid){
+  return {
+    tagName:"BUTTON",innerText:label,textContent:label,isConnected:true,
+    disabled:false,clicks:0,scrollIntoView(){},
+    click(){this.clicks++;},closest(){return null;},
+    getClientRects(){return [1];},
+    getAttribute(key){return key==="data-testid"?testid||"":null;}
+  };
+}
+test("draft-only save clicks exactly Entwurf speichern, never Veröffentlichen",()=>{
+  const save=fakeButton("Entwurf speichern","upload-form-save-draft-button");
+  const publish=fakeButton("Veröffentlichen","upload-form-upload-button");
+  const e=createEngine(buttonTestDocument([save,publish]));
+  const result=e.trySaveAsDraft();
+  assert.equal(result.clicked,true);
+  assert.equal(save.clicks,1);
+  assert.equal(publish.clicks,0);
+});
+test("publish button alone never becomes a draft save fallback",()=>{
+  const publish=fakeButton("Veröffentlichen","upload-form-upload-button");
+  const e=createEngine(buttonTestDocument([publish]));
+  const result=e.trySaveAsDraft();
+  assert.equal(result.clicked,false);
+  assert.equal(publish.clicks,0);
+});
+test("ambiguous multiple save-draft buttons stop rather than click arbitrarily",()=>{
+  const first=fakeButton("Entwurf speichern"),second=fakeButton("Save draft");
+  const e=createEngine(buttonTestDocument([first,second]));
+  assert.equal(e.trySaveAsDraft().clicked,false);
+  assert.equal(first.clicks+second.clicks,0);
+});
+test("reject a publish-labeled button even when its testid is misleading",()=>{
+  const suspicious=fakeButton("Artikel veröffentlichen","upload-form-save-draft-button");
+  const e=createEngine(buttonTestDocument([suspicious]));
+  assert.equal(e.trySaveAsDraft().clicked,false);
+  assert.equal(suspicious.clicks,0);
+});
+test("saving is confirmed by visible alert, not by presence of a save button",()=>{
+  const btn=fakeButton("Entwurf speichern");
+  const toast=fakeButton("Dein Entwurf wurde gespeichert!");
+  const e=createEngine(buttonTestDocument([btn],[toast]));
+  const confirmed=e.draftSaveStatus();
+  assert.equal(confirmed.saved,true);
+  const unconfirmed=createEngine(buttonTestDocument([btn])).draftSaveStatus();
+  assert.equal(unconfirmed.saved,false);
+});
