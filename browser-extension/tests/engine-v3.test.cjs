@@ -188,3 +188,60 @@ test("if no size menu appears, report diagnostics instead of guessing",async()=>
     {size:"W36",gender:"Herren",category:"Jeans"},x=>logs.push(x)),/nicht geöffnet/);
   assert.ok(logs.some(x=>x.includes("[SIZE DIAG]")));
 });
+
+
+test("chips size widget finds a portal listbox even without grid-content testid",async()=>{
+  const input=new FakeInput("size");
+  input.getAttribute=attr=>attr==="data-testid"?"category-size-single-grid_chips-input":null;
+  let opened=false,chosen="",inputClicks=0;
+  input.click=()=>{opened=true;inputClicks++;};
+  const labels=["XS","S","M","L","XL","XXL"];
+  const opts=labels.map(label=>({
+    innerText:label,textContent:label,isConnected:true,getClientRects:()=>[1],
+    closest:()=>null,getAttribute:()=>null,
+    click(){chosen=label;input.value=label;opened=false;}
+  }));
+  const listbox={
+    isConnected:true,getClientRects:()=>[1],closest:()=>null,
+    contains:()=>false,
+    querySelector:()=>null,
+    querySelectorAll:()=>opts
+  };
+  const document={
+    querySelector(selector){if(selector==="#size")return input;return null;},
+    querySelectorAll(selector){
+      if(selector.includes('[role="listbox"]')&&opened)return [listbox];
+      return [];
+    }
+  };
+  const engine=createEngine(document),logs=[];
+  const result=await engine.size({gender:"Herren",category:"Jeans",brand:"Diesel",size:"W36"},x=>logs.push(x));
+  assert.equal(result.success,true);
+  assert.equal(result.needsReview,true);
+  assert.equal(chosen,"XXL");
+  assert.equal(inputClicks,1);
+  assert.ok(logs.some(x=>x.includes("[SIZE OPEN] choices=6 via=input")));
+});
+test("chips field does not click the dropdown arrow again when chevron is already up",async()=>{
+  const input=new FakeInput("size");
+  input.getAttribute=attr=>attr==="data-testid"?"category-size-single-grid_chips-input":null;
+  let clicks=0,menuOpen=false;
+  input.click=()=>{clicks++;menuOpen=true;};
+  const up={
+    isConnected:true,getClientRects:()=>[1],closest:()=>null,
+    getAttribute:()=>null
+  };
+  const document={
+    querySelector(selector){return selector==="#size"?input:null;},
+    querySelectorAll(selector){
+      if(selector.includes("chevron-up")&&menuOpen)return [up];
+      return [];
+    }
+  };
+  const engine=createEngine(document),logs=[];
+  await assert.rejects(()=>engine.size({gender:"Herren",category:"Jeans",brand:"Diesel",size:"W36"},
+    x=>logs.push(x)),/nicht geöffnet/);
+  assert.equal(clicks,1);
+  assert.ok(logs.some(x=>x.includes('"opened":true')));
+  assert.ok(logs.some(x=>x.includes("[SIZE DIAG]")));
+});
