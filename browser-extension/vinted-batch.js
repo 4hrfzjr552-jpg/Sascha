@@ -211,6 +211,13 @@
         }
         await put({...state,index:state.index+1,currentId:null,
           completed:[...state.completed,row.id],phase:"ready"});
+        if(stopRequested){
+          await chrome.alarms.clear(GUARD_ALARM);
+          await log("Stapel nach bestätigtem Entwurf angehalten",{
+            status:"stopped",phase:"stopped"
+          });
+          return;
+        }
         if(state.index<queue.length){
           await log("Nächste Hose folgt automatisch nach kurzer Wartezeit",{
             phase:"ready"
