@@ -29,8 +29,12 @@ jobs:
           node --check browser-extension/vinted-catalog-v3.js
           node --check browser-extension/content-vinted-v3.js
           node --check browser-extension/vinted-image-edit.js
+          node --check browser-extension/vinted-batch.js
+          node --check browser-extension/background.js
+          node --check browser-extension/popup.js
+          node --check browser-extension/content-sascha.js
       - name: Run unit and simulated form tests
-        run: node --test browser-extension/tests/catalog-v3.test.cjs browser-extension/tests/engine-v3.test.cjs browser-extension/tests/image-edit-v3.test.cjs
+        run: node --test browser-extension/tests/catalog-v3.test.cjs browser-extension/tests/engine-v3.test.cjs browser-extension/tests/image-edit-v3.test.cjs browser-extension/tests/vinted-batch.test.cjs
       - name: Test expiring image links and first-party transfer
         run: node --experimental-strip-types --test browser-extension/tests/vinted-image-transfer.test.mjs
       - name: Install web app dependencies
