@@ -1,4 +1,4 @@
-# Sascha AI → Vinted Assistant 3.23
+# Sascha AI → Vinted Assistant 3.24
 
 Die Chrome-Erweiterung übernimmt einen vollständigen Entwurf aus Sascha AI in die geöffnete Vinted-Verkaufsmaske. **Sie veröffentlicht und speichert nichts automatisch.** Alle Angaben vor dem Speichern prüfen.
 
@@ -39,7 +39,7 @@ Die folgende Zuordnung stammt aus realen Vinted-Katalog-Suchergebnissen und ist 
 2. ZIP entpacken und den **Ordner \`browser-extension\`** an einem festen Ort behalten.
 3. In Chrome \`chrome://extensions/\` öffnen und den Entwicklermodus aktivieren.
 4. „Entpackte Erweiterung laden“ wählen und den Ordner \`browser-extension\` auswählen.
-5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.23.0** stehen.
+5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.24.0** stehen.
 
 **Updates:** Neue Dateien in denselben entpackten Erweiterungsordner kopieren, unter \`chrome://extensions/\` „Neu laden“ klicken und den Vinted-Tab aktualisieren. Nur „Download ZIP“ auszuführen aktualisiert die installierte Erweiterung nicht. Es ist weder \`git pull\` noch das Mergen eines GitHub-PR erforderlich, wenn die Version bereits in \`main\` liegt.
 
@@ -155,6 +155,18 @@ Beim Stapel aus **22 Hosen** wurde #67 als Entwurf bestätigt, #66 brach mit `Gr
 Für den bereits gespeicherten Stand **1/22 mit #67 bestätigt und #66 beim Formular gestoppt** gibt es die Schaltfläche **„Fehlgeschlagene Hose erneut versuchen – gespeicherte Hosen überspringen“**. Sie ist nur sichtbar, wenn gespeicherte Ablaufdaten belegen, dass das Formular für #66 ausgefüllt wurde, ohne dass der Speicher-Schritt erreicht wurde. So kann nach dem Update #66 mit der neuen Größenerkennung erneut versucht werden und anschließend #65 usw. folgen. #67 bleibt gespeichert und wird nicht erneut übertragen. **Die vorhandene Extension aktualisieren, nicht löschen**, damit Status und Bestätigung erhalten bleiben.
 
 **Hinweis:** Automatisierte Tests sind simulierte Browserabläufe. Der eingeloggte Vinted-Speichervorgang lässt sich nicht vollständig testen, ohne die aktualisierte Extension beim Nutzer auszuführen. Es wird niemals automatisch veröffentlicht.
+
+### Automatische Vinted-Entwurfsbestätigung nach Profilweiterleitung (3.24.0)
+
+Beim Speichern auf Vinted wird die Verkaufsseite manchmal sofort zum Verkäuferprofil weitergeleitet. Zuvor ging die durch den `MutationObserver` erkannte Erfolgsmeldung beim Laden der Profilseite im alten Content-Script-Speicher verloren. Außerdem akzeptierte die Erkennung nur wenige `data-testid`-Entwurfskarten. Dadurch war für **jede Hose** eine manuelle Bestätigung erforderlich, obwohl ein Entwurf tatsächlich erstellt worden war.
+
+**Neu:** Bei einem **konkreten Entwurf-speichern-Klick** wird eine eindeutige Kennung aus Stapellauf, aktueller Hose und Zeitpunkt erzeugt. Erkennt die alte Vinted-Seite einen **explizit positiven Vinted-Speicherhinweis**, legt sie einen kurzlebigen Nachweis mit genau dieser Kennung und Artikelnummer in der Browser-Erweiterung ab und meldet ihn gleichzeitig an den Hintergrundprozess. Die gespeicherte Kennung überlebt die Weiterleitung auf die Profilseite. Die Hintergrundprüfung akzeptiert sie nur für die **aktuell bearbeitete Hose**, innerhalb von zwei Minuten und niemals für die nächste Hose oder einen alten Lauf.
+
+Die Profilprüfung erkennt außerdem weitere Vinted-Darstellungen von **Entwurfskarten** (z. B. Element mit Entwurfshinweis oder „Weiter bearbeiten“/„Finish editing“) mit **exakt zur Hose passender Artikelnummer**. Das Vorhandensein eines gewöhnlichen Profilangebots, das bloße Laden der Profilseite oder eines alten Entwurfs auf einer anderen Seite ist weiterhin **kein** Speicherbeweis.
+
+Ist die Entwurfserstellung eindeutig bestätigt, wird **automatisch die nächste Hose** begonnen – keine einzelne Verkäuferbestätigung mehr nötig. Bei fehlender Erfolgsnachricht, unbekannten Profilkarten, fehlerhaftem Speichern oder Unterbrechung bleibt die **manuelle Kontrolle aus Sicherheitsgründen notwendig**; insbesondere niemals denselben möglicherweise gespeicherten Entwurf durch einen automatischen zweiten Save-Klick duplizieren. Die Extension darf nur **Entwürfe** speichern und **niemals veröffentlichen**.
+
+Ein vor dem Update bereits zur manuellen Bestätigung wartender Entwurf besitzt noch keinen neuen Nachweis. **Diesen einen Eintrag im Vinted-Profil prüfen und gegebenenfalls einmalig manuell bestätigen**. Danach nutzt die nächste Hose automatisch die neue Verifikation. Die bisherige Extension **nicht deinstallieren**, um Fortschritt, Größe-Warnungen und bestätigte Artikelnummern zu behalten.
 
 ## Automatischer Entwurfsstapel (Version 3.12)
 
