@@ -92,13 +92,40 @@
         " umgerechnet; Marke/Schnitt kontrollieren",
       uncertainty:"Nur Orientierung – Vinted-Auswahl muss manuell überprüft werden"};
   }
+  // Bare numeric women's labels (e.g. "6" or "36") are ambiguous:
+  // US/UK 6, EU 36, or a jeans-size notation can mean different things.
+  // If Vinted does not offer that number, derive a provisional letter size
+  // ONLY from an actual flat waist measurement, never from the numeral.
+  // Preserve the original label in the explanation; do not overwrite it.
+  function estimateWomenNumericByWaist(draft,classification){
+    if(classification?.gender!=="women"||classification?.kind!=="jeans")
+      return {ok:false,reason:"Nur für eindeutig erkannte Damenjeans"};
+    const originalLabel=String(draft?.size??"").trim();
+    if(!/^\d{1,2}$/.test(originalLabel))
+      return {ok:false,reason:"Keine alleinstehende numerische Damengröße"};
+    const waistCm=parseFlatWaistCm(draft?.measurements?.waist);
+    if(waistCm===null)
+      return {ok:false,reason:"Etikettgröße "+originalLabel+
+        " ist in Vinted nicht auswählbar; keine gültige flach gemessene Bundweite (cm) für eine Schätzung vorhanden"};
+    const approximation=estimate({
+      ...draft,size:"",measurements:{...draft.measurements,waist:waistCm}
+    },classification);
+    if(!approximation.ok)return approximation;
+    return {...approximation,source:"ambiguous-label-waist",
+      originalLabel,
+      converted:true,
+      reason:"Etikettgröße "+originalLabel+" ist ohne Größenformat (z. B. US oder EU) "+
+        "nicht eindeutig umrechenbar; "+approximation.size+
+        " nur aus Bundweite "+waistCm+" cm geschätzt – Etikett vor Veröffentlichung prüfen",
+      uncertainty:"Der Etikettwert wurde nicht in eine US-/EU-Größe umgedeutet"};
+  }
   function letterAliases(size){
     if(size==="XXL")return ["XXL","2XL"];
     if(size==="3XL")return ["3XL","XXXL"];
     return [size];
   }
   const api=Object.freeze({isMissingSize,parseFlatWaistCm,estimate,
-    womenLetterFromCircumference,convertWomenLabel,letterAliases});
+    womenLetterFromCircumference,convertWomenLabel,estimateWomenNumericByWaist,letterAliases});
   if(typeof module!=="undefined"&&module.exports)module.exports=api;
   root.SaschaVintedWaistEstimate=api;
 })(typeof window!=="undefined"?window:globalThis);
