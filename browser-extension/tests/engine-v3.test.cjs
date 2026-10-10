@@ -178,6 +178,9 @@ test("missing label plus 39 cm flat waist selects W31 but requires user review",
   },line=>logs.push(line));
   assert.equal(result.success,true);
   assert.equal(result.needsReview,true);
+  assert.equal(result.reviewType,"estimated-size");
+  assert.equal(result.selectedSize,"W31");
+  assert.equal(result.estimateSource,"measured-waist");
   assert.equal(selected,"W31");
   assert.match(result.reason,/39 cm geschätzt/);
   assert.ok(logs.some(x=>x.includes("[SIZE ESTIMATE]")));
@@ -723,6 +726,9 @@ test("women W36 is converted to XXL only for letter-only Vinted category, review
   },x=>logs.push(x));
   assert.equal(result.success,true);
   assert.equal(result.needsReview,true);
+  assert.equal(result.reviewType,"estimated-size");
+  assert.equal(result.selectedSize,"XXL");
+  assert.equal(result.estimateSource,"w-label");
   assert.equal(ui.chosen(),"XXL");
   assert.ok(logs.some(x=>x.includes("[SIZE WOMEN CONVERT] W36 → XXL")));
   assert.ok(logs.some(x=>x.includes("[SIZE REVIEW]")));
