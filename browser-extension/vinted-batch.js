@@ -212,6 +212,35 @@
       completed:completed.length,nextArticle:next.queue[index]?.artikelnummer||null};
   }
 
+  // Preserve the REAL error returned by the field engine. The old batch
+  // reported only "size", discarding precisely the data needed to debug it.
+  function formFailureMessage(filled){
+    if(!filled||typeof filled!=="object")
+      return "Vinted-Formular hat keine Antwort geliefert";
+    const failed=String(filled.stoppedAt||"").trim();
+    if(!filled.success&&!failed)
+      return "Vinted-Formular konnte nicht ausgefüllt werden: "+
+        String(filled.error||"Unbekannter Fehler").slice(0,280);
+    if(!failed)return "";
+    const reason=String(filled.results?.[failed]?.reason||
+      filled.error||"Kein Fehlergrund gemeldet").slice(0,350);
+    const diag=(Array.isArray(filled.logs)?filled.logs:[])
+      .filter(line=>/^\[(?:SIZE|STOP)(?:\s|\])/.test(String(line)))
+      .slice(-2).map(line=>String(line).slice(0,220)).join(" / ");
+    const field=failed==="size"?"Größe":failed;
+    return field+": "+reason+(diag?" (Details: "+diag+")":"");
+  }
+  function draftSizeSummary(draft){
+    const size=String(draft?.size||"").trim();
+    const waist=String(draft?.measurements?.waist||"").trim();
+    const gender=String(draft?.gender||"").trim();
+    const status=size?"Größe in Sascha AI: "+size:
+      "Größe fehlt in Sascha AI";
+    const measure=waist?"Bundweite: "+waist+" cm":
+      "Bundweite wurde NICHT in den Vinted-Entwurf übertragen";
+    return [status,measure,gender?"Bereich: "+gender:"Bereich nicht angegeben"].join("; ");
+  }
+
   async function single(row,source){
     const tab=await chrome.tabs.create({
       url:"https://www.vinted.de"+NEW_ITEM_PATH,
@@ -230,6 +259,7 @@
         " nicht eindeutig laden: "+(data?.error||"Keine Daten"));
     if(data.payload.id!==row.id)
       throw Error("Sascha AI hat den falschen Entwurf zurückgegeben");
+    await log("Größen-Daten für #"+row.artikelnummer+": "+draftSizeSummary(data.payload));
     await log("Fülle #"+row.artikelnummer,{phase:"filling"});
     const filled=await tabMessage(tab.id,{
       type:"FILL_VINTED_FORM",draft:data.payload,debugMode:false,
@@ -237,8 +267,11 @@
       // that Vinted does not expose to the extension. Never for publishing.
       draftOnlyBatch:true
     },110000);
-    if(!filled?.success||filled.stoppedAt)
-      throw Error("Formular nicht vollständig: "+(filled?.stoppedAt||filled?.error||"Unbekannter Fehler"));
+    if(!filled?.success||filled.stoppedAt){
+      const message=formFailureMessage(filled);
+      await log("Vinted-Feldfehler bei #"+row.artikelnummer+": "+message);
+      throw Error("Formular nicht vollständig: "+message);
+    }
     const required=["title","description","category","brand","size","color","condition","price","images"];
     for(const key of required){
       if(!filled.results?.[key]?.success)
@@ -429,5 +462,6 @@
   // For Node regression tests. No exposed methods in production pages.
   if(typeof module!=="undefined"&&module.exports)
     module.exports={orderedQueue,articleNumber,validVintedUrl,savedUrl,saschaUrl,
-      safeTabLocation,tabNavigationState,waitForEditor,recoverableSave};
+      safeTabLocation,tabNavigationState,waitForEditor,recoverableSave,
+      formFailureMessage,draftSizeSummary};
 })();

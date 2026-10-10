@@ -183,6 +183,25 @@ test("missing label plus 39 cm flat waist selects W31 but requires user review",
   assert.ok(logs.some(x=>x.includes("[SIZE ESTIMATE]")));
   assert.ok(logs.some(x=>x.includes("[SIZE REVIEW]")));
 });
+test("when Sascha AI shows a waist but draft payload omits it, explain stale website transfer",async()=>{
+  const doc={querySelector(){return null;},querySelectorAll(){return [];}};
+  const logs=[];
+  await assert.rejects(()=>createEngine(doc).size({
+    size:"",gender:"Herren",category:"Jeans",fit:"straight",
+    measurements:{}
+  },x=>logs.push(x)),/werden aber nicht im Vinted-Entwurf mitgesendet/);
+  assert.ok(logs.some(x=>x.includes("[SIZE INPUT]")));
+  assert.ok(logs.some(x=>x.includes("waistCm=(nicht übertragen)")));
+});
+test("38 cm flat Bundweite calculates intended estimated size but does not assert label authenticity",()=>{
+  const result=waistEstimate.estimate({
+    size:"",measurements:{waist:"38"}
+  },{gender:"men",kind:"jeans"});
+  assert.equal(result.size,"W30");
+  assert.equal(result.estimated,true);
+  assert.match(result.reason,/kein Etikett/);
+});
+
 test("unknown size without measured waist cannot select arbitrary Vinted size",async()=>{
   const doc={querySelector(){return null;},querySelectorAll(){return [];}};
   const logs=[];
