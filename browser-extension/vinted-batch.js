@@ -297,6 +297,12 @@
       [UNVERIFIED_KEY]:[...items,record].slice(-500)
     });
   }
+  async function forgetUnverified(article){
+    const box=await chrome.storage.local.get(UNVERIFIED_KEY);
+    const previous=Array.isArray(box[UNVERIFIED_KEY])?box[UNVERIFIED_KEY]:[];
+    await chrome.storage.local.set({[UNVERIFIED_KEY]:previous.filter(
+      p=>articleNumber(p?.artikelnummer)!==articleNumber(article))});
+  }
   function ambiguousSaveAtVerification(phase,reason){
     return phase==="verifying" &&
       /(?:Speichern nicht eindeutig bestätigt|Speichern unklar)/i.test(
@@ -445,6 +451,7 @@
     const warnings=[...(next.warnings||[]),
       ...(next.pendingReviewWarnings||[])].slice(-100);
     await rememberConfirmed(row);
+    await forgetUnverified(row.artikelnummer);
     await chrome.alarms.clear(GUARD_ALARM);
     await chrome.alarms.clear(NEXT_ALARM);
     if(index>=next.queue.length){
@@ -586,6 +593,11 @@
     // Explicit draft-only action: safe to retry neither it nor the workflow.
     const attemptToken=String(state.startedAt||"")+":"+
       row.id+":"+Date.now();
+    // Persist a duplicate-prevention fence BEFORE the potentially irreversible
+    // Vinted click. Worker suspension cannot make this article eligible again.
+    await rememberUnverified({id:row.id,artikelnummer:row.artikelnummer,
+      reason:"Speicherversuch begonnen – Vinted-Bestätigung ausstehend",
+      at:Date.now(),attemptToken,pending:true});
     await log("Speichere #"+row.artikelnummer+" ausdrücklich als Entwurf",{
       phase:"saving",saveAttempt:{token:attemptToken,articleNumber:row.artikelnummer}
     });
@@ -593,8 +605,12 @@
       type:"SAVE_VINTED_DRAFT",attemptToken,articleNumber:row.artikelnummer
     },8500)
       .catch(e=>({uncertain:true,error:e.message}));
-    if(click?.clicked===false)throw Error("Speichern nicht gestartet: "+(click.error||"Button fehlt")+
+    if(click?.clicked===false){
+      // Engine explicitly confirms that no save click occurred.
+      await forgetUnverified(row.artikelnummer);
+      throw Error("Speichern nicht gestartet: "+(click.error||"Button fehlt")+
       (Array.isArray(click.available)?" · Buttons: "+JSON.stringify(click.available):""));
+    }
     if(click?.uncertain){
       await log("Speicher-Klick: Rückmeldung wegen möglichem Seitenwechsel unklar. "+
         "Prüfe nur den Erfolg; klicke NICHT erneut.");
@@ -611,6 +627,7 @@
        warnings:[...(state?.warnings||[]),...pendingReviewWarnings].slice(-100),
        pendingReviewWarnings:[]});
     await rememberConfirmed(row);
+    await forgetUnverified(row.artikelnummer);
     // Close only a positively acknowledged saved listing tab; the next
     // iteration always starts from a clean form.
     try{await chrome.tabs.remove(tab.id);}catch(_){}
@@ -847,6 +864,14 @@
       ]);
       // Recover confirmed rows from the previous batch state as well,
       // including users who upgraded from older extension versions.
+      // A prior interrupted/paused save must never be resubmitted as a new batch.
+      // This also guards states created before the durable save fence existed.
+      const pendingRow=prior?.queue?.[prior?.index];
+      if(pendingRow && (prior?.saveAttempt ||
+          ["saving","verifying","awaiting_confirmation","interrupted"].includes(prior?.phase)))
+        known.add(Number(pendingRow.artikelnummer));
+      for(const item of prior?.unverified||[])if(item?.artikelnummer)
+        known.add(Number(item.artikelnummer));
       for(const id of prior?.completed||[]){
         const row=(prior.queue||[]).find(item=>item.id===id);
         if(row?.artikelnummer)known.add(Number(row.artikelnummer));
