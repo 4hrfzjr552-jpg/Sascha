@@ -176,6 +176,42 @@
       "Die Hose nicht erneut automatisch senden; Entwürfe zuerst prüfen. "+
       (last.error||""));
   }
+  // A positive manual confirmation is required if Vinted saved the draft
+  // without a URL/toast the extension can recognise. Supports the v3.16
+  // failed state too, without ever clicking Save draft a second time.
+  function recoverableSave(state){
+    if(!state||!Array.isArray(state.queue))return false;
+    const row=state.queue[state.index];
+    if(!row||row.id!==state.currentId)return false;
+    if(state.status==="running"&&state.phase==="awaiting_confirmation")return true;
+    if(state.status!=="error"||state.phase!=="failed")return false;
+    if(!/^Vinted hat das Speichern nicht eindeutig bestätigt\./.test(state.error||""))return false;
+    // Only treat as recoverable if a save was actually attempted.
+    return (state.logs||[]).some(line=>/Prüfe Vinted-Speicherbestätigung für #/.test(line));
+  }
+  async function markConfirmed(next,evidence){
+    const row=next.queue[next.index];
+    if(!row||next.currentId!==row.id)
+      throw Error("Falscher Entwurf – keine Bestätigung möglich");
+    const index=next.index+1;
+    const completed=[...(next.completed||[]),row.id];
+    const logs=[...(next.logs||[]),
+      "Entwurf #"+row.artikelnummer+" "+evidence+
+      ". Keine erneute Übertragung."].slice(-75);
+    await chrome.alarms.clear(GUARD_ALARM);
+    await chrome.alarms.clear(NEXT_ALARM);
+    if(index>=next.queue.length){
+      await put({...next,status:"done",phase:"done",index,
+        currentId:null,completed,error:null,logs});
+    }else{
+      await put({...next,status:"running",phase:"ready",index,
+        currentId:null,completed,error:null,logs});
+      await chrome.alarms.create(NEXT_ALARM,{when:Date.now()+5000});
+    }
+    return {success:true,finished:index>=next.queue.length,
+      completed:completed.length,nextArticle:next.queue[index]?.artikelnummer||null};
+  }
+
   async function single(row,source){
     const tab=await chrome.tabs.create({
       url:"https://www.vinted.de"+NEW_ITEM_PATH,
@@ -267,10 +303,21 @@
           await chrome.alarms.create(GUARD_ALARM,{when:Date.now()+180000});
           await single(row,sascha);
         }catch(e){
-          await log("STOP bei #"+row.artikelnummer+": "+(e?.message||String(e)),{
-            status:stopRequested?"stopped":"error",phase:"failed",
-            error:e?.message||String(e)
-          });
+          const reason=e?.message||String(e);
+          if(!stopRequested && state.phase==="verifying" &&
+              /(?:Speichern nicht eindeutig bestätigt|Speichern unklar)/i.test(reason)){
+            await log("PAUSE bei #"+row.artikelnummer+": "+reason+
+              " · Entwurf gegebenenfalls vorhanden; einmal bei Vinted prüfen "+
+              "und anschließend in der Extension bestätigen.",{
+              status:"awaiting_confirmation",phase:"awaiting_confirmation",
+              error:reason
+            });
+          }else{
+            await log("STOP bei #"+row.artikelnummer+": "+reason,{
+              status:stopRequested?"stopped":"error",phase:"failed",error:reason
+            });
+          }
+          await chrome.alarms.clear(GUARD_ALARM);
           return;
         }
         await put({...state,index:state.index+1,currentId:null,
@@ -328,6 +375,23 @@
         .catch(e=>sendResponse({success:false,error:e.message}));
       return true;
     }
+    if(msg?.type==="CONFIRM_VINTED_DRAFT_SAVED"){
+      (async()=>{
+        if(busy)throw Error("Bitte warten, bis der aktuelle Ablauf gestoppt hat");
+        const current=await getState();
+        if(!recoverableSave(current))
+          throw Error("Kein Entwurf mit unklarer Speicherung zum Bestätigen vorhanden");
+        const row=current.queue[current.index];
+        if(msg.draftId!==row.id || msg.articleNumber!==row.artikelnummer)
+          throw Error("Artikelnummer oder Entwurf-ID stimmt nicht überein");
+        // This is the seller's explicit statement after opening the Vinted
+        // drafts list; it is NOT an automatic Vinted receipt.
+        const result=await markConfirmed(current,
+          "vom Verkäufer im Vinted-Profil bestätigt");
+        sendResponse(result);
+      })().catch(e=>sendResponse({success:false,error:e.message}));
+      return true;
+    }
     if(msg?.type==="STOP_VINTED_BATCH"){
       stopRequested=true;
       void chrome.alarms.clear(NEXT_ALARM);
@@ -365,5 +429,5 @@
   // For Node regression tests. No exposed methods in production pages.
   if(typeof module!=="undefined"&&module.exports)
     module.exports={orderedQueue,articleNumber,validVintedUrl,savedUrl,saschaUrl,
-      safeTabLocation,tabNavigationState,waitForEditor};
+      safeTabLocation,tabNavigationState,waitForEditor,recoverableSave};
 })();
