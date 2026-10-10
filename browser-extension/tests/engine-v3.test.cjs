@@ -8,6 +8,9 @@ const path=require("node:path");
 const catalogContext={window:{},module:{exports:{}}};
 vm.runInNewContext(fs.readFileSync(path.join(__dirname,"..","vinted-catalog-v3.js"),"utf8"),catalogContext);
 const catalog=catalogContext.module.exports;
+const sizeEstimateContext={window:{},module:{exports:{}}};
+vm.runInNewContext(fs.readFileSync(path.join(__dirname,"..","vinted-size-estimate.js"),"utf8"),sizeEstimateContext);
+const waistEstimate=sizeEstimateContext.module.exports;
 const src=fs.readFileSync(path.join(__dirname,"..","content-vinted-v3.js"),"utf8");
 class FakeInput{
   constructor(id,value=""){this.id=id;this._value=value;this.isConnected=true;}
@@ -24,6 +27,7 @@ class FakeEvent{constructor(name){this.type=name;}}
 function createEngine(document,extra={}){
   const window={
     SaschaVintedCatalogV3:catalog,
+    SaschaVintedWaistEstimate:waistEstimate,
     SaschaVintedImageEdit:extra.imageEditor===null?null:(extra.imageEditor||{
       processImage:async(file,i)=>({
         file:new (extra.File||File)([file],
@@ -139,6 +143,54 @@ test("W36 switches from XS–7XL to the Taillenumfang submenu and selects W36",a
   assert.ok(logs.some(x=>x.includes("[SIZE SELECTED] W36")));
 });
 
+
+test("missing label plus 39 cm flat waist selects W31 but requires user review",async()=>{
+  const input=new FakeInput("size");let opened=false,mode="letters",selected="";
+  input.click=()=>{opened=true;};
+  const choices=()=>mode==="letters"?["XS","M","L","XL"]:["W30","W31","W32","W34"];
+  const option=label=>({
+    isConnected:true,innerText:label,textContent:label,
+    getClientRects:()=>[1],closest:()=>null,getAttribute:()=>null,
+    click(){selected=label;input.value=label;opened=false;}
+  });
+  const tab={
+    innerText:"Taillenumfang",textContent:"Taillenumfang",
+    isConnected:true,getClientRects:()=>[1],closest:()=>null,
+    getAttribute:()=>null,click(){mode="waist";}
+  };
+  const grid={
+    isConnected:true,getClientRects:()=>[1],closest:()=>null,
+    querySelectorAll(selector){
+      return selector.includes('[role="tab"]')?[tab]:choices().map(option);
+    }
+  };
+  const doc={
+    querySelector(selector){return selector==="#size"?input:null;},
+    querySelectorAll(selector){
+      return selector.includes("size-single-grid-content")&&opened?[grid]:[];
+    }
+  };
+  const logs=[];
+  const result=await createEngine(doc).size({
+    gender:"Herren",category:"Jeans",fit:"straight",
+    size:"",measurements:{waist:"39 cm",totalLength:"109"}
+  },line=>logs.push(line));
+  assert.equal(result.success,true);
+  assert.equal(result.needsReview,true);
+  assert.equal(selected,"W31");
+  assert.match(result.reason,/39 cm geschätzt/);
+  assert.ok(logs.some(x=>x.includes("[SIZE ESTIMATE]")));
+  assert.ok(logs.some(x=>x.includes("[SIZE REVIEW]")));
+});
+test("unknown size without measured waist cannot select arbitrary Vinted size",async()=>{
+  const doc={querySelector(){return null;},querySelectorAll(){return [];}};
+  const logs=[];
+  await assert.rejects(()=>createEngine(doc).size({
+    size:"Unbekannt",gender:"Herren",category:"Jeans",
+    measurements:{totalLength:"110"}
+  },x=>logs.push(x)),/Keine gültige flach gemessene Bundweite/);
+  assert.equal(logs.some(x=>x.includes("[SIZE SELECTED]")),false);
+});
 
 test("size dropdown is scrolled into view before the click (lazy content)",async()=>{
   const input=new FakeInput("size");

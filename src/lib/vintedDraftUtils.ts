@@ -270,6 +270,11 @@ export async function getVintedDraftPayload(
     brand: draft.brand,
     model: draft.model,
     size: draft.size,
+    // Original flat measurements travel with the draft; NEVER replace a
+    // real size label with an approximation.
+    measurements: activePant?.measurements
+      ? { ...activePant.measurements }
+      : undefined,
     gender: draft.gender,
     color: draft.color,
     fit: draft.fit,
