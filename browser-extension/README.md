@@ -1,4 +1,4 @@
-# Sascha AI → Vinted Assistant 3.20
+# Sascha AI → Vinted Assistant 3.21
 
 Die Chrome-Erweiterung übernimmt einen vollständigen Entwurf aus Sascha AI in die geöffnete Vinted-Verkaufsmaske. **Sie veröffentlicht und speichert nichts automatisch.** Alle Angaben vor dem Speichern prüfen.
 
@@ -39,7 +39,7 @@ Die folgende Zuordnung stammt aus realen Vinted-Katalog-Suchergebnissen und ist 
 2. ZIP entpacken und den **Ordner \`browser-extension\`** an einem festen Ort behalten.
 3. In Chrome \`chrome://extensions/\` öffnen und den Entwicklermodus aktivieren.
 4. „Entpackte Erweiterung laden“ wählen und den Ordner \`browser-extension\` auswählen.
-5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.20.0** stehen.
+5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.21.0** stehen.
 
 **Updates:** Neue Dateien in denselben entpackten Erweiterungsordner kopieren, unter \`chrome://extensions/\` „Neu laden“ klicken und den Vinted-Tab aktualisieren. Nur „Download ZIP“ auszuführen aktualisiert die installierte Erweiterung nicht. Es ist weder \`git pull\` noch das Mergen eines GitHub-PR erforderlich, wenn die Version bereits in \`main\` liegt.
 
@@ -125,6 +125,14 @@ Die Extension zeigt vor dem Start die Zahl der importierten geeigneten Hosen und
 **Speicherbestätigung nach Weiterleitung aufs Vinted-Profil:** Nur eine eindeutig als Entwurf ausgewiesene Karte mit der **exakten Artikelnummer** kann als Bestätigung gelten; das bloße Öffnen einer Profilseite **beweist keine erfolgreiche Speicherung**. Wenn Vinted keine nachweisbare Speicherbestätigung zeigt, bleibt die einmalige manuelle Kontrolle notwendig. Die Erweiterung darf nicht blind einen zweiten Speicher-Klick auslösen.
 
 **Wichtig:** Neue virtuelle Hosen erscheinen nur, wenn die **aktuelle Sascha-AI-Web-App** (nach GitHub-Merge via Vercel-Deployment) die erweiterte Liste bereits ausliefert. Aktualisiere die Website und die vorhandene Extension, ohne deren lokalen Speicher zu löschen. Prüfe den Import-Zähler vor dem Start. Bei nur einer geeigneten Hose zeigt die Extension ausdrücklich, dass es keine folgende Hose gibt. Bitte bestehende Vinted-Entwürfe vor der ersten größeren Serie auf Dubletten prüfen. Die Extension **veröffentlicht niemals automatisch**.
+
+### Damenjeans mit numerischer Etikettgröße wie „6“ (3.21.0)
+
+Fehler bei Artikel **#67**: Sascha AI lieferte die **Original-Etikettgröße `6`**, während das ausgewählte Vinted-Damen-Größenmenü nur `XXS / XS / S / M / L / XL …` anbot. Bisher wurde eine vorhandene Zahl als verbindliche Auswahl behandelt und die aus Sascha AI vorliegenden Maße wurden **nicht** als Alternative herangezogen.
+
+Ab **3.21.0** gilt: Wenn es sich nach der Klassifikation um eine **Damenjeans** handelt, Vinted die Originalzahl nicht als auswählbare Größe anbietet und sie **ohne Länderangabe** nur aus einer ein- oder zweistelligen Zahl besteht (z. B. `6`, `36`), prüft die Extension die mitgelieferte **flach gemessene Bundweite**. Ist diese vorhanden und plausibel (28–62 cm), schlägt sie anhand des verdoppelten Umfangs eine **ungefähre Buchstabengröße** vor, wählt nur eine tatsächlich angezeigte Option und markiert das Ergebnis weiterhin als **geschätzt/umgerechnet**. Die `6` wird **nicht** pauschal als `US 6` oder `UK 6` interpretiert; die Originalgröße erscheint im Protokoll `[SIZE WOMEN NUMERIC WAIST]` sowie im Prüfhinweis für den Entwurf. **Beispiel ausschließlich zur Erklärung:** 39 cm flache Bundweite ergibt nach der allgemeinen Tabelle ungefähr `M`; für #67 ist keine Bundweite aus dem Fehlerprotokoll belegt.
+
+Der **automatische Entwurfsmodus** darf diese nachweislich ausgewählte Schätzgröße bei aktivierter Option „Geschätzte Jeansgrößen auch als Entwurf speichern“ übernehmen und speichert einen Prüfhinweis zur tatsächlichen Größenbestimmung. Keine automatische Veröffentlichung. Ohne Bundweite, ohne bestätigte Größenauswahl, bei falscher Kategorie oder deaktivierter Opt-in-Option bleibt der Stopp bestehen. Echte Buchstabengrößen und explizite `US 6`/`EU 36`/`W36`-Etiketten nutzen weiterhin ihre gesonderten Regeln und werden nicht durch Maße überschrieben.
 
 ## Automatischer Entwurfsstapel (Version 3.12)
 
