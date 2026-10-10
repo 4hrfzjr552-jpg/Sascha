@@ -522,7 +522,12 @@
       log("[SIZE REVIEW] "+reason);
       log("[SIZE SELECTED] "+result.size.toUpperCase()+
         " (geschätzte Damen-/W-Größe, keine bestätigte Herstellergrößen-Zuordnung)");
-      return {success:true,needsReview:true,reason};
+      // The picker itself was verified above. This is an uncertainty
+      // marker for a DRAFT, not a failed size selection or a real label.
+      return {success:true,needsReview:true,reviewType:"estimated-size",
+        selectedSize:String(result.size).toUpperCase(),
+        estimateSource:estimated.source||"unknown",
+        reason};
     }
     log("[SIZE SELECTED] "+result.size.toUpperCase()+" (Originalgröße)");
     return {success:true};
