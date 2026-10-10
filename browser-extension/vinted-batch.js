@@ -204,6 +204,46 @@
       [...new Set([...previous,value])].slice(-500)});
   }
 
+  async function refreshReadyDraftList(){
+    const sascha=await findSascha();
+    const response=await tabMessage(sascha.id,{
+      type:"FETCH_DRAFT_LIST_FROM_SASCHA",includeEligiblePants:true
+    },15000);
+    if(!response?.success||!Array.isArray(response.payload))
+      throw Error("Aktuelle Hosenliste aus Sascha AI nicht verfügbar: "+
+        (response?.error||"Keine gültige Antwort"));
+    return response.payload;
+  }
+  // An earlier version stored a one-item queue (0/1). After the user
+  // confirms that existing draft in Vinted, discover the subsequent
+  // eligible pants instead of declaring that old batch finished.
+  async function extendOldSingleQueue(current){
+    if(current.index<current.queue.length-1)return current;
+    const row=current.queue[current.index];
+    if(!row)return current;
+    try{
+      const live=await refreshReadyDraftList();
+      const future=live.filter(d=>articleNumber(d.artikelnummer)>row.artikelnummer);
+      if(!future.length)return current;
+      const candidates=orderedQueue(future,
+        future.reduce((a,b)=>articleNumber(a.artikelnummer)<articleNumber(b.artikelnummer)?a:b).id);
+      const confirmedRes=await chrome.storage.local.get(CONFIRMED_KEY);
+      const known=new Set(Array.isArray(confirmedRes[CONFIRMED_KEY])?
+        confirmedRes[CONFIRMED_KEY]:[]);
+      const before=new Set(current.queue.map(r=>r.artikelnummer));
+      const nextItems=candidates.filter(r=>!known.has(r.artikelnummer)&&
+        !before.has(r.artikelnummer)).slice(0,100-current.queue.length);
+      if(!nextItems.length)return current;
+      await log("Warteschlange aus Sascha AI erweitert: "+
+        nextItems.length+" weitere Hosen ab #"+nextItems[0].artikelnummer);
+      return await put({...state,queue:[...state.queue,...nextItems]});
+    }catch(e){
+      await log("Weitere Hosen konnten nicht automatisch geladen werden: "+
+        String(e?.message||e));
+      return state||current;
+    }
+  }
+
   async function markConfirmed(next,evidence){
     const row=next.queue[next.index];
     if(!row||next.currentId!==row.id)
@@ -463,9 +503,12 @@
         const row=current.queue[current.index];
         if(msg.draftId!==row.id || msg.articleNumber!==row.artikelnummer)
           throw Error("Artikelnummer oder Entwurf-ID stimmt nicht überein");
+        // Old one-item batches can discover newly eligible pants after an
+        // explicit human confirmation, without posting the old item again.
+        const expanded=await extendOldSingleQueue(current);
         // This is the seller's explicit statement after opening the Vinted
         // drafts list; it is NOT an automatic Vinted receipt.
-        const result=await markConfirmed(current,
+        const result=await markConfirmed(expanded,
           "vom Verkäufer im Vinted-Profil bestätigt");
         sendResponse(result);
         if(!result.finished && typeof chrome.tabs.query==="function")
@@ -494,7 +537,10 @@
         throw Error("Ein früherer Stapel ist möglicherweise noch aktiv. "+
           "Bitte Vinted-Entwürfe prüfen, bevor ein neuer Stapel gestartet wird.");
       const stored=await chrome.storage.local.get(["savedDrafts",CONFIRMED_KEY]);
-      const saved=stored.savedDrafts;
+      // Always refresh the full eligible pants list instead of relying on
+      // an old popup import which may have contained only one prepared draft.
+      const saved=await refreshReadyDraftList();
+      await chrome.storage.local.set({savedDrafts:saved});
       const ordered=orderedQueue(saved,msg.selectedDraftId);
       const known=new Set(Array.isArray(stored[CONFIRMED_KEY])?
         stored[CONFIRMED_KEY]:[]);
