@@ -141,3 +141,30 @@ test("numeric waist fallback never applies to men or nonnumeric labels",()=>{
   assert.equal(estimateWomenNumericByWaist({size:"W36",measurements:{waist:"39"}},women).ok,false);
   assert.equal(estimateWomenNumericByWaist({size:"L",measurements:{waist:"39"}},women).ok,false);
 });
+
+
+test("unreadable size labels count as missing, not as literal Vinted sizes",()=>{
+  for(const label of ["Nicht lesbar","  nicht lesbar  ","NICHT LESBAR",
+    "unleserlich","Unlesbar","Nicht erkennbar","Größe nicht lesbar",
+    "nicht zu erkennen","size unreadable","illegible","not readable"]){
+    assert.equal(isMissingSize(label),true,label);
+  }
+  for(const label of ["6","W30","EU 40","M","4XL","nicht standard"]){
+    assert.equal(isMissingSize(label),false,label);
+  }
+});
+test("unreadable women's jeans size uses 33cm flat waistband to suggest XS",()=>{
+  const found=estimate({size:"Nicht lesbar",
+    measurements:{waist:"33"}},women);
+  assert.equal(found.ok,true);
+  assert.equal(found.size,"XS");
+  assert.equal(found.source,"measured-waist");
+  assert.equal(found.waistCm,33);
+  assert.equal(found.estimated,true);
+});
+test("unreadable size with no measured waist is never guessed",()=>{
+  const found=estimate({size:"Nicht lesbar",
+    measurements:{waist:""}},women);
+  assert.equal(found.ok,false);
+  assert.match(found.reason,/Bundweite/);
+});
