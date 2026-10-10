@@ -60,6 +60,15 @@
         In Vinted einfügen
       </button>
 
+      <button id="btnBatchStart" class="btn btn-primary" disabled>
+        Alle ab dieser Hose als Vinted-Entwürfe speichern
+      </button>
+      <button id="btnBatchStop" class="btn btn-secondary" style="display:none;">
+        Stapel stoppen
+      </button>
+      <div id="batchStatus" style="font-size:12px;line-height:1.5;display:none;padding:8px;border:1px solid var(--border);border-radius:8px;"
+           aria-live="polite"></div>
+
       <button id="btnClearDraft" class="btn btn-danger-link" style="display: none;">
         Entwurf vergessen
       </button>
@@ -70,7 +79,8 @@
       <div style="font-weight: 600; margin-bottom: 4px;" id="statusSummaryTitle">Vinted ausgefüllt</div>
       <ul id="statusList" class="status-list"></ul>
       <div style="font-size: 11px; color: var(--text-muted); margin-top: 8px;">
-        Bitte alles prüfen und selbst speichern.
+        Einzelmodus: Bitte selbst speichern. Stapelmodus: Nur als Entwurf speichern,
+        nie veröffentlichen. Bei unbestätigter Speicherung wird gestoppt.
       </div>
     </section>
 
