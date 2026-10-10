@@ -48,6 +48,7 @@ function createEngine(document,extra={}){
     setTimeout:fn=>fn(),
     Date:ClockDate,
     File:extra.File||class{},
+    MutationObserver:extra.MutationObserver,
     DataTransfer:extra.DataTransfer||class{},
     fetch:extra.fetch||undefined,
     atob:extra.atob||(value=>Buffer.from(value,"base64").toString("binary")),
@@ -740,4 +741,49 @@ test("women conversion respects Vinted 2XL alias of XXL",async()=>{
   },x=>logs.push(x));
   assert.equal(result.needsReview,true);
   assert.equal(ui.chosen(),"2XL");
+});
+
+
+test("draft save acknowledges Entwurf erfolgreich gespeichert, not just fixed old phrase",()=>{
+  const e=createEngine(buttonTestDocument([]));
+  for(const label of [
+    "Dein Entwurf wurde gespeichert!",
+    "Entwurf erfolgreich gespeichert",
+    "Dein Entwurf ist jetzt gespeichert",
+    "Your draft was saved",
+    "Saved as draft",
+    "Saved to drafts"
+  ])assert.ok(e.saveFeedbackText(label).length>0,label);
+});
+test("draft save cannot confirm failure, publish, or merely an unsaved button",()=>{
+  const e=createEngine(buttonTestDocument([]));
+  for(const text of [
+    "Entwurf speichern",
+    "Entwurf nicht gespeichert",
+    "Draft not saved",
+    "Saved listing published",
+    "Fehler: Entwurf konnte nicht gespeichert werden",
+    "Unable to save draft",
+    "Veröffentlichen"
+  ])assert.equal(e.saveFeedbackText(text),"",text);
+});
+test("short-lived save toast is remembered by mutation observer after it disappears",()=>{
+  let observer;
+  class FakeMutationObserver{
+    constructor(callback){this.callback=callback;observer=this;}
+    observe(root,options){this.watching=true;}
+    disconnect(){this.watching=false;}
+  }
+  const toasts=[],save=fakeButton("Entwurf speichern");
+  const doc=buttonTestDocument([save],toasts);
+  doc.body={};
+  const e=createEngine(doc,{MutationObserver:FakeMutationObserver});
+  assert.equal(e.trySaveAsDraft().clicked,true);
+  assert.equal(save.clicks,1);
+  assert.equal(observer.watching,true);
+  toasts.push(fakeButton("Entwurf erfolgreich gespeichert!"));
+  observer.callback();
+  toasts.length=0;
+  assert.equal(e.draftSaveStatus().saved,true);
+  assert.match(e.draftSaveStatus().evidence,/Entwurf erfolgreich gespeichert/);
 });

@@ -942,14 +942,42 @@
       disabled:!!el.disabled
     }));
   }
+  // Vinted's save toast can be very short-lived. Watch it from BEFORE
+  // clicking Save draft so the background script does not miss a successful
+  // response while it is polling tabs. No network interception required.
+  let draftSaveReceipt=null,draftSaveObserver=null;
+  function saveFeedbackText(raw){
+    const value=String(raw||"").trim().replace(/\s+/g," ").slice(0,350);
+    const saved=/(?:\bentw[uü]rf\w*.{0,65}\bgespeichert\b|\bals\s+entwurf\s+gespeichert\b|\bdrafts?\b.{0,65}\bsaved\b|\bsaved\b.{0,40}\bdrafts?\b)/i;
+    const failure=/(?:nicht\s+gespeichert|not\s+saved|fehler|failed|error|konnte\s+nicht|could\s+not|unable\s+to)/i;
+    return saved.test(value)&&!failure.test(value)?value:"";
+  }
+  function saveFeedbackNodes(){
+    return visible('[role="alert"],[role="status"],[aria-live],'+
+      '[data-testid*="toast" i],[data-testid*="snackbar" i],'+
+      '[data-testid*="notification" i],[class*="toast" i],'+
+      '[class*="snackbar" i],[class*="notification" i]');
+  }
+  function storePositiveFeedback(){
+    const match=saveFeedbackNodes().map(el=>saveFeedbackText(el.textContent||""))
+      .find(Boolean);
+    if(match)draftSaveReceipt={saved:true,evidence:match.slice(0,110)};
+  }
   function draftSaveStatus(){
-    const signals=visible('[role="alert"],[role="status"],[aria-live],'+
-      '[data-testid*="toast" i],[class*="Toast" i],[class*="notification" i]');
-    const savedWords=/(?:entwurf(?:\s+(?:wurde|ist))?\s+gespeichert|als\s+entwurf\s+gespeichert|draft\s+(?:was\s+)?saved|saved\s+(?:as\s+)?(?:a\s+)?draft)/i;
-    const match=signals.find(el=>savedWords.test(String(el.textContent||"")));
-    return match?{saved:true,
-      evidence:String(match.textContent||"").trim().replace(/\s+/g," ").slice(0,110)
-    }:{saved:false};
+    if(draftSaveReceipt)return draftSaveReceipt;
+    storePositiveFeedback();
+    return draftSaveReceipt||{saved:false};
+  }
+  function watchDraftSave(){
+    draftSaveReceipt=null;
+    try{draftSaveObserver?.disconnect?.();}catch(_){}
+    draftSaveObserver=null;
+    if(typeof MutationObserver!=="function"||!document.body)return;
+    // Listen for a new toast even if it is removed before next polling.
+    draftSaveObserver=new MutationObserver(()=>storePositiveFeedback());
+    draftSaveObserver.observe(document.body,{
+      childList:true,subtree:true,characterData:true
+    });
   }
   function trySaveAsDraft(){
     const buttons=draftButtonCandidates();
@@ -961,6 +989,7 @@
     };
     const element=buttons[0];
     element.scrollIntoView?.({block:"center"});
+    watchDraftSave();
     element.click();
     return {clicked:true,label:String(element.textContent||element.value||"").trim().slice(0,80)};
   }
@@ -1002,6 +1031,7 @@
     sizeOptions,sizeMenuDiagnostic,openSizeMenu,selectWaistSizing,waistModeMatch,isCorrectFieldOption,
     price,priceCents,editablePriceField,images,selectedDraftImages,uploadPreviewArea,uploadPreviewCount,imagePreviewDiagnostic,
     imageFile,imageSourceKind,
-    draftButtonCandidates,draftSaveDiagnostics,draftSaveStatus,trySaveAsDraft
+    draftButtonCandidates,draftSaveDiagnostics,draftSaveStatus,trySaveAsDraft,
+    saveFeedbackText,watchDraftSave
   };
 })();

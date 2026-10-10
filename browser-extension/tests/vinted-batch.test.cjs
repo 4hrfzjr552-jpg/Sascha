@@ -7,16 +7,27 @@ const path=require("node:path");
 const code=fs.readFileSync(path.join(__dirname,"..","vinted-batch.js"),"utf8");
 
 function batchApi(overrides={}){
-  const module={exports:{}},listener=[];
+  const module={exports:{}},listener=[],alarmCalls=[];
+  const store={vintedBatchState:overrides.state||null};
   const chrome={
     runtime:{onMessage:{addListener(fn){listener.push(fn)}}},
     alarms:{onAlarm:{addListener(fn){listener.push(fn)}},
-      clear:async()=>true,create:async()=>{}},
-    storage:{local:{}},
-    tabs:{get:overrides.getTab,sendMessage:overrides.sendMessage}
+      clear:async name=>{alarmCalls.push(["clear",name]);return true;},
+      create:async(name,options)=>{alarmCalls.push(["create",name,options]);}},
+    storage:{local:{
+      get:async key=>({[key]:store[key]}),
+      set:async patch=>Object.assign(store,patch)
+    }},
+    tabs:{get:overrides.getTab,sendMessage:overrides.sendMessage,
+      create:()=>{throw Error("MUST NOT CREATE DUPLICATE DRAFT");}}
   };
   vm.runInNewContext(code,{chrome,module,URL,console,setTimeout,clearTimeout});
-  return {api:module.exports,listener};
+  return {api:module.exports,listener,store,alarmCalls,
+    dispatch:async message=>new Promise(resolve=>{
+      const fn=listener.at(-1);
+      const ret=fn(message,{},resolve);
+      if(ret===false)resolve({ignored:true});
+    })};
 }
 const pant=(nr,id)=>({artikelnummer:String(nr),id,title:"Diesel Jeans "+nr});
 
@@ -134,4 +145,72 @@ test("waitForEditor keeps waiting for Vinted login/form instead of reporting red
   });
   await assert.rejects(api.waitForEditor(10,25,1),
     /Verkaufsformular nach 0 Sekunden nicht bereit/);
+});
+
+
+function failedSaveState({two=false}={}){
+  const rows=[{id:"pant73",artikelnummer:73,title:"Diesel Jeans #73"},
+    ...(two?[{id:"pant74",artikelnummer:74,title:"Diesel Jeans #74"}]:[])];
+  return {status:"error",phase:"failed",index:0,currentId:"pant73",
+    error:"Vinted hat das Speichern nicht eindeutig bestätigt. Die Hose nicht erneut automatisch senden; Entwürfe zuerst prüfen.",
+    queue:rows,completed:[],logs:["Beginne 1/2: Artikel #73",
+      "Speichere #73 ausdrücklich als Entwurf",
+      "Prüfe Vinted-Speicherbestätigung für #73",
+      "STOP bei #73: Vinted hat das Speichern nicht eindeutig bestätigt."]
+  };
+}
+test("legacy #73 ambiguous save is recoverable only after a real save attempt",()=>{
+  const state=failedSaveState();
+  const {api}=batchApi();
+  assert.equal(api.recoverableSave(state),true);
+  assert.equal(api.recoverableSave({...state,logs:["Nothing"]}),false);
+  assert.equal(api.recoverableSave({...state,error:"No save button"}),false);
+  assert.equal(api.recoverableSave({...state,currentId:"other"}),false);
+  assert.equal(api.recoverableSave({...state,status:"done"}),false);
+});
+test("new paused state accepts user confirmation but never retries a save",async()=>{
+  const state={...failedSaveState(),status:"awaiting_confirmation",phase:"awaiting_confirmation"};
+  const box=batchApi({state});
+  assert.equal(box.api.recoverableSave(state),true);
+  const response=await box.dispatch({
+    type:"CONFIRM_VINTED_DRAFT_SAVED",draftId:"pant73",articleNumber:73
+  });
+  assert.equal(response.success,true);
+  assert.equal(response.finished,true);
+  assert.equal(box.store.vintedBatchState.status,"done");
+  assert.equal(box.store.vintedBatchState.index,1);
+  assert.deepEqual(Array.from(box.store.vintedBatchState.completed),["pant73"]);
+  assert.equal(box.alarmCalls.some(x=>x[0]==="create"),false);
+});
+test("confirmed old #73 skips to #74 rather than uploading #73 again",async()=>{
+  const box=batchApi({state:failedSaveState({two:true})});
+  const response=await box.dispatch({
+    type:"CONFIRM_VINTED_DRAFT_SAVED",draftId:"pant73",articleNumber:73
+  });
+  assert.equal(response.success,true);
+  assert.equal(response.nextArticle,74);
+  assert.equal(box.store.vintedBatchState.index,1);
+  assert.equal(box.store.vintedBatchState.queue[1].artikelnummer,74);
+  assert.equal(box.store.vintedBatchState.phase,"ready");
+  assert.equal(box.alarmCalls.filter(x=>x[0]==="create").length,1);
+});
+test("recovery cannot confirm a different item or wrong article number",async()=>{
+  const box=batchApi({state:failedSaveState()});
+  let result=await box.dispatch({
+    type:"CONFIRM_VINTED_DRAFT_SAVED",draftId:"pant74",articleNumber:73
+  });
+  assert.equal(result.success,false);
+  result=await box.dispatch({
+    type:"CONFIRM_VINTED_DRAFT_SAVED",draftId:"pant73",articleNumber:74
+  });
+  assert.equal(result.success,false);
+  assert.equal(box.store.vintedBatchState.index,0);
+});
+test("unrelated error is not manually confirmable",async()=>{
+  const box=batchApi({state:{...failedSaveState(),error:"Speichern nicht gestartet: Button fehlt"}});
+  const response=await box.dispatch({
+    type:"CONFIRM_VINTED_DRAFT_SAVED",draftId:"pant73",articleNumber:73
+  });
+  assert.equal(response.success,false);
+  assert.equal(box.store.vintedBatchState.index,0);
 });

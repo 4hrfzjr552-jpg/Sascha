@@ -1,4 +1,4 @@
-# Sascha AI → Vinted Assistant 3.16
+# Sascha AI → Vinted Assistant 3.17
 
 Die Chrome-Erweiterung übernimmt einen vollständigen Entwurf aus Sascha AI in die geöffnete Vinted-Verkaufsmaske. **Sie veröffentlicht und speichert nichts automatisch.** Alle Angaben vor dem Speichern prüfen.
 
@@ -39,7 +39,7 @@ Die folgende Zuordnung stammt aus realen Vinted-Katalog-Suchergebnissen und ist 
 2. ZIP entpacken und den **Ordner \`browser-extension\`** an einem festen Ort behalten.
 3. In Chrome \`chrome://extensions/\` öffnen und den Entwicklermodus aktivieren.
 4. „Entpackte Erweiterung laden“ wählen und den Ordner \`browser-extension\` auswählen.
-5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.16.0** stehen.
+5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.17.0** stehen.
 
 **Updates:** Neue Dateien in denselben entpackten Erweiterungsordner kopieren, unter \`chrome://extensions/\` „Neu laden“ klicken und den Vinted-Tab aktualisieren. Nur „Download ZIP“ auszuführen aktualisiert die installierte Erweiterung nicht. Es ist weder \`git pull\` noch das Mergen eines GitHub-PR erforderlich, wenn die Version bereits in \`main\` liegt.
 
@@ -76,6 +76,19 @@ In einigen Vinted-Varianten nimmt das Datei-Eingabefeld die ersten vier bearbeit
 Sind die Vorschaubilder weiter nicht technisch auslesbar, darf **nur der ausdrücklich gestartete Entwurfs-Stapelmodus** nach dem erfolgreichen Übertragen von **genau vier bearbeiteten Dateien** mit „Entwurf speichern“ fortfahren. Dabei wird **nicht behauptet**, dass Vinted die Bilder bestätigt hat: Im Log erscheint `[IMAGES DRAFT-ONLY]`. Nach erfolgreichem Entwurf-Speichern zeigt das Popup zusätzlich einen auffälligen Hinweis mit der Artikelnummer an, dass du Bilder 1–4 **im gespeicherten Entwurf kontrollieren musst**.
 
 Einzelmodus verlangt weiterhin eine manuelle Sichtprüfung, wenn die Galerie unbekannt bleibt. Werden zu wenige Dateien angenommen, scheitert die Bearbeitung, oder Vinted bestätigt das **Speichern** nicht, stoppt der Stapel weiterhin. **Kein automatisches Veröffentlichen.** Der Stapel erstellt im schlechtesten Fall einen unvollständigen Entwurf, deshalb nach dem Test unbedingt Fotoanzahl und Reihenfolge im Entwurf prüfen.
+
+### Entwurf gespeichert, aber Vinted bestätigt nicht sichtbar (3.17.0)
+
+Ein echter Nutzer-Test ergab, dass Vinted die Hose **#73 bereits als Entwurf angelegt** hatte, obwohl die Extension nur „0/1 bestätigt“ und einen Timeout meldete. Ursache ist eine zu enge Bestätigungserkennung: Vinted kann einen Entwurf ohne erkennbaren Wechsel auf eine unterstützte Entwurfs-URL speichern und eine andere oder sehr kurz sichtbare Bestätigung anzeigen.
+
+- Die Extension beobachtet **vor dem Klick** auf „Entwurf speichern“ die Live-Regionen, Toasts und Benachrichtigungen und merkt sich auch schnell wieder verschwundene positive Erfolgsnachrichten. Deutsch und Englisch mit variierenden Formulierungen werden berücksichtigt. Fehlertexte gelten ausdrücklich **nicht** als Erfolg.
+- Bleibt eine zweifelsfreie Bestätigung aus, wechselt der Stapel in **„Speicherung bitte prüfen“**. Es erfolgt weder ein zweiter Klick noch ein erneuter Upload.
+- Im Extension-Popup erscheint dann **„Entwurf auf Vinted geprüft – als gespeichert bestätigen“**. **Nur anklicken, nachdem du den betreffenden Artikel tatsächlich im Vinted-Profil unter deinen Entwürfen gefunden hast.**
+- Durch die Bestätigung wird **genau die aktuelle Artikelnummer** lokal als erledigt markiert. Bei weiteren Entwürfen setzt der Stapel mit der **nächsten Hose** fort, ohne den bestätigten Artikel erneut einzustellen.
+- Die Bestätigungsfunktion kann auch den bestehenden **v3.16-Fehlerstatus** für #73 übernehmen, sofern im gespeicherten Log ein tatsächlicher Speicher-Klick dokumentiert ist. Voraussetzung: Die Extension wird aktualisiert, ohne ihren lokalen Speicher zu verlieren.
+- Die Bestätigung ist die Aussage des Nutzers nach eigener Sichtprüfung, **keine behauptete automatische Vinted-Bestätigung**. Bei unbekannten Formular-/Foto-/Größenfehlern bleibt das Stoppen bestehen.
+
+**Nicht einfach erneut auf „Stapel starten“ für #73 klicken:** Du würdest sonst womöglich doppelte Entwürfe anlegen. Keine automatische Veröffentlichung.
 
 ## Automatischer Entwurfsstapel (Version 3.12)
 
