@@ -151,7 +151,7 @@
       (lastError||"Bitte Vinted-Anmeldung und die geöffnete Seite prüfen.")+
       " – Tab bleibt zur Prüfung offen.");
   }
-  async function verifySave(tabId,originalUrl){
+  async function verifySave(tabId,originalUrl,articleNumber){
     const started=Date.now();
     let last={};
     while(Date.now()-started<18000){
@@ -167,7 +167,9 @@
         continue;
       }
       try{
-        const check=await tabMessage(tabId,{type:"CHECK_VINTED_DRAFT_SAVE"},2500);
+        const check=await tabMessage(tabId,{
+          type:"CHECK_VINTED_DRAFT_SAVE",articleNumber
+        },2500);
         if(check?.saved===true)return {ok:true,evidence:check.evidence||"Vinted-Speicherbestätigung"};
         if(check?.error)last={error:check.error};
       }catch(e){last={error:e.message};}
@@ -346,7 +348,7 @@
     await log("Prüfe Vinted-Speicherbestätigung für #"+row.artikelnummer,{
       phase:"verifying"
     });
-    const saved=await verifySave(tab.id,tab.url||"");
+    const saved=await verifySave(tab.id,tab.url||"",row.artikelnummer);
     await log("Entwurf #"+row.artikelnummer+" bestätigt: "+saved.evidence+
       (pendingReviewWarnings.length?" · GRÖSSE/FOTOS VOR VERÖFFENTLICHUNG PRÜFEN":""),
       {phase:"saved",
