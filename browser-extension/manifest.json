@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Sascha AI -> Vinted Assistant",
-  "version": "2.6.0",
-  "description": "Überträgt Vinted-Entwürfe aus Sascha AI direkt in die Verkaufsmaske von Vinted.",
+  "version": "3.0.0",
+  "description": "Katalogbasierte Übertragung geprüfter Vinted-Entwürfe aus Sascha AI (ohne Veröffentlichung).",
   "permissions": [
     "storage",
     "activeTab",
@@ -31,7 +31,9 @@
         "http://localhost/*",
         "http://127.0.0.1/*"
       ],
-      "js": ["content-sascha.js"],
+      "js": [
+        "content-sascha.js"
+      ],
       "run_at": "document_end"
     },
     {
@@ -39,7 +41,10 @@
         "https://www.vinted.de/*",
         "https://www.vinted.at/*"
       ],
-      "js": ["content-vinted.js"],
+      "js": [
+        "vinted-catalog-v3.js",
+        "content-vinted-v3.js"
+      ],
       "run_at": "document_end"
     }
   ]
