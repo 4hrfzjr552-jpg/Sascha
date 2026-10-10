@@ -1,4 +1,4 @@
-# Sascha AI → Vinted Assistant 3.15
+# Sascha AI → Vinted Assistant 3.16
 
 Die Chrome-Erweiterung übernimmt einen vollständigen Entwurf aus Sascha AI in die geöffnete Vinted-Verkaufsmaske. **Sie veröffentlicht und speichert nichts automatisch.** Alle Angaben vor dem Speichern prüfen.
 
@@ -39,7 +39,7 @@ Die folgende Zuordnung stammt aus realen Vinted-Katalog-Suchergebnissen und ist 
 2. ZIP entpacken und den **Ordner \`browser-extension\`** an einem festen Ort behalten.
 3. In Chrome \`chrome://extensions/\` öffnen und den Entwicklermodus aktivieren.
 4. „Entpackte Erweiterung laden“ wählen und den Ordner \`browser-extension\` auswählen.
-5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.15.0** stehen.
+5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.16.0** stehen.
 
 **Updates:** Neue Dateien in denselben entpackten Erweiterungsordner kopieren, unter \`chrome://extensions/\` „Neu laden“ klicken und den Vinted-Tab aktualisieren. Nur „Download ZIP“ auszuführen aktualisiert die installierte Erweiterung nicht. Es ist weder \`git pull\` noch das Mergen eines GitHub-PR erforderlich, wenn die Version bereits in \`main\` liegt.
 
@@ -66,6 +66,16 @@ So entstehen bei unbekannten Herstellergrößen keine unbemerkt falsch ausgezeic
 Nach `chrome.tabs.create()` hat ein neuer Chrome-Tab manchmal für kurze Zeit noch die Adresse `about:blank`, `chrome://newtab` oder nur `pendingUrl`. Vorher wurde dies irrtümlich als „Vinted-Tab hat die Verkaufsseite verlassen“ bewertet, sodass der Stapel schon vor dem ersten Formularfeld stoppte.
 
 Die Erweiterung wartet jetzt bis zu **35 Sekunden** auf die echte Vinted-Verkaufsseite und darauf, dass die zwei Basis-Felder im Formular sichtbar sind. Nur temporäre Ladezustände auf einem neu geöffneten Tab werden abgewartet. Bei tatsächlicher Fremdseiten-Weiterleitung wird weiterhin **sofort gestoppt**, mit der URL ohne Query-Parameter oder Geheimtokens in der Fehlermeldung. Bei Login- oder Formularproblemen auf der Vinted-Domain gibt es einen aussagekräftigen Timeout statt einer falschen Weiterleitungsdiagnose. Ein nicht bestätigter Speicher-Schritt wird nie automatisch wiederholt.
+
+### Vier übergebene Fotos trotz nicht lesbarer Vinted-Vorschau (3.16.0)
+
+In einigen Vinted-Varianten nimmt das Datei-Eingabefeld die ersten vier bearbeiteten Bilder an und die Galerie zeigt sie an, aber die Extension findet die Vorschau nicht über ihre bisherigen HTML-Selektoren. Das führte im **Stapelmodus** zu `Feld images muss noch manuell geprüft werden`, auch wenn die Bilder sichtbar waren.
+
+**Neu:** Die Galerie-Erkennung berücksichtigt zusätzlich einen Foto-Bereich ohne spezielle Test-ID, echte Bildvorschauen mit anderen CDN-Hosts und CSS-`background-image`-Thumbnails. Sie wartet bis zu **8,5 Sekunden**, bevor sie den Upload als nicht automatisch verifizierbar einstuft.
+
+Sind die Vorschaubilder weiter nicht technisch auslesbar, darf **nur der ausdrücklich gestartete Entwurfs-Stapelmodus** nach dem erfolgreichen Übertragen von **genau vier bearbeiteten Dateien** mit „Entwurf speichern“ fortfahren. Dabei wird **nicht behauptet**, dass Vinted die Bilder bestätigt hat: Im Log erscheint `[IMAGES DRAFT-ONLY]`. Nach erfolgreichem Entwurf-Speichern zeigt das Popup zusätzlich einen auffälligen Hinweis mit der Artikelnummer an, dass du Bilder 1–4 **im gespeicherten Entwurf kontrollieren musst**.
+
+Einzelmodus verlangt weiterhin eine manuelle Sichtprüfung, wenn die Galerie unbekannt bleibt. Werden zu wenige Dateien angenommen, scheitert die Bearbeitung, oder Vinted bestätigt das **Speichern** nicht, stoppt der Stapel weiterhin. **Kein automatisches Veröffentlichen.** Der Stapel erstellt im schlechtesten Fall einen unvollständigen Entwurf, deshalb nach dem Test unbedingt Fotoanzahl und Reihenfolge im Entwurf prüfen.
 
 ## Automatischer Entwurfsstapel (Version 3.12)
 

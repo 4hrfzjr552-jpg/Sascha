@@ -196,7 +196,10 @@
       throw Error("Sascha AI hat den falschen Entwurf zurückgegeben");
     await log("Fülle #"+row.artikelnummer,{phase:"filling"});
     const filled=await tabMessage(tab.id,{
-      type:"FILL_VINTED_FORM",draft:data.payload,debugMode:false
+      type:"FILL_VINTED_FORM",draft:data.payload,debugMode:false,
+      // Only this expressly draft-saving queue may tolerate a photo gallery
+      // that Vinted does not expose to the extension. Never for publishing.
+      draftOnlyBatch:true
     },110000);
     if(!filled?.success||filled.stoppedAt)
       throw Error("Formular nicht vollständig: "+(filled?.stoppedAt||filled?.error||"Unbekannter Fehler"));
@@ -207,6 +210,12 @@
       if(filled.results[key].needsReview)
         throw Error("Feld "+key+" muss noch manuell geprüft werden. "+
           "Stapel gestoppt, nichts gespeichert.");
+    }
+    const photoReview=filled.results?.images?.reviewAfterSave===true;
+    if(photoReview){
+      await log("Foto-Hinweis zu #"+row.artikelnummer+": "+
+        "vier Bilder übergeben, Vinted-Galerie nicht technisch lesbar. "+
+        "Nach dem Speichern unbedingt Bild 1–4 im Entwurf prüfen.");
     }
     if(stopRequested)throw Error("Stapel wurde vor dem Speichern gestoppt");
     // Explicit draft-only action: safe to retry neither it nor the workflow.
@@ -225,9 +234,13 @@
       phase:"verifying"
     });
     const saved=await verifySave(tab.id,tab.url||"");
-    await log("Entwurf #"+row.artikelnummer+" bestätigt: "+saved.evidence,{
-      phase:"saved"
-    });
+    await log("Entwurf #"+row.artikelnummer+" bestätigt: "+saved.evidence+
+      (photoReview?" · FOTOS IM ENTWURF PRÜFEN":""),
+      {phase:"saved",
+       ...(photoReview?{warnings:[...(state?.warnings||[]),
+         "Artikel #"+row.artikelnummer+": Bildvorschau nicht verifiziert, "+
+         "erste vier Fotos im gespeicherten Entwurf prüfen"].slice(-100)}:{})
+      });
     // Close only a positively acknowledged saved listing tab; the next
     // iteration always starts from a clean form.
     try{await chrome.tabs.remove(tab.id);}catch(_){}
@@ -341,7 +354,7 @@
       await chrome.alarms.clear(NEXT_ALARM);
       await chrome.alarms.clear(GUARD_ALARM);
       await put({status:"running",phase:"ready",startedAt:Date.now(),queue,
-        index:0,currentId:null,completed:[],logs:[
+        index:0,currentId:null,completed:[],warnings:[],logs:[
           "Stapel gestartet: "+queue.length+" Hosen, nur als Entwurf, keine Veröffentlichung"
         ],error:null,stopRequested:false});
       sendResponse({success:true,count:queue.length,state});

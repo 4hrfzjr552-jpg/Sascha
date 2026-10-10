@@ -698,21 +698,39 @@
     return Array.isArray(draft?.images)?draft.images.slice(0,MAX_VINTED_IMAGES):[];
   }
   function uploadPreviewArea(input) {
-    // Restrict counting to the Vinted photo/upload section, not all
-    // product images/icons elsewhere on the page.
+    // Vinted uses multiple photo components. Not every variant has a
+    // data-testid containing "photo-upload". A nearest form section is
+    // preferable to searching all <img> elements on the page.
     const selectors=[
       '[data-testid*="photo-upload" i]',
       '[data-testid*="image-upload" i]',
       '[data-testid*="item-photo" i]',
       '[data-testid*="upload-photo" i]',
+      '[data-testid*="photo" i][data-testid*="upload" i]',
+      '[data-testid*="image" i][data-testid*="upload" i]',
       '[class*="photo-upload" i]',
-      '[class*="PhotoUpload" i]'
+      '[class*="PhotoUpload" i]',
+      '[class*="upload-photo" i]'
     ].join(",");
     const explicit=input.closest?.(selectors);
     if(explicit)return explicit;
     const roots=visible(selectors);
     const near=roots.find(el=>el.contains?.(input));
-    return near||null;
+    if(near)return near;
+    // The uploader is commonly rendered inside a fieldset or section with
+    // a localized Photos label, but no stable class or data-testid.
+    const structural=input.closest?.("fieldset,section,[role=group]");
+    if(structural&&structural.contains?.(input))return structural;
+    const ancestor=input.parentElement;
+    // A small enclosing wrapper is a valid fallback only when it contains
+    // actual photos. Do not count unrelated pictures from the whole form.
+    let node=ancestor;
+    for(let depth=0;node&&depth<6;depth++,node=node.parentElement){
+      if(node===document.body||node.tagName==="FORM"||node.tagName==="MAIN")break;
+      if(node.querySelectorAll?.("img,[style*='background-image']").length)
+        return node;
+    }
+    return null;
   }
   function uploadPreviewCount(input){
     const area=uploadPreviewArea(input);
@@ -723,18 +741,49 @@
       '[data-testid*="uploaded-photo" i]',
       '[data-testid*="uploaded-image" i]',
       '[data-testid*="photo-thumbnail" i]',
-      '[data-testid*="image-thumbnail" i]'
+      '[data-testid*="image-thumbnail" i]',
+      '[data-testid*="image-item" i]',
+      '[data-testid*="photo-item" i]'
     ].join(",");
     const specific=visible(selectors,area).filter(el=>
-      !el.closest?.('[data-testid*="placeholder" i]'));
+      !el.closest?.('[data-testid*="placeholder" i],[data-testid*="loading" i]'));
     if(specific.length)return specific.length;
-    const previews=visible("img",area).filter(el=>{
+    // Preview URLs are not guaranteed to be blob: after Vinted uploads the
+    // file; some variants use arbitrary CDN hosts and background-image CSS.
+    // Only count media with photo-scale geometry, inside the photo section.
+    const isPhotoSize=el=>{
+      const box=el.getBoundingClientRect?.();
+      if(!box||!Number.isFinite(box.width)||!Number.isFinite(box.height))
+        return false;
+      return box.width>=48&&box.height>=48;
+    };
+    const photos=visible("img",area).filter(el=>{
+      if(!isPhotoSize(el))return false;
       const url=String(el.currentSrc||el.src||el.getAttribute?.("src")||"");
-      return /^(?:blob:|data:image\/|https?:\/\/.*(?:vinted\.net|vinted\.(?:de|at)\/))/.test(url);
+      return url && !/^(?:data:image\/svg|about:blank)/i.test(url) &&
+        !el.closest?.('[data-testid*="placeholder" i]');
     });
-    return previews.length||0;
+    if(photos.length)return photos.length;
+    const backgrounds=visible('[style*="background-image"]',area)
+      .filter(el=>{
+        if(!isPhotoSize(el))return false;
+        const style=String(el.style?.backgroundImage||getComputedStyle(el).backgroundImage||"");
+        return /url\(["']?(?:blob:|data:image\/|https?:\/\/)/i.test(style) &&
+          !el.closest?.('[data-testid*="placeholder" i]');
+      });
+    return backgrounds.length||0;
   }
-  async function images(draft,log){
+  function imagePreviewDiagnostic(input){
+    const area=uploadPreviewArea(input);
+    return {area:area?{
+      tag:area.tagName||"unknown",
+      testid:area.getAttribute?.("data-testid")||"",
+      className:String(area.className||"").slice(0,90)
+    }:null,
+      visiblePhotos:uploadPreviewCount(input),
+      inputFiles:Number(input?.files?.length)||0};
+  }
+  async function images(draft,log,options={}){
     const selected=selectedDraftImages(draft);
     if(!selected.length)throw Error("Keine Entwurfsbilder");
     const input=q('main input[type="file"]')||q('input[type="file"]');
@@ -787,7 +836,7 @@
     const previewSeen=await until(()=>{
       const n=uploadPreviewCount(input);
       return n!==null && n>=files.length && (previewsBefore===null || n>previewsBefore) ? n : null;
-    },3600,180);
+    },8500,220);
     const previewsAfter=uploadPreviewCount(input);
     const retained=Number(input.files?.length)||0;
     const verified=Boolean(previewSeen);
@@ -797,17 +846,32 @@
       " previewAfter="+(previewsAfter===null?"unknown":previewsAfter)+
       " verified="+verified);
     if(verified){
-      return {success:true,count:files.length,needsReview:false};
+      return {success:true,count:files.length,needsReview:false,
+        previewVerified:true};
     }
-    // The file dispatch succeeded, but this Vinted variant does not expose
-    // an identifiable gallery. Do NOT report an upload failure or claim that
-    // it was verified; the seller must visually check the four thumbnails.
+    log("[IMAGES DIAG] "+JSON.stringify(imagePreviewDiagnostic(input)));
+    // These images have been successfully handed to the file control;
+    // the gallery is simply not externally inspectable in this Vinted
+    // variant. Only an EXPLICIT draft-only batch may continue to save
+    // a draft; never treat this as actual gallery verification and
+    // NEVER publish an item automatically.
+    if(options.draftOnlyBatch===true && assigned===files.length &&
+        files.length===selected.length){
+      log("[IMAGES DRAFT-ONLY] "+files.length+" bearbeitete Bilder übergeben; "+
+        "Vorschaubilder technisch nicht nachweisbar. "+
+        "Entwurfsspeichern erlaubt, Fotos danach unbedingt prüfen.");
+      return {success:true,count:files.length,needsReview:false,
+        previewVerified:false,reviewAfterSave:true,
+        warning:"Vinted-Vorschau nicht automatisch bestätigt; "+
+          "Bilder im gespeicherten Entwurf kontrollieren"};
+    }
     log("[IMAGES REVIEW] Vier Bilder an Vinted übergeben; bitte prüfen, "+
       "dass genau Bilder 1–4 sichtbar sind und Bild 5 fehlt.");
     return {success:true,count:files.length,needsReview:true,
+      previewVerified:false,
       reason:"Vier Bilder übergeben; die sichtbare Vorschau bitte prüfen"};
   }
-  async function run(draft,log){
+  async function run(draft,log,options={}){
     const steps=[
       ["title",()=>textField("Titel","#title",articleTitle(draft))],
       ["description",()=>textField("Beschreibung","#description",draft.description)],
@@ -817,7 +881,7 @@
       ["color",()=>choiceField("color",draft,log)],
       ["condition",()=>choiceField("condition",draft,log)],
       ["price",()=>price(draft,log)],
-      ["images",()=>images(draft,log)]
+      ["images",()=>images(draft,log,options)]
     ];
     const results={};
     let stoppedAt=null;
@@ -926,7 +990,8 @@
         try{chrome.runtime.sendMessage({type:"VINTED_FILL_PROGRESS",message:line},()=>void chrome.runtime.lastError);}catch(_){}
       }
     };
-    run(message.draft||{},log).then(result=>sendResponse({success:true,...result,logs}))
+    run(message.draft||{},log,{draftOnlyBatch:message.draftOnlyBatch===true})
+      .then(result=>sendResponse({success:true,...result,logs}))
       .catch(err=>sendResponse({success:false,error:err.message}))
       .finally(()=>{running=false;});
     return true;
@@ -935,7 +1000,7 @@
   if(window.__SASCHA_TEST__)window.__SASCHA_ENGINE_TEST__={
     articleTitle,liveCatalogRows,optionText,nameAlternatives,run,chooseCategory,size,
     sizeOptions,sizeMenuDiagnostic,openSizeMenu,selectWaistSizing,waistModeMatch,isCorrectFieldOption,
-    price,priceCents,editablePriceField,images,selectedDraftImages,uploadPreviewArea,uploadPreviewCount,
+    price,priceCents,editablePriceField,images,selectedDraftImages,uploadPreviewArea,uploadPreviewCount,imagePreviewDiagnostic,
     imageFile,imageSourceKind,
     draftButtonCandidates,draftSaveDiagnostics,draftSaveStatus,trySaveAsDraft
   };

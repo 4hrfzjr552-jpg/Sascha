@@ -451,6 +451,45 @@ test("when draft has five images, Vinted receives only first four in order",asyn
   assert.ok(logs.some(l=>l.includes("[IMAGES REVIEW]")));
   assert.ok(logs.some(l=>l.includes("colorLook=soft-reference-look-v2")));
 });
+test("explicit draft-only batch may save after all four edited files transferred without readable thumbnails",async()=>{
+  const mock=imageTestEnv({sourceCount:5,resetAfterChange:true,withPreview:false});
+  const logs=[];
+  const result=await createEngine(mock.document,mock.extra).images(
+    mock.draft,line=>logs.push(line),{draftOnlyBatch:true});
+  assert.equal(result.success,true);
+  assert.equal(result.count,4);
+  assert.equal(result.needsReview,false);
+  assert.equal(result.previewVerified,false);
+  assert.equal(result.reviewAfterSave,true);
+  assert.equal(mock.sent().length,4);
+  assert.ok(logs.some(l=>l.includes("[IMAGES DRAFT-ONLY]")));
+  assert.ok(logs.some(l=>l.includes("[IMAGES DIAG]")));
+});
+test("single mode still requires manual review if thumbnails cannot be inspected",async()=>{
+  const mock=imageTestEnv({sourceCount:5,withPreview:false,resetAfterChange:true});
+  const result=await createEngine(mock.document,mock.extra).images(
+    mock.draft,()=>{},{draftOnlyBatch:false});
+  assert.equal(result.needsReview,true);
+  assert.equal(result.previewVerified,false);
+  assert.equal(result.reviewAfterSave,undefined);
+});
+test("draft-only mode never accepts incomplete file transfer",async()=>{
+  const mock=imageTestEnv({sourceCount:5,assignCount:3,withPreview:false});
+  await assert.rejects(()=>createEngine(mock.document,mock.extra).images(
+    mock.draft,()=>{},{draftOnlyBatch:true}),/nur 3\/4 Bilddateien angenommen/);
+});
+test("true Vinted gallery confirmation takes precedence over draft-only fallback",async()=>{
+  const mock=imageTestEnv({sourceCount:5,withPreview:true,resetAfterChange:true});
+  const logs=[];
+  const result=await createEngine(mock.document,mock.extra).images(
+    mock.draft,line=>logs.push(line),{draftOnlyBatch:true});
+  assert.equal(result.success,true);
+  assert.equal(result.previewVerified,true);
+  assert.equal(result.needsReview,false);
+  assert.equal(result.reviewAfterSave,undefined);
+  assert.equal(logs.some(l=>l.includes("[IMAGES DRAFT-ONLY]")),false);
+});
+
 test("four Vinted preview thumbnails confirm the upload even after input reset",async()=>{
   const mock=imageTestEnv({sourceCount:5,resetAfterChange:true,withPreview:true});
   const logs=[];
@@ -460,6 +499,42 @@ test("four Vinted preview thumbnails confirm the upload even after input reset",
   assert.equal(result.needsReview,false);
   assert.equal(result.success,true);
   assert.ok(logs.some(l=>l.includes("verified=true")));
+});
+test("Vinted photo gallery without photo-upload testid is detected in enclosing section",()=>{
+  const input={closest(selector){
+    if(selector.includes("fieldset,section"))return section;
+    return null;
+  }};
+  const photos=Array.from({length:4},(_,i)=>({
+    isConnected:true,currentSrc:"https://other-photo-cdn.example/img-"+i+".jpg",
+    getClientRects:()=>[1],closest:()=>null,
+    getBoundingClientRect:()=>({width:120,height:165})
+  }));
+  const section={contains:el=>el===input,tagName:"SECTION",
+    querySelectorAll(selector){return selector==="img"?photos:[];},
+    getAttribute:()=>null};
+  const document={body:{},querySelectorAll(){return []}};
+  const e=createEngine(document);
+  assert.equal(e.uploadPreviewArea(input),section);
+  assert.equal(e.uploadPreviewCount(input),4);
+});
+test("Vinted gallery with CSS background-image thumbnails is detected",()=>{
+  const input={closest(selector){
+    return selector.includes("fieldset,section")?section:null;
+  }};
+  const thumbs=Array.from({length:4},(_,i)=>({
+    isConnected:true,
+    style:{backgroundImage:'url("https://cdn.example/p-'+i+'.jpg")'},
+    getClientRects:()=>[1],
+    getBoundingClientRect:()=>({width:100,height:140}),
+    closest:()=>null
+  }));
+  const section={tagName:"SECTION",contains:el=>el===input,
+    querySelectorAll(selector){
+      return selector.includes("background-image")?thumbs:[];
+    }};
+  const e=createEngine({body:{},querySelectorAll(){return []}});
+  assert.equal(e.uploadPreviewCount(input),4);
 });
 test("browser accepting fewer than four files is a genuine upload error",async()=>{
   const mock=imageTestEnv({sourceCount:5,assignCount:3});
