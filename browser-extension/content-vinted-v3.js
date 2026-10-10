@@ -719,7 +719,10 @@
       log("[IMAGE EDIT] "+(i+1)+"/"+selected.length+
         " new="+rendered.file.name+
         " gradedPixels="+Number(rendered.gradedPixels||0)+
-        " colorLook="+(rendered.colorLook||"not-reported"));
+        " colorLook="+(rendered.colorLook||"not-reported")+
+        " intensity="+(Number(rendered.gradeIntensity)||"unknown")+
+        " avgRgbDelta="+(Number(rendered.averageRgbDelta)||0)+
+        " noticeablePct="+(Number(rendered.noticeablePercent)||0));
     }
     const transfer=new DataTransfer();
     for(const file of files)transfer.items.add(file);
