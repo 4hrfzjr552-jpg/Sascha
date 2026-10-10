@@ -332,7 +332,7 @@ test("an old 0/1 queue can grow to include next ready pants on manual confirmati
   const response=await original({type:"CONFIRM_VINTED_DRAFT_SAVED",
     draftId:"pant73",articleNumber:73});
   assert.equal(response.success,true);
-  assert.equal(response.nextArticle,74);
+  assert.equal(response.nextArticle,75);
   assert.equal(box.store.vintedBatchState.index,1);
   assert.deepEqual(Array.from(box.store.vintedBatchState.queue,
     x=>x.artikelnummer),[73,75,74]);
