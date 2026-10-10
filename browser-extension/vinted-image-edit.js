@@ -31,7 +31,7 @@
         if(!blueMarkupPixel(src[pos],src[pos+1],src[pos+2]))continue;
         // Protect product fabric: cleanup only near a neutral surrounding.
         let neutralNeighbors=0;
-        for(const [dx,dy] of [[22,0],[-22,0],[0,22],[0,-22]]){
+        for(const [dx,dy] of [[22,0],[-22,0],[36,0],[-36,0],[0,22],[0,-22],[0,36],[0,-36]]){
           const sx=x+dx,sy=y+dy;
           if(sx<0||sy<0||sx>=width||sy>=height)continue;
           const q=(sy*width+sx)*4;
