@@ -31,7 +31,8 @@ const luminance=channels=>(
 
 test("seven explicit Apple Photos controls are present with approximate orientations",()=>{
   const {IPHONE_LOOK:look}=editor();
-  assert.equal(look.id,"iphone-photo-adjustments-v1");
+  assert.equal(look.id,"iphone-photo-adjustments-v2-visible");
+  assert.ok(look.intensity>1.5,"The correction must be visibly stronger");
   assert.ok(look.brilliance>0);
   assert.ok(look.highlights<0);
   assert.ok(look.shadows>0);
@@ -97,7 +98,7 @@ test("the chosen combined look is visible, but the denim stays blue",()=>{
   const api=editor(),cloth=pixel(115,145,178),before=[...cloth.data];
   const result=api.applyIphoneAdjustments(cloth);
   assert.ok(result.pixels>0);
-  assert.equal(result.look,"iphone-photo-adjustments-v1");
+  assert.equal(result.look,"iphone-photo-adjustments-v2-visible");
   assert.ok(cloth.data[2]>cloth.data[1] && cloth.data[1]>cloth.data[0]);
   assert.ok(cloth.data.slice(0,3).every((v,i)=>Math.abs(v-before[i])<35));
 });
@@ -147,7 +148,7 @@ test("fresh JPEG preserves crop and aspect ratio without zoom",async()=>{
   assert.deepEqual(recorded.args.slice(1),[0,0,1600,1200]);
   assert.equal(recorded.type,"image/jpeg");
   assert.ok(recorded.quality>=0.9);
-  assert.equal(output.colorLook,"iphone-photo-adjustments-v1");
+  assert.equal(output.colorLook,"iphone-photo-adjustments-v2-visible");
   assert.equal(bitmapClosed,true);
 });
 test("large images keep their aspect ratio when scaled to max edge",async()=>{
@@ -172,4 +173,32 @@ test("edit failure never sends the original as fallback",async()=>{
   const api=editor({File:FakeFile});
   await assert.rejects(()=>api.processImage(
     new FakeFile([1],"original.jpg",{type:"image/jpeg"}),0),/nicht verfügbar/);
+});
+
+
+test("realistic blue denim midtone differs visibly after the stronger preset",()=>{
+  const e=editor();
+  const denim=pixel(120,147,174);
+  const outcome=e.applyIphoneAdjustments(denim);
+  assert.ok(outcome.averageRgbDelta>=18,
+    "Vinted images must differ visibly from originals; got "+outcome.averageRgbDelta);
+  assert.equal(outcome.intensity,1.85);
+  assert.ok(outcome.noticeablePercent>=95);
+  assert.ok(denim.data[2]>denim.data[1]&&denim.data[1]>denim.data[0]);
+});
+test("neutral photo background also receives perceptible correction",()=>{
+  const img=pixel(185,180,171);
+  const result=editor().applyIphoneAdjustments(img);
+  assert.ok(result.averageRgbDelta>=15);
+  assert.ok(img.data[0]>img.data[1]&&img.data[1]>img.data[2]);
+});
+test("black and white pixels stay within range and are never retouched",()=>{
+  const e=editor();
+  for(const input of [[0,0,0],[255,255,255],[4,8,18],[252,250,244]]){
+    const img=pixel(...input);
+    e.applyIphoneAdjustments(img);
+    assert.ok([...img.data].every(x=>x>=0&&x<=255));
+    assert.equal(img.data[3],255);
+  }
+  assert.equal(typeof e.cleanupBackground,"undefined");
 });
