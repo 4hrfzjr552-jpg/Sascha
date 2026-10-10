@@ -427,6 +427,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if(batch.status==="running"&&batch.stopRequested)
       lines.push("Stopp angefordert – warte auf aktuellen Schritt");
     if(batch.error)lines.push("Fehler: "+batch.error);
+    if(Array.isArray(batch.warnings)&&batch.warnings.length)
+      lines.push("Fotos nach Speichern prüfen:\n"+batch.warnings.slice(-5).join("\n"));
     if(Array.isArray(batch.logs)&&batch.logs.length)
       lines.push("Letzter Schritt: "+batch.logs.at(-1));
     batchStatus.textContent=lines.join("\n");
