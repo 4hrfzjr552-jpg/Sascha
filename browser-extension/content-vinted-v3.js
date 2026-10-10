@@ -382,7 +382,7 @@
       for(let i=0;i<3&&el&&el!==document.body;i++,el=el.parentElement)
         ancestors.push(el);
       return ancestors;
-    }),document.body];
+    }),document.body].filter(Boolean);
     const selector='[role="tab"],button,[role="button"],label,[data-testid*="size" i],span,div,li';
     const found=[],seen=new Set();
     for(const root of base){
@@ -399,7 +399,10 @@
         seen.add(target);found.push({el:target,label});
       }
     }
-    return found;
+    // If a parent wrapper and a child both say "Taillenumfang",
+    // use the innermost visible clickable candidate, not two matches.
+    return found.filter(item=>!found.some(other=>other!==item &&
+      item.el.contains?.(other.el)));
   }
   function isWaistOption(label,waist){
     const option=norm(label).replace(/\s+/g,"");
