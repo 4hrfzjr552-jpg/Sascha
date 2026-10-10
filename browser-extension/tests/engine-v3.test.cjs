@@ -52,7 +52,7 @@ function createEngine(document,extra={}){
     DataTransfer:extra.DataTransfer||class{},
     fetch:extra.fetch||undefined,
     atob:extra.atob||(value=>Buffer.from(value,"base64").toString("binary")),
-    chrome:{runtime:{onMessage:{addListener(){}}}},
+    chrome:extra.chrome||{runtime:{onMessage:{addListener(){}}}},
     console
   };
   vm.runInNewContext(src,sandbox,{filename:"content-vinted-v3.js"});
@@ -892,4 +892,75 @@ test("generic Vinted profile redirect without draft card is not save evidence",(
   const e=createEngine(document);
   assert.equal(e.profileDraftReceipt(71),null);
   assert.equal(e.draftSaveStatus(71).saved,false);
+});
+
+
+test("on immediate Vinted redirect, a pre-navigation toast persists to extension storage with unique pant token",async()=>{
+  let observer;
+  class FakeMutationObserver{
+    constructor(callback){this.callback=callback;observer=this;}
+    observe(){this.watching=true;}
+    disconnect(){}
+  }
+  const storage=[],messages=[],toasts=[],save=fakeButton("Entwurf speichern");
+  const doc=buttonTestDocument([save],toasts);
+  doc.body={};
+  const chrome={
+    runtime:{onMessage:{addListener(){}},
+      sendMessage(message,callback){messages.push(message);callback?.();}},
+    storage:{local:{set:async patch=>{storage.push(patch);}}}
+  };
+  const e=createEngine(doc,{chrome,MutationObserver:FakeMutationObserver});
+  const token="session-abcde:pant-66:123456789";
+  assert.equal(e.trySaveAsDraft(token,66).clicked,true);
+  toasts.push(fakeButton("Dein Entwurf wurde gespeichert!"));
+  observer.callback();
+  toasts.length=0; // Navigation destroys the content script after this
+  await Promise.resolve();
+  assert.equal(storage.length,1);
+  assert.equal(storage[0].vintedDraftSaveReceipt.token,token);
+  assert.equal(storage[0].vintedDraftSaveReceipt.articleNumber,66);
+  assert.match(storage[0].vintedDraftSaveReceipt.evidence,/Entwurf wurde gespeichert/);
+  assert.equal(messages[0].type,"VINTED_DRAFT_SAVE_RECEIPT");
+  assert.equal(messages[0].token,token);
+  assert.equal(messages[0].articleNumber,66);
+});
+test("a Vinted profile item card with Finish editing and exact #66 confirms only that draft",()=>{
+  const draftCard={
+    isConnected:true,innerText:"Diesel Skinny Jeans #66  •  Finish editing",
+    textContent:"Diesel Skinny Jeans #66  •  Finish editing",
+    getClientRects:()=>[1],closest:()=>null,getAttribute:()=>null
+  };
+  const doc={querySelector:()=>null,querySelectorAll(selector){
+    return selector.includes("item-box")?[draftCard]:[];
+  }};
+  const e=createEngine(doc);
+  assert.equal(e.profileDraftReceipt(66)?.saved,true);
+  assert.equal(e.profileDraftReceipt(6),null);
+  assert.equal(e.profileDraftReceipt(65),null);
+});
+test("plain matching profile listing is NOT proof of a saved draft",()=>{
+  const published={
+    isConnected:true,innerText:"Diesel Jeans #66 - 45 Euro  Bearbeiten",
+    textContent:"Diesel Jeans #66 - 45 Euro  Bearbeiten",
+    getClientRects:()=>[1],closest:()=>null,getAttribute:()=>null
+  };
+  const doc={querySelector:()=>null,querySelectorAll(selector){
+    return selector.includes("item-card")?[published]:[];
+  }};
+  const e=createEngine(doc);
+  assert.equal(e.profileDraftReceipt(66),null);
+  assert.equal(e.draftSaveStatus(66).saved,false);
+});
+test("profile receipt ignores broad root containing many items and draft labels",()=>{
+  const huge={
+    isConnected:true,innerText:"Diesel Jeans #66 "+("Other items ".repeat(100))+
+      "Entwurf",textContent:"",getClientRects:()=>[1],closest:()=>null,
+    getAttribute:()=>null
+  };
+  const doc={querySelector:()=>null,querySelectorAll(selector){
+    return selector.includes("draft")?[huge]:[];
+  }};
+  const e=createEngine(doc);
+  assert.equal(e.profileDraftReceipt(66),null);
 });
