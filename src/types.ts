@@ -135,6 +135,8 @@ export interface VintedDraftData {
 }
 
 export interface VintedDraftPayload {
+  /** Original Sascha AI measurements; waist = flat width, NOT circumference. */
+  measurements?: Partial<PantMeasurements>;
   id: string;
   pantId: string;
   artikelnummer?: string;
