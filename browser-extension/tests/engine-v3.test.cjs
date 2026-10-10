@@ -46,6 +46,7 @@ function createEngine(document,extra={}){
     File:extra.File||class{},
     DataTransfer:extra.DataTransfer||class{},
     fetch:extra.fetch||undefined,
+    atob:extra.atob||(value=>Buffer.from(value,"base64").toString("binary")),
     chrome:{runtime:{onMessage:{addListener(){}}}},
     console
   };
@@ -378,7 +379,7 @@ function imageTestEnv({sourceCount=5,resetAfterChange=true,withPreview=false,ass
     fetch:async url=>({ok:true,blob:async()=>({type:"image/jpeg",url})})
   };
   const images=Array.from({length:sourceCount},(_,i)=>({
-    dataUrl:"data:image/jpeg;base64,"+(i+1),name:"image"+(i+1)+".jpg"
+    dataUrl:"data:image/jpeg;base64,"+Buffer.from("fake-jpeg-"+(i+1)).toString("base64"),name:"image"+(i+1)+".jpg"
   }));
   return {document,extra,draft:{images},sent:()=>sent,visiblePreviews:()=>count};
 }
@@ -441,4 +442,34 @@ test("failed image rendering stops upload before any image is submitted",async()
   await assert.rejects(()=>createEngine(mock.document,mock.extra).images(mock.draft,()=>{}),
     /Canvas konnte Bild 3 nicht bearbeiten/);
   assert.equal(mock.sent().length,0);
+});
+
+
+test("Vinted image loader decodes Sascha AI portable data:image payload without remote fetch",async()=>{
+  const mock=imageTestEnv({sourceCount:4});
+  const engine=createEngine(mock.document,mock.extra);
+  const image=mock.draft.images[0];
+  const file=await engine.imageFile(image,0);
+  assert.equal(file.type,"image/jpeg");
+  assert.equal(file.name,"image1.jpg");
+  assert.equal(file.chunks[0].length,11);
+  assert.equal(engine.imageSourceKind(image),"data-image");
+});
+test("unavailable source reports explicit error rather than generic Bild 1 not loaded",async()=>{
+  const mock=imageTestEnv({sourceCount:4});
+  mock.draft.images[0].dataUrl="";
+  const logs=[];
+  await assert.rejects(()=>createEngine(mock.document,mock.extra).images(mock.draft,l=>logs.push(l)),
+    /Bildquelle fehlt/);
+  assert.ok(logs.some(x=>x.includes("[IMAGE LOAD ERROR]")));
+});
+test("expired HTTP image reports status instead of silently returning null",async()=>{
+  const mock=imageTestEnv({sourceCount:4});
+  mock.draft.images[0].dataUrl="https://storage.example.invalid/signed/image.jpg?token=expired";
+  mock.extra.fetch=async()=>({ok:false,status:403});
+  const logs=[];
+  await assert.rejects(()=>createEngine(mock.document,mock.extra).images(mock.draft,l=>logs.push(l)),
+    /HTTP 403/);
+  assert.equal(mock.sent().length,0);
+  assert.ok(logs.some(x=>x.includes("kind=remote-https")));
 });

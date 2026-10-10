@@ -597,18 +597,55 @@
       throw Error("Preis nicht sicher bestätigt – sichtbaren Wert bitte prüfen");
     return {success:true};
   }
-  async function imageFile(image,index){
+  function imageSourceKind(image) {
+    if(image instanceof File)return "file";
+    const url=typeof image==="string"?image:(image?.dataUrl||image?.url);
+    if(typeof url!=="string"||!url)return "missing";
+    if(url.startsWith("data:image/"))return "data-image";
+    if(url.startsWith("data:"))return "unsupported-data";
+    if(url.startsWith("https://"))return "remote-https";
+    if(url.startsWith("http://"))return "remote-http";
+    if(url.startsWith("blob:"))return "blob-url";
+    return "unsupported";
+  }
+  async function imageFile(image,index) {
     if(image instanceof File)return image;
     const url=typeof image==="string"?image:(image?.dataUrl||image?.url);
-    if(typeof url!=="string")return null;
+    const kind=imageSourceKind(image);
     const name=image?.name||("jeans_"+(index+1)+".jpg");
-    if(!url.startsWith("data:")&&!url.startsWith("https://"))return null;
-    try{
+    if(kind==="missing")
+      throw Error("Bildquelle fehlt. Fotos in Sascha AI kontrollieren.");
+    if(kind==="data-image"){
+      // Decode portable photo payloads directly. No network, CORS, or
+      // expiring Supabase signature is needed on the Vinted page.
+      const match=String(url).match(/^data:(image\/[\w.+-]+);base64,([\s\S]+)$/i);
+      if(match){
+        try {
+          const binary=atob(match[2].replace(/\s+/g,""));
+          const bytes=new Uint8Array(binary.length);
+          for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
+          if(!bytes.length)throw Error("Bild ist leer");
+          return new File([bytes],name,{type:match[1].toLowerCase()});
+        }catch(e) {
+          throw Error("Bilddaten sind beschädigt: "+(e?.message||"Base64 ungültig"));
+        }
+      }
+      // Some older drafts use percent-encoded image data URLs.
+    }else if(!["remote-https","remote-http"].includes(kind)){
+      throw Error("Bildquelle '"+kind+"' kann nicht auf Vinted geladen werden. "+
+        "Sascha AI aktualisieren und Entwurf erneut übernehmen.");
+    }
+    try {
       const response=await fetch(url);
-      if(!response.ok)throw Error("Bilddatei HTTP "+response.status);
+      if(!response.ok)throw Error("HTTP "+response.status);
       const blob=await response.blob();
+      if(!blob?.size)
+        throw Error("Datei leer oder Bildzugriff nicht möglich");
       return new File([blob],name,{type:blob.type||"image/jpeg"});
-    }catch(_){return null;}
+    }catch(e) {
+      throw Error(kind+": "+(e?.message||"Netzwerk-/CORS-Fehler")+
+        ". Sascha AI neu laden, damit die Bilder im eigenen Tab vorbereitet werden.");
+    }
   }
   const MAX_VINTED_IMAGES=4;
   function selectedDraftImages(draft) {
@@ -665,8 +702,16 @@
       throw Error("Bildbearbeitung fehlt: Extension vollständig aktualisieren");
     const files=[];
     for(let i=0;i<selected.length;i++){
-      const source=await imageFile(selected[i],i);
-      if(!source)throw Error("Bild "+(i+1)+" konnte nicht geladen werden");
+      const kind=imageSourceKind(selected[i]);
+      log("[IMAGE SOURCE] "+(i+1)+"/"+selected.length+" kind="+kind);
+      let source;
+      try {
+        source=await imageFile(selected[i],i);
+      }catch(e) {
+        log("[IMAGE LOAD ERROR] "+(i+1)+": "+(e?.message||String(e)));
+        throw Error("Bild "+(i+1)+" konnte nicht geladen werden: "+
+          (e?.message||String(e)));
+      }
       const rendered=await editor.processImage(source,i);
       if(!rendered?.file || rendered.file.type!=="image/jpeg")
         throw Error("Bearbeitung von Bild "+(i+1)+" fehlgeschlagen");
@@ -780,6 +825,7 @@
   if(window.__SASCHA_TEST__)window.__SASCHA_ENGINE_TEST__={
     articleTitle,liveCatalogRows,optionText,nameAlternatives,run,chooseCategory,size,
     sizeOptions,sizeMenuDiagnostic,openSizeMenu,selectWaistSizing,waistModeMatch,isCorrectFieldOption,
-    price,priceCents,editablePriceField,images,selectedDraftImages,uploadPreviewArea,uploadPreviewCount
+    price,priceCents,editablePriceField,images,selectedDraftImages,uploadPreviewArea,uploadPreviewCount,
+    imageFile,imageSourceKind
   };
 })();

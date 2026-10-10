@@ -4,10 +4,14 @@ on:
   push:
     paths:
       - 'browser-extension/**'
+      - 'src/lib/vintedDraftUtils.ts'
+      - 'src/lib/vintedImageTransfer.ts'
       - '.github/workflows/vinted-extension-v3.yml'
   pull_request:
     paths:
       - 'browser-extension/**'
+      - 'src/lib/vintedDraftUtils.ts'
+      - 'src/lib/vintedImageTransfer.ts'
       - '.github/workflows/vinted-extension-v3.yml'
 
 jobs:
@@ -27,3 +31,9 @@ jobs:
           node --check browser-extension/vinted-image-edit.js
       - name: Run unit and simulated form tests
         run: node --test browser-extension/tests/catalog-v3.test.cjs browser-extension/tests/engine-v3.test.cjs browser-extension/tests/image-edit-v3.test.cjs
+      - name: Test expiring image links and first-party transfer
+        run: node --experimental-strip-types --test browser-extension/tests/vinted-image-transfer.test.mjs
+      - name: Install web app dependencies
+        run: npm ci --ignore-scripts
+      - name: Type-check Sascha AI web app
+        run: npm run lint

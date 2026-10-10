@@ -9,6 +9,7 @@ import {
   getBulkImagesByIds,
 } from "./indexedDb";
 import { getSignedImageUrl } from "./supabase";
+import { freshVintedImageSource, prepareVintedImageDataUrl } from "./vintedImageTransfer";
 
 /**
  * Checks whether a PantItem is eligible for preparing a Vinted draft.
@@ -170,16 +171,18 @@ export async function getVintedDraftPayload(
         source = found?.storagePath ? "pant-storagePath" : "pant-dataUrl";
       }
 
-      // Resolve signed URL if storagePath exists and dataUrl is missing/expired
-      if ((!dataUrl || (!dataUrl.startsWith("data:") && !dataUrl.startsWith("http"))) && found?.storagePath) {
+      // CRITICAL: even syntactically valid https:// Supabase signed URLs may
+      // have expired (getSignedImageUrl TTL is only one hour). Refresh them
+      // unconditionally whenever we have the original storage path.
+      if (found?.storagePath) {
         try {
-          const signedUrl = await getSignedImageUrl(found.storagePath);
-          if (signedUrl) {
-            dataUrl = signedUrl;
-            source = "pant-storagePath";
-          }
+          dataUrl = await freshVintedImageSource(
+            dataUrl, found.storagePath, getSignedImageUrl
+          );
+          source = dataUrl ? "refreshed-storage-signed-url" : "signed-url-unavailable";
         } catch (err) {
-          console.warn(`[VintedDraftPayload] Fehler beim Erstellen der Signed-URL für ${found.storagePath}:`, err);
+          dataUrl = "";
+          console.warn("[VintedDraftPayload] Signed-URL konnte nicht erneuert werden:", err);
         }
       }
 
@@ -201,9 +204,39 @@ export async function getVintedDraftPayload(
     })
   );
 
-  const totalImageCount = hydratedImages.length;
-  const validDataUrlCount = hydratedImages.filter(
-    (img) => img.dataUrl && (img.dataUrl.startsWith("data:image/") || img.dataUrl.startsWith("http"))
+  // Only the first FOUR photos are used by Vinted. Resolve them to
+  // portable data URLs in Sascha AI *before* messaging the other tab;
+  // Vinted need not fetch external Supabase URLs itself.
+  // If any photo fails to load, report the precise photo number early,
+  // rather than filling eight fields and then stopping at image 1.
+  const portableImages = await Promise.all(
+    hydratedImages.map(async (img, index) => {
+      if (index >= 4) return img; // fifth image isn't transferred to Vinted
+      if (!img.dataUrl) {
+        throw new Error(
+          `Foto ${index + 1} fehlt im Speicher. Bitte das Foto in Sascha AI prüfen.`
+        );
+      }
+      try {
+        return {
+          ...img,
+          dataUrl: await prepareVintedImageDataUrl(img.dataUrl),
+        };
+      } catch (err: any) {
+        console.warn(
+          `[VintedDraftPayload] Foto ${index + 1} kann nicht vorbereitet werden:`,
+          err?.message || err
+        );
+        throw new Error(
+          `Foto ${index + 1} konnte in Sascha AI nicht geladen werden (${err?.message || "unbekannter Fehler"}). Bitte Sascha AI neu laden und erneut versuchen.`
+        );
+      }
+    })
+  );
+
+  const totalImageCount = portableImages.length;
+  const validDataUrlCount = portableImages.slice(0, 4).filter(
+    (img) => img.dataUrl?.startsWith("data:image/")
   ).length;
 
   console.log(
@@ -243,7 +276,7 @@ export async function getVintedDraftPayload(
     material: draft.material,
     condition: draft.condition,
     category: draft.category,
-    images: hydratedImages,
+    images: portableImages,
   };
 }
 
