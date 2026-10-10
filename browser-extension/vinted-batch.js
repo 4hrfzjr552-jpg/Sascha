@@ -90,30 +90,81 @@
     if(!tab?.id)throw Error("Kein geöffneter Sascha-AI-Tab gefunden");
     return tab;
   }
-  async function waitForEditor(tabId,timeout=25000){
-    const end=Date.now()+timeout;
-    while(Date.now()<end){
+  // chrome.tabs.create() may resolve BEFORE Chrome has committed the
+  // requested URL. During the first navigation, tab.url may still be
+  // empty/about:blank/chrome://newtab even though tab.pendingUrl points to
+  // Vinted. Never confuse this temporary startup state with a redirect.
+  // Once the committed URL is foreign, stop; do not follow arbitrary sites.
+  function safeTabLocation(url){
+    if(!url)return "(noch keine URL)";
+    try{
+      const u=new URL(url);
+      if(["http:","https:"].includes(u.protocol))
+        return u.origin+u.pathname; // never leak signed query params/tokens
+    }catch(_){}
+    return String(url).split("?")[0].slice(0,120);
+  }
+  function tabNavigationState(tab,elapsedMs=0){
+    const current=String(tab?.url||"");
+    const pending=String(tab?.pendingUrl||"");
+    if(validVintedUrl(current))return {kind:"vinted",where:safeTabLocation(current)};
+    const initial=!current||current==="about:blank"||
+      /^chrome:\/\/(?:newtab|new-tab-page)(?:\/|$)/i.test(current);
+    if(initial&&(validVintedUrl(pending)||elapsedMs<8000))
+      return {kind:"pending",where:safeTabLocation(pending||current),
+        status:tab?.status||"unbekannt"};
+    return {kind:"blocked",where:safeTabLocation(current),
+      pending:safeTabLocation(pending),status:tab?.status||"unbekannt"};
+  }
+  async function waitForEditor(tabId,timeout=35000,pollMs=600){
+    const started=Date.now();
+    let lastWhere="(noch keine URL)",lastError="";
+    while(Date.now()-started<timeout){
       if(stopRequested)throw Error("Stapel wurde gestoppt");
-      try {
-        const tab=await chrome.tabs.get(tabId);
-        if(!validVintedUrl(tab.url||""))throw Error("Vinted-Tab hat die Verkaufsseite verlassen");
-        const response=await tabMessage(tabId,{type:"PING_VINTED_ENGINE"},2400);
-        if(response?.ready)return;
-      }catch(e){
-        if(String(e?.message||"").includes("verlassen"))throw e;
+      let tab;
+      try{tab=await chrome.tabs.get(tabId);}
+      catch(e){throw Error("Vinted-Tab wurde geschlossen oder ist nicht erreichbar: "+(e?.message||e));}
+      const navigation=tabNavigationState(tab,Date.now()-started);
+      lastWhere=navigation.where;
+      if(navigation.kind==="blocked"){
+        throw Error("Vinted-Verkaufsformular nicht erreichbar: Tab ist auf "+
+          navigation.where+" (Status: "+navigation.status+
+          ", nächstes Ziel: "+navigation.pending+"). "+
+          "Prüfe, ob Vinted dich umgeleitet hat oder eine Anmeldung verlangt.");
       }
-      await delay(600);
+      if(navigation.kind==="vinted"){
+        try{
+          const response=await tabMessage(tabId,{type:"PING_VINTED_ENGINE"},2400);
+          if(response?.ready)return;
+          lastError="Formularfelder noch nicht sichtbar";
+        }catch(e){
+          lastError="Extension-Formularskript noch nicht bereit: "+(e?.message||String(e));
+        }
+      }else{
+        lastError="Tab lädt noch (Status: "+navigation.status+")";
+      }
+      await delay(pollMs);
     }
-    throw Error("Vinted-Verkaufsformular nicht bereit – bitte Anmeldung prüfen");
+    throw Error("Vinted-Verkaufsformular nach "+Math.round(timeout/1000)+
+      " Sekunden nicht bereit auf "+lastWhere+". "+
+      (lastError||"Bitte Vinted-Anmeldung und die geöffnete Seite prüfen.")+
+      " – Tab bleibt zur Prüfung offen.");
   }
   async function verifySave(tabId,originalUrl){
-    const end=Date.now()+18000;
+    const started=Date.now();
     let last={};
-    while(Date.now()<end){
+    while(Date.now()-started<18000){
       const tab=await chrome.tabs.get(tabId);
       const url=tab.url||"";
       if(savedUrl(url))return {ok:true,evidence:"Vinted-Entwurfsübersicht"};
-      if(!validVintedUrl(url))throw Error("Seite hat Vinted verlassen");
+      const navigation=tabNavigationState(tab,Date.now()-started);
+      if(navigation.kind==="blocked")
+        throw Error("Speichern unklar: Vinted-Tab wurde nach "+
+          navigation.where+" umgeleitet. Keine Wiederholung – Entwürfe prüfen.");
+      if(navigation.kind==="pending"){
+        await delay(650);
+        continue;
+      }
       try{
         const check=await tabMessage(tabId,{type:"CHECK_VINTED_DRAFT_SAVE"},2500);
         if(check?.saved===true)return {ok:true,evidence:check.evidence||"Vinted-Speicherbestätigung"};
@@ -300,5 +351,6 @@
   });
   // For Node regression tests. No exposed methods in production pages.
   if(typeof module!=="undefined"&&module.exports)
-    module.exports={orderedQueue,articleNumber,validVintedUrl,savedUrl,saschaUrl};
+    module.exports={orderedQueue,articleNumber,validVintedUrl,savedUrl,saschaUrl,
+      safeTabLocation,tabNavigationState,waitForEditor};
 })();
