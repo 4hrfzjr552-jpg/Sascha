@@ -10,6 +10,7 @@
   const KEY="vintedBatchState";
   const RECEIPT_KEY="vintedDraftSaveReceipt";
   const CONFIRMED_KEY="vintedConfirmedArticleNumbers";
+  const UNVERIFIED_KEY="vintedUnverifiedDraftArticles";
   const NEXT_ALARM="saschaVintedBatchNext";
   const GUARD_ALARM="saschaVintedBatchGuard";
   const MAX_BATCH=100;
@@ -278,6 +279,63 @@
       [...new Set([...previous,value])].slice(-500)});
   }
 
+  // An uncertain save is NOT a confirmed Vinted draft. Keep it in a
+  // separate persistent ledger so subsequent batches NEVER send it again
+  // automatically until the seller reconciles the account manually.
+  function unverifiedArticleNumbers(records){
+    return (Array.isArray(records)?records:[])
+      .map(r=>articleNumber(r?.artikelnummer))
+      .filter(n=>n!==null);
+  }
+  async function rememberUnverified(record){
+    const box=await chrome.storage.local.get(UNVERIFIED_KEY);
+    const previous=Array.isArray(box[UNVERIFIED_KEY])?box[UNVERIFIED_KEY]:[];
+    const items=previous.filter(p=>articleNumber(p?.artikelnummer)!==record.artikelnummer);
+    await chrome.storage.local.set({
+      [UNVERIFIED_KEY]:[...items,record].slice(-500)
+    });
+  }
+  function ambiguousSaveAtVerification(phase,reason){
+    return phase==="verifying" &&
+      /(?:Speichern nicht eindeutig bestätigt|Speichern unklar)/i.test(
+        String(reason||""));
+  }
+  async function markUnverified(current,reason){
+    const row=current?.queue?.[current.index];
+    if(!row||current.currentId!==row.id)
+      throw Error("Falsche Hose zum Fortsetzen einer unklaren Speicherung");
+    const valid=ambiguousSaveAtVerification(current.phase,reason) ||
+      recoverableSave(current);
+    if(!valid)throw Error("Speicherung nicht nachweislich unklar – "+
+      "Fortsetzen ohne Bestätigung nicht erlaubt");
+    const record={
+      id:row.id,artikelnummer:row.artikelnummer,
+      reason:String(reason||"Vinted-Speicherung nicht überprüfbar").slice(0,400),
+      at:Date.now(),
+      reviewWarnings:[...(current.pendingReviewWarnings||[])]
+    };
+    // Write BEFORE advancing. If interrupted, this row remains excluded
+    // from later attempts and can be reconciled against Vinted's drafts.
+    await rememberUnverified(record);
+    await chrome.alarms.clear(GUARD_ALARM);
+    await chrome.alarms.clear(NEXT_ALARM);
+    const index=current.index+1;
+    const finished=index>=current.queue.length;
+    const unverified=[...(current.unverified||[]).filter(x=>
+      articleNumber(x.artikelnummer)!==row.artikelnummer),record].slice(-100);
+    const logs=[...(current.logs||[]),
+      "Speicherung von #"+row.artikelnummer+
+      " NICHT bestätigt. Nicht erneut senden, auf Vinted prüfen. "+
+      (finished?"Stapelende.":"Nächste Hose folgt.")].slice(-75);
+    await put({...current,index,unverified,logs,
+      status:finished?"done":"running",phase:finished?"done":"ready",
+      currentId:null,error:null,pendingReviewWarnings:[],saveAttempt:null});
+    if(!finished)
+      await chrome.alarms.create(NEXT_ALARM,{when:Date.now()+30000});
+    return {success:true,finished,nextArticle:current.queue[index]?.artikelnummer||null,
+      unverifiedArticle:row.artikelnummer,confirmed:(current.completed||[]).length};
+  }
+
   async function refreshReadyDraftList(){
     const sascha=await findSascha();
     const response=await tabMessage(sascha.id,{
@@ -315,9 +373,11 @@
     if(current.index<current.queue.length-1)return current;
     try{
       const live=await refreshReadyDraftList();
-      const confirmedRes=await chrome.storage.local.get(CONFIRMED_KEY);
-      const confirmed=Array.isArray(confirmedRes[CONFIRMED_KEY])?
-        confirmedRes[CONFIRMED_KEY]:[];
+      const confirmedRes=await chrome.storage.local.get([CONFIRMED_KEY,UNVERIFIED_KEY]);
+      const confirmed=[
+        ...(Array.isArray(confirmedRes[CONFIRMED_KEY])?confirmedRes[CONFIRMED_KEY]:[]),
+        ...unverifiedArticleNumbers(confirmedRes[UNVERIFIED_KEY])
+      ];
       const nextItems=continuationRows(current,live,confirmed);
       if(!nextItems.length){
         await log("Keine weiteren geeigneten, unbestätigten Hosen in Sascha AI "+
@@ -342,9 +402,11 @@
         !previous.completed.length)
       throw Error("Kein abgeschlossener Stapel zum Fortsetzen vorhanden");
     const live=await refreshReadyDraftList();
-    const saved=await chrome.storage.local.get(CONFIRMED_KEY);
-    const confirmed=Array.isArray(saved[CONFIRMED_KEY])?
-      saved[CONFIRMED_KEY]:[];
+    const saved=await chrome.storage.local.get([CONFIRMED_KEY,UNVERIFIED_KEY]);
+    const confirmed=[
+      ...(Array.isArray(saved[CONFIRMED_KEY])?saved[CONFIRMED_KEY]:[]),
+      ...unverifiedArticleNumbers(saved[UNVERIFIED_KEY])
+    ];
     const nextItems=continuationRows(previous,live,confirmed);
     if(!nextItems.length)
       throw Error("Sascha AI liefert "+live.length+
@@ -569,11 +631,21 @@
               error:null,pendingReviewWarnings:[]});
             continue;
           }
-          if(!stopRequested && state.phase==="verifying" &&
-              /(?:Speichern nicht eindeutig bestätigt|Speichern unklar)/i.test(reason)){
+          if(!stopRequested&&ambiguousSaveAtVerification(failedPhase,reason)){
+            if(state.continueOnUnverifiedSave===true){
+              await log("Speicherung für #"+row.artikelnummer+
+                " konnte nicht bestätigt werden; Fortsetzen ohne Bestätigung "+
+                "wurde ausdrücklich gewählt. NICHT erneut senden.");
+              // log() keeps state.phase, which is verifying.
+              const result=await markUnverified(state,reason);
+              if(result.finished)return;
+              await delay(1400);
+              continue;
+            }
             await log("PAUSE bei #"+row.artikelnummer+": "+reason+
               " · Entwurf gegebenenfalls vorhanden; einmal bei Vinted prüfen "+
-              "und anschließend in der Extension bestätigen.",{
+              "und anschließend in der Extension bestätigen ODER "+
+              "als unbestätigt markieren und mit der nächsten Hose fortfahren.",{
               status:"awaiting_confirmation",phase:"awaiting_confirmation",
               error:reason
             });
@@ -674,6 +746,25 @@
         .catch(e=>sendResponse({success:false,error:e.message}));
       return true;
     }
+    if(msg?.type==="CONTINUE_VINTED_UNVERIFIED_SAVE"){
+      (async()=>{
+        if(busy)throw Error("Bitte auf das Ende der aktuellen Prüfung warten");
+        const current=await getState();
+        if(!recoverableSave(current))
+          throw Error("Keine unklar gespeicherte Hose zum Überspringen vorhanden");
+        const row=current.queue[current.index];
+        if(row.id!==msg.draftId||row.artikelnummer!==msg.articleNumber)
+          throw Error("Falsche Artikelnummer, Fortsetzen nicht erlaubt");
+        const expanded=await extendOldSingleQueue(current);
+        expanded.continueOnUnverifiedSave=msg.continueOnUnverifiedSave===true;
+        const result=await markUnverified(expanded,current.error);
+        sendResponse(result);
+        if(!result.finished&&typeof chrome.tabs.query==="function"&&
+            typeof chrome.tabs.create==="function")
+          void run();
+      })().catch(e=>sendResponse({success:false,error:e.message}));
+      return true;
+    }
     if(msg?.type==="CONFIRM_VINTED_DRAFT_SAVED"){
       (async()=>{
         if(busy)throw Error("Bitte warten, bis der aktuelle Ablauf gestoppt hat");
@@ -717,14 +808,16 @@
       if(prior?.status==="running")
         throw Error("Ein früherer Stapel ist möglicherweise noch aktiv. "+
           "Bitte Vinted-Entwürfe prüfen, bevor ein neuer Stapel gestartet wird.");
-      const stored=await chrome.storage.local.get(["savedDrafts",CONFIRMED_KEY]);
+      const stored=await chrome.storage.local.get(["savedDrafts",CONFIRMED_KEY,UNVERIFIED_KEY]);
       // Always refresh the full eligible pants list instead of relying on
       // an old popup import which may have contained only one prepared draft.
       const saved=await refreshReadyDraftList();
       await chrome.storage.local.set({savedDrafts:saved});
       const ordered=orderedQueue(saved,msg.selectedDraftId);
-      const known=new Set(Array.isArray(stored[CONFIRMED_KEY])?
-        stored[CONFIRMED_KEY]:[]);
+      const known=new Set([
+        ...(Array.isArray(stored[CONFIRMED_KEY])?stored[CONFIRMED_KEY]:[]),
+        ...unverifiedArticleNumbers(stored[UNVERIFIED_KEY])
+      ]);
       // Recover confirmed rows from the previous batch state as well,
       // including users who upgraded from older extension versions.
       for(const id of prior?.completed||[]){
@@ -739,7 +832,8 @@
       await chrome.alarms.clear(GUARD_ALARM);
       await put({status:"running",phase:"ready",startedAt:Date.now(),queue,
         allowEstimatedSizes:msg.allowEstimatedSizes===true,
-        index:0,currentId:null,completed:[],skipped:[],
+        continueOnUnverifiedSave:msg.continueOnUnverifiedSave===true,
+        index:0,currentId:null,completed:[],skipped:[],unverified:[],
         warnings:[],pendingReviewWarnings:[],logs:[
           "Stapel gestartet: "+queue.length+" Hosen ab #"+
             queue[0].artikelnummer+" (bereits bestätigte übersprungen), "+
@@ -756,5 +850,6 @@
       safeTabLocation,tabNavigationState,waitForEditor,recoverableSave,
       formFailureMessage,draftSizeSummary,reviewableEstimatedSize,
       continuationRows,recoverablePreSaveFormFailure,skippableUnfilledForm,
-      validSaveReceipt,storedSaveReceipt};
+      validSaveReceipt,storedSaveReceipt,
+      ambiguousSaveAtVerification,unverifiedArticleNumbers};
 })();

@@ -65,6 +65,12 @@
         <span>Geschätzte Jeansgrößen auch als <strong>Entwurf</strong> speichern.
         Größen vor dem Veröffentlichen selbst überprüfen.</span>
       </label>
+      <label style="display:flex;align-items:flex-start;gap:8px;font-size:12px;line-height:1.5;cursor:pointer;padding:8px 0;">
+        <input id="continueUnverifiedBatch" type="checkbox" style="margin-top:3px;flex-shrink:0;" />
+        <span>Wenn Vinted das Speichern nicht bestätigen kann, <strong>automatisch mit der nächsten Hose weitermachen</strong>.
+        Die ungeklärte Hose wird NICHT als gespeichert gezählt und darf nicht erneut automatisch gesendet werden.
+        Unbestätigte Hosen danach auf Vinted prüfen.</span>
+      </label>
       <div id="batchQueueHint" aria-live="polite" style="font-size:12px;line-height:1.5;padding:6px 0;">
         Noch keine fertigen Hosen importiert.
       </div>
@@ -79,6 +85,9 @@
       </button>
       <button id="btnBatchStop" class="btn btn-secondary" style="display:none;">
         Stapel stoppen
+      </button>
+      <button id="btnBatchContinueUnverified" class="btn btn-secondary" style="display:none;">
+        Speicherung unklar lassen und mit nächster Hose fortfahren
       </button>
       <button id="btnBatchConfirmSaved" class="btn btn-success" style="display:none;">
         Entwurf auf Vinted geprüft – als gespeichert bestätigen

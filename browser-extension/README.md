@@ -1,4 +1,4 @@
-# Sascha AI → Vinted Assistant 3.24
+# Sascha AI → Vinted Assistant 3.25
 
 Die Chrome-Erweiterung übernimmt einen vollständigen Entwurf aus Sascha AI in die geöffnete Vinted-Verkaufsmaske. **Sie veröffentlicht und speichert nichts automatisch.** Alle Angaben vor dem Speichern prüfen.
 
@@ -39,7 +39,7 @@ Die folgende Zuordnung stammt aus realen Vinted-Katalog-Suchergebnissen und ist 
 2. ZIP entpacken und den **Ordner \`browser-extension\`** an einem festen Ort behalten.
 3. In Chrome \`chrome://extensions/\` öffnen und den Entwicklermodus aktivieren.
 4. „Entpackte Erweiterung laden“ wählen und den Ordner \`browser-extension\` auswählen.
-5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.24.0** stehen.
+5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.25.0** stehen.
 
 **Updates:** Neue Dateien in denselben entpackten Erweiterungsordner kopieren, unter \`chrome://extensions/\` „Neu laden“ klicken und den Vinted-Tab aktualisieren. Nur „Download ZIP“ auszuführen aktualisiert die installierte Erweiterung nicht. Es ist weder \`git pull\` noch das Mergen eines GitHub-PR erforderlich, wenn die Version bereits in \`main\` liegt.
 
@@ -167,6 +167,18 @@ Die Profilprüfung erkennt außerdem weitere Vinted-Darstellungen von **Entwurfs
 Ist die Entwurfserstellung eindeutig bestätigt, wird **automatisch die nächste Hose** begonnen – keine einzelne Verkäuferbestätigung mehr nötig. Bei fehlender Erfolgsnachricht, unbekannten Profilkarten, fehlerhaftem Speichern oder Unterbrechung bleibt die **manuelle Kontrolle aus Sicherheitsgründen notwendig**; insbesondere niemals denselben möglicherweise gespeicherten Entwurf durch einen automatischen zweiten Save-Klick duplizieren. Die Extension darf nur **Entwürfe** speichern und **niemals veröffentlichen**.
 
 Ein vor dem Update bereits zur manuellen Bestätigung wartender Entwurf besitzt noch keinen neuen Nachweis. **Diesen einen Eintrag im Vinted-Profil prüfen und gegebenenfalls einmalig manuell bestätigen**. Danach nutzt die nächste Hose automatisch die neue Verifikation. Die bisherige Extension **nicht deinstallieren**, um Fortschritt, Größe-Warnungen und bestätigte Artikelnummern zu behalten.
+
+### Stapel stoppt bei #51 nach unklarer Speicherung – trotzdem weiterarbeiten (3.25.0)
+
+Bei #51 meldet Chrome z. B. `Could not establish connection. Receiving end does not exist`, nachdem Vinted beim Speichern das Formular zum Profil weitergeleitet hat. Die Extension kann aus diesem Fehler **nicht** ableiten, dass der Entwurf fehlt oder gespeichert wurde. Vor Version 3.25 hielt sie den ganzen Stapel an und wartete auf eine einzelne Bestätigung.
+
+**Neu für den bereits angehaltenen Stapel:** Neben „Entwurf auf Vinted geprüft – als gespeichert bestätigen“ gibt es **„Speicherung unklar lassen und mit nächster Hose fortfahren“**. Damit wird die unbestätigte Hose nicht als gespeichert gezählt; sie wird in einer separaten Liste **„SPEICHERUNG UNKLAR“** mit Artikelnummer, Fehler und ausstehenden Prüfhinweisen festgehalten. Die Extension sendet sie **nicht erneut**. Nach dem Klick wird die nächste Hose verarbeitet. Bei #51 wäre das normalerweise #50.
+
+**Neu für kommende Stapel:** Eine standardmäßig **deaktivierte** Option **„Wenn Vinted das Speichern nicht bestätigen kann, automatisch mit der nächsten Hose weitermachen“**. Sie ist bewusst nur nach ausdrücklicher Auswahl aktiv, da so möglicherweise ungespeicherte Entwürfe in einer eigenen, später zu überprüfenden Liste verbleiben. Beim Start bestätigt der Nutzer dieses Verhalten nochmals. Bei einer eindeutig unbestätigten Speicherrückmeldung nach dem tatsächlichen Speicherversuch wird die Hose gesondert als **ungeklärt** aufgeführt, und die nächste wird versucht. Ein Formularfehler **vor** dem Speichern bleibt dagegen nur als „nicht gespeichert/übersprungen“ vermerkt. Auf diese Weise gibt es drei strikt getrennte Gruppen: **bestätigt gespeichert**, **vor dem Speichern übersprungen**, und **Speicherung ungeklärt**.
+
+Die ungeklärten Artikelnummern werden zusätzlich im lokalen Speicher der bestehenden Extension vor automatischer erneuter Übertragung geschützt – auch in späteren Stapeln oder nach Neustart. **Wichtig:** Diese Liste ist keine Vinted-Bestätigung. **ALLE als ungeklärt markierten Artikel später auf Vinted manuell kontrollieren**: Wenn sie nicht existieren, die Artikel gezielt wieder vorbereiten, statt ohne Kontrolle alles nochmals zu senden. Ein solcher Abgleich ist bisher eine manuelle Aufgabe. Die Extension veröffentlicht niemals automatisch.
+
+Die Liste der ungeklärten Artikel erscheint weiterhin im Popup. Wer die automatische Weiterarbeit nicht aktiviert, bekommt weiter die bisherige sichere Pause zur Kontrolle. **Die bestehende Extension nicht deinstallieren**, um laufende Stapel, bestätigte Artikelnummern und ungeklärte Fälle zu behalten.
 
 ## Automatischer Entwurfsstapel (Version 3.12)
 
