@@ -105,7 +105,9 @@ test("Diesel W36 uses XXL checkbox but flags manual review",async()=>{
       if(selector.includes("category-size-single-grid-content"))return opened?grid:null;
       return null;
     },
-    querySelectorAll(){return [];}
+    querySelectorAll(selector){
+      return selector.includes('category-size-single-grid-content')&&opened?[grid]:[];
+    }
   };
   const engine=createEngine(document),logs=[];
   const output=await engine.size({
@@ -115,4 +117,74 @@ test("Diesel W36 uses XXL checkbox but flags manual review",async()=>{
   assert.equal(output.needsReview,true);
   assert.equal(chosen,"XXL");
   assert.ok(logs.some(x=>x.includes("[SIZE REVIEW]")));
+});
+
+
+test("size dropdown is scrolled into view before the click (lazy content)",async()=>{
+  const input=new FakeInput("size");
+  let scrolled=false,opened=false,selected="";
+  input.getBoundingClientRect=()=>({top:900,bottom:930,y:900});
+  input.scrollIntoView=()=>{scrolled=true;};
+  input.click=()=>{opened=scrolled;};
+  const grid={isConnected:true,getClientRects:()=>[1],closest:()=>null,
+    querySelectorAll:()=>[{
+      isConnected:true,innerText:"W36",getClientRects:()=>[1],closest:()=>null,
+      click(){selected="W36";input.value="W36";opened=false;}
+    }]};
+  const document={
+    querySelector(selector){
+      if(selector==="#size")return input;
+      return null;
+    },
+    querySelectorAll(selector){
+      if(selector.includes("category-size-single-grid-content")&&opened)return [grid];
+      return [];
+    }
+  };
+  const engine=createEngine(document);
+  const logs=[];
+  const result=await engine.size({size:"W36",brand:"Diesel",gender:"Herren",category:"Jeans"},x=>logs.push(x));
+  assert.equal(result.success,true);
+  assert.equal(scrolled,true);
+  assert.equal(selected,"W36");
+  assert.ok(logs.some(x=>x.includes("[SIZE OPEN] click input")));
+});
+test("if the input click does nothing, click the field wrapper once",async()=>{
+  const input=new FakeInput("size");
+  let opened=false,wrapperClicks=0;
+  const wrapper={
+    isConnected:true,getClientRects:()=>[1],closest:()=>null,
+    click(){opened=true;wrapperClicks++;}
+  };
+  input.parentElement=wrapper;
+  input.click=()=>{};
+  const grid={isConnected:true,getClientRects:()=>[1],closest:()=>null,
+    querySelectorAll:()=>[{
+      isConnected:true,innerText:"W36",getClientRects:()=>[1],closest:()=>null,
+      click(){input.value="W36";opened=false;}
+    }]};
+  const document={
+    querySelector(selector){return selector==="#size"?input:null;},
+    querySelectorAll(selector){
+      return selector.includes("category-size-single-grid-content")&&opened?[grid]:[];
+    }
+  };
+  const engine=createEngine(document);
+  const logs=[];
+  const result=await engine.size({size:"W36",gender:"Herren",category:"Jeans"},x=>logs.push(x));
+  assert.equal(result.success,true);
+  assert.equal(wrapperClicks,1);
+  assert.ok(logs.some(x=>x.includes("[SIZE OPEN] click wrapper")));
+});
+test("if no size menu appears, report diagnostics instead of guessing",async()=>{
+  const input=new FakeInput("size");
+  input.click=()=>{};
+  const document={
+    querySelector(selector){return selector==="#size"?input:null;},
+    querySelectorAll(){return [];}
+  };
+  const logs=[];
+  await assert.rejects(()=>createEngine(document).size(
+    {size:"W36",gender:"Herren",category:"Jeans"},x=>logs.push(x)),/nicht geöffnet/);
+  assert.ok(logs.some(x=>x.includes("[SIZE DIAG]")));
 });
