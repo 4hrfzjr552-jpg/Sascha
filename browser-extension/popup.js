@@ -27,6 +27,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnBatchRetryForm = document.getElementById("btnBatchRetryForm");
   const btnBatchStop = document.getElementById("btnBatchStop");
   const btnBatchConfirmSaved = document.getElementById("btnBatchConfirmSaved");
+  const btnBatchContinueUnverified = document.getElementById("btnBatchContinueUnverified");
+  const continueUnverifiedBatch = document.getElementById("continueUnverifiedBatch");
   const batchStatus = document.getElementById("batchStatus");
   const batchQueueHint = document.getElementById("batchQueueHint");
 
@@ -471,6 +473,7 @@ document.addEventListener("DOMContentLoaded", () => {
       btnBatchStop.style.display="none";
       btnBatchResume.style.display="none";
       btnBatchRetryForm.style.display="none";
+      btnBatchContinueUnverified.style.display="none";
       return;
     }
     batchStatus.style.display="block";
@@ -481,6 +484,8 @@ document.addEventListener("DOMContentLoaded", () => {
       running:"Läuft",done:"Fertig",error:"Gestoppt wegen Fehler",
       stopped:"Angehalten",awaiting_confirmation:"Speicherung bitte prüfen"
     };
+    if(batch.status==="done"&&(batch.unverified?.length||0)>0)
+      stateLabels.done="Stapelende – unbestätigte Entwürfe prüfen";
     const lines=[
       (stateLabels[batch.status]||batch.status||"Unbekannt")+
         " · "+done+"/"+total+" Vinted-Entwürfe bestätigt",
@@ -495,12 +500,22 @@ document.addEventListener("DOMContentLoaded", () => {
       articleNumber:current?.artikelnummer
     }:null;
     btnBatchConfirmSaved.style.display=canConfirm?"inline-flex":"none";
-    if(canConfirm)lines.push("Falls dieser Entwurf wirklich im Vinted-Profil "+
-      "gespeichert ist, unten einmal als gespeichert bestätigen. "+
-      "Die Hose wird NICHT erneut hochgeladen.");
+    btnBatchContinueUnverified.style.display=canConfirm?"inline-flex":"none";
+    if(canConfirm)lines.push("Bei Vinted prüfen: Falls der Entwurf vorhanden ist, "+
+      "als gespeichert bestätigen. Falls unklar, kannst du die Hose "+
+      "als UNBESTÄTIGT markieren und die nächste bearbeiten. "+
+      "Diese Hose wird dann nicht erneut automatisch gesendet.");
     if(Array.isArray(batch.warnings)&&batch.warnings.length)
       lines.push("GESPEICHERTE ENTWÜRFE VOR VERÖFFENTLICHUNG PRÜFEN:\n"+
         batch.warnings.slice(-10).join("\n"));
+    if(Array.isArray(batch.unverified)&&batch.unverified.length)
+      lines.push("SPEICHERUNG UNKLAR – nicht erneut automatisch senden ("+
+        batch.unverified.length+"):\n"+
+        batch.unverified.slice(-15).map(item=>"#"+item.artikelnummer+
+          ": bei Vinted-Entwürfen nachsehen; nicht als gespeichert bestätigt").join("\n"));
+    if(batch.continueOnUnverifiedSave===true)
+      lines.push("Automatisches Fortsetzen bei unklarer Speicherung: AN. "+
+        "Unbestätigte Hosen unbedingt danach auf Vinted prüfen.");
     if(Array.isArray(batch.skipped)&&batch.skipped.length)
       lines.push("NICHT GESPEICHERT – übersprungene Hosen ("+
         batch.skipped.length+"):\n"+
@@ -524,6 +539,35 @@ document.addEventListener("DOMContentLoaded", () => {
   chrome.storage.onChanged.addListener((changes,area)=>{
     if(area==="local"&&changes.vintedBatchState)
       showBatchStatus(changes.vintedBatchState.newValue||null);
+  });
+
+  btnBatchContinueUnverified.addEventListener("click",async()=>{
+    const pending=pendingSavedConfirmation;
+    if(!pending?.draftId||!pending.articleNumber)return;
+    const follow=continueUnverifiedBatch?.checked===true;
+    if(!confirm("Speicherung von #"+pending.articleNumber+" ist UNKLAR. "+
+      "Diese Hose wird ausdrücklich NICHT als gespeichert markiert und "+
+      "NICHT automatisch erneut gesendet. "+
+      "Du MUSST den Vinted-Entwurf später selbst prüfen. "+
+      (follow?"Auch bei den folgenden unklaren Speicherungen läuft "+
+        "der Stapel automatisch weiter und sammelt Prüffälle. ":"")+
+      "Jetzt ohne Bestätigung zur nächsten Hose?"))return;
+    btnBatchContinueUnverified.disabled=true;
+    try{
+      const response=await chrome.runtime.sendMessage({
+        type:"CONTINUE_VINTED_UNVERIFIED_SAVE",
+        draftId:pending.draftId,articleNumber:pending.articleNumber,
+        continueOnUnverifiedSave:follow
+      });
+      if(!response?.success)
+        throw Error(response?.error||"Fortsetzen nicht möglich");
+      logDebug("Speicherung von #"+response.unverifiedArticle+
+        " bleibt ungeklärt. "+
+        (response.finished?"Stapelende":"Nächste Hose #"+response.nextArticle+
+          " folgt – diese Hose nicht erneut senden."));
+    }catch(e){
+      alert("Ohne Bestätigung fortsetzen fehlgeschlagen: "+e.message);
+    }finally{btnBatchContinueUnverified.disabled=false;}
   });
 
   btnBatchConfirmSaved.addEventListener("click",async()=>{
@@ -556,6 +600,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     const nextCount=draftsList.length; // Every item, wrapping below the selected number
     const allowEstimates=allowEstimatedSizeBatch?.checked===true;
+    const continueUnverified=continueUnverifiedBatch?.checked===true;
     if(!confirm("Es sind "+nextCount+" Hosen für diesen Stapel eingeplant. "+
       (nextCount===1?"Danach folgt KEINE weitere Hose. ":"")+
       "Zuerst die ausgewählte Hose, dann kleinere und anschließend "+
@@ -565,12 +610,18 @@ document.addEventListener("DOMContentLoaded", () => {
         "Geschätzte Größen dürfen in ENTWÜRFEN übernommen werden; "+
         "vor Veröffentlichung unbedingt mit den echten Maßen/Etiketten prüfen. ":
         "Bei geschätzter Größe hält der Stapel weiterhin an. ")+
-      "Bei unbestätigter Speicherung stoppt der Stapel."))return;
+      (continueUnverified?
+        "Bei UNKLARER Speicherung läuft der Stapel ohne Bestätigung mit "+
+        "der nächsten Hose weiter. Diese Artikel werden als UNBESTÄTIGT "+
+        "erfasst und NICHT erneut automatisch übertragen; "+
+        "du musst sie später auf Vinted kontrollieren. ":
+        "Bei unbestätigter Speicherung stoppt der Stapel.")))return;
     btnBatchStart.disabled=true;
     try{
       const response=await chrome.runtime.sendMessage({
         type:"START_VINTED_BATCH",selectedDraftId:currentDraft.id,
-        allowEstimatedSizes:allowEstimates
+        allowEstimatedSizes:allowEstimates,
+        continueOnUnverifiedSave:continueUnverified
       });
       if(!response?.success)throw Error(response?.error||"Stapelstart fehlgeschlagen");
       showBatchStatus(response.state);
