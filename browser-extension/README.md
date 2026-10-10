@@ -1,4 +1,4 @@
-# Sascha AI → Vinted Assistant 3.18
+# Sascha AI → Vinted Assistant 3.19
 
 Die Chrome-Erweiterung übernimmt einen vollständigen Entwurf aus Sascha AI in die geöffnete Vinted-Verkaufsmaske. **Sie veröffentlicht und speichert nichts automatisch.** Alle Angaben vor dem Speichern prüfen.
 
@@ -39,7 +39,7 @@ Die folgende Zuordnung stammt aus realen Vinted-Katalog-Suchergebnissen und ist 
 2. ZIP entpacken und den **Ordner \`browser-extension\`** an einem festen Ort behalten.
 3. In Chrome \`chrome://extensions/\` öffnen und den Entwicklermodus aktivieren.
 4. „Entpackte Erweiterung laden“ wählen und den Ordner \`browser-extension\` auswählen.
-5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.18.0** stehen.
+5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.19.0** stehen.
 
 **Updates:** Neue Dateien in denselben entpackten Erweiterungsordner kopieren, unter \`chrome://extensions/\` „Neu laden“ klicken und den Vinted-Tab aktualisieren. Nur „Download ZIP“ auszuführen aktualisiert die installierte Erweiterung nicht. Es ist weder \`git pull\` noch das Mergen eines GitHub-PR erforderlich, wenn die Version bereits in \`main\` liegt.
 
@@ -57,9 +57,9 @@ Beispiel: 39 cm Bundweite flach entsprechen rechnerisch 78 cm Umfang. Bei **Herr
 - Hat eine Damenjeans ein Etikett mit W-Größe (z. B. `W36`), aber Vinted bietet nur Buchstabengrößen, wird eine **vorläufige Umrechnung** vorgeschlagen. Auch ausdrücklich als `US 8` oder `EU 40` angegebene Etikettgrößen können näherungsweise umgerechnet werden. Eine nackte `36` ohne Größenformat wird **nicht geraten**.
 - Liegt eine echte Damen-Buchstabengröße wie `M` oder `L` vor, bleibt sie erhalten. Wenn Vinted die Original-Etikettgröße tatsächlich anbietet, bleibt sie ebenfalls erhalten.
 - Das Einzelergebnis zeigt `[SIZE ESTIMATE]` und `[SIZE REVIEW]`. Bei einer Umrechnung ist die Original-Etikettgröße nicht identisch mit der angebotenen Buchstabengröße; das Ergebnis muss deshalb geprüft werden.
-- **Stapelmodus-Schutz:** Bei einer aus Maßen geschätzten Größe wird die Hose zunächst ausgefüllt, aber **nicht automatisch als Entwurf gespeichert**. Der Stapel stoppt und wartet auf deine Prüfung. Du kannst die Größe vor dem manuellen Speichern korrigieren.
+- **Stapelmodus (ab 3.19):** Geschätzte Größen dürfen nach ausdrücklicher Zustimmung als **Entwurf** gespeichert werden. Die Größe bleibt als unsicher gekennzeichnet und muss vor der Veröffentlichung geprüft werden. Ohne Zustimmung stoppt der Stapel.
 
-So entstehen bei unbekannten Herstellergrößen keine unbemerkt falsch ausgezeichneten Vinted-Entwürfe.
+So bleiben unbekannte Herstellergrößen im Stapel als Schätzung dokumentiert; vor einer Veröffentlichung ist eine echte Größenprüfung notwendig.
 
 ### Tab-Laden im Stapelmodus (3.15.0)
 
@@ -103,6 +103,16 @@ Die bisherige Stapelmeldung `Formular nicht vollständig: size` verschluckte den
 Direkt vor dem Ausfüllen loggt die Extension `Größen-Daten für #71:` mit übertragener Etikettgröße, Bundweite und Zielbereich. Die Vinted-Seite loggt ergänzend `[SIZE INPUT]`. Dadurch ist klar unterscheidbar, ob die Website die **vorhandenen 38 cm tatsächlich an die Extension übermittelt**, Vinted den Taillenumfang-Dialog nicht öffnet oder Vinted die konkrete Größe nicht anbietet. Ein bereits vorhandenes echtes Größenetikett bleibt maßgeblich; unklare/geschätzte Größe muss vor dem Entwurf-Speichern überprüft werden.
 
 Bei fehlender Bundweite im Datenpaket Sascha AI auf Vercel aktualisieren beziehungsweise die Web-App neu bereitstellen; nur die Extension zu aktualisieren reicht dann nicht. Keine automatische Auswahl einer unpassenden Größe und keine Veröffentlichung.
+
+### Geschätzte Jeansgrößen auch automatisch als Entwurf speichern (3.19.0)
+
+Fehlerbericht: #71 zeigte bei 38 cm flach gemessener Bundweite `Feld size muss noch manuell geprüft werden` – dabei war die Größe tatsächlich ausgewählt und vom Vinted-Formular übernommen, aber zu Recht als **Schätzung** gekennzeichnet. Der Stapel stoppte bisher trotzdem bei jedem `needsReview`-Feld.
+
+**Neu:** Im Extension-Popup steht beim Stapelstart die standardmäßig aktivierte, abschaltbare Option **„Geschätzte Jeansgrößen auch als Entwurf speichern. Größen vor dem Veröffentlichen selbst überprüfen.“** Ein zusätzlicher Bestätigungsdialog nennt diese Konsequenz. Ist die Option aktiviert, darf nur das **erfolgreich im echten Vinted-Größenfeld bestätigte** Ergebnis `reviewType: "estimated-size"` mit validierter W- oder Buchstabengröße in einem **Vinted-Entwurf** gespeichert werden. Es bleibt ausdrücklich eine *Schätzung*, keine belegte Herstellergröße. Bei Herren-Jeans entspricht eine flach gemessene Bundweite von 38 cm rechnerisch etwa W30; bei Damen wird eine ungefähr passende Buchstabengröße vorgeschlagen. Marke, Schnitt und Größenetikett können abweichen.
+
+**Wichtig:** Pro Artikel erscheint in der persistenten Fortschrittsanzeige eine Warnung wie „Artikel #71: geschätzte/umgerechnete Größe W30 – vor Veröffentlichung prüfen“. Diese Warnung wird auch beim nachträglichen manuellen Bestätigen eines bereits gespeicherten Entwurfs übernommen. Geschätzte Größen müssen vor einer tatsächlichen Veröffentlichung mit Artikel und Maßen abgeglichen werden.
+
+Bei deaktivierter Option stoppt der Stapel nach wie vor vor dem Speichern. Eine **nicht bestätigte**, fehlende oder nicht auswählbare Größe, eine fragliche Kategorie, Fehler bei anderen Feldern oder eine unklare Speicherbestätigung bleiben weiterhin **harte Stopps**. Es wird nie automatisch veröffentlicht. Der Einzelmodus verhält sich unverändert.
 
 ## Automatischer Entwurfsstapel (Version 3.12)
 
