@@ -54,7 +54,7 @@
     const all=norm([draft.category,draft.categoryPath,draft.productType,draft.title,
       draft.description].filter(Boolean).join(" "));
     const jacket=/\b(jeansjacke|denimjacke|denim jacket|jean jacket)\b/.test(all);
-    const denim=/\b(jeans|jeanhose|jeanshose|denimhose|denim|ripped jeans)\b/.test(all);
+    const denim=/\b(jeans|jeanhose|jeanshose|jeansshorts|denimhose|denim|ripped jeans)\b/.test(all);
     const shorts=/\b(jeansshorts|denim shorts|shorts|kurze jeans)\b/.test(all);
     const kind=jacket?"unsupported":denim?(shorts?"denim-shorts":"jeans"):"unsupported";
     const supplied=norm([draft.fit,draft.cut,draft.jeansFit,draft.attributes?.fit].filter(Boolean).join(" "));
