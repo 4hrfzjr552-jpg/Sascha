@@ -10,6 +10,8 @@ function batchApi(){
   const module={exports:{}},listener=[];
   const chrome={
     runtime:{onMessage:{addListener(fn){listener.push(fn)}}},
+    alarms:{onAlarm:{addListener(fn){listener.push(fn)}},
+      clear:async()=>true,create:async()=>{}},
     storage:{local:{}},
     tabs:{}
   };
