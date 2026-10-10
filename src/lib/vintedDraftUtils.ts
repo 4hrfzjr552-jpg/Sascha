@@ -366,7 +366,7 @@ export function getVintedBatchListSummary(
     .filter((pant) =>
       isPantEligibleForVintedDraft(pant) &&
       !["uploaded", "sold", "archived"].includes(pant.saleStatus) &&
-      /^\\d+$/.test(String(pant.artikelnummer || "").trim()) &&
+      /^\d+$/.test(String(pant.artikelnummer || "").trim()) &&
       Number(pant.artikelnummer) > 0 &&
       current.get(pant.id)?.status !== "saved"
     )
@@ -441,7 +441,7 @@ export function setupVintedExtensionBridge(): () => void {
               candidate &&
               isPantEligibleForVintedDraft(candidate) &&
               !["uploaded", "sold", "archived"].includes(candidate.saleStatus) &&
-              /^\\d+$/.test(String(candidate.artikelnummer || "").trim())
+              /^\d+$/.test(String(candidate.artikelnummer || "").trim())
                 ? createVintedDraftFromPant(candidate, draftId)
                 : null
             );
