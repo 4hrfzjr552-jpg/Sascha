@@ -752,11 +752,45 @@ test("women direct letter label is kept exactly, with no review",async()=>{
   assert.equal(ui.chosen(),"L");
   assert.equal(logs.some(x=>x.includes("[SIZE WOMEN CONVERT]")),false);
 });
-test("women's ambiguous numeric 36 cannot be silently converted to a letter",async()=>{
+test("women's ambiguous numeric 36 cannot silently convert without waist measurement",async()=>{
   const ui=mockWomenSizes(),logs=[];
   await assert.rejects(()=>createEngine(ui.doc).size({
     size:"36",gender:"Damen",fit:"straight",category:"Jeans"
-  },x=>logs.push(x)),/nicht in der aktuellen Vinted-Größenauswahl/);
+  },x=>logs.push(x)),/keine gültige flach gemessene Bundweite/);
+  assert.equal(ui.chosen(),null);
+});
+test("bare Damen size 6 with waist 39 cm selects provisional M, not numeric 6",async()=>{
+  const ui=mockWomenSizes(),logs=[];
+  const result=await createEngine(ui.doc).size({
+    size:"6",gender:"Damen",fit:"straight",category:"Jeans",
+    measurements:{waist:"39 cm"}
+  },x=>logs.push(x));
+  assert.equal(result.success,true);
+  assert.equal(result.needsReview,true);
+  assert.equal(result.reviewType,"estimated-size");
+  assert.equal(result.selectedSize,"M");
+  assert.equal(result.estimateSource,"ambiguous-label-waist");
+  assert.equal(ui.chosen(),"M");
+  assert.ok(logs.some(x=>x.includes("[SIZE WOMEN NUMERIC WAIST] Etikett 6 → M")));
+  assert.match(result.reason,/Etikettgröße 6/);
+});
+test("bare Damen size 36 with waist 40 cm proposes L, not assumed EU 36",async()=>{
+  const ui=mockWomenSizes(),logs=[];
+  const result=await createEngine(ui.doc).size({
+    size:"36",gender:"Damen",fit:"straight",category:"Jeans",
+    measurements:{waist:"40"}
+  },x=>logs.push(x));
+  assert.equal(result.needsReview,true);
+  assert.equal(result.estimateSource,"ambiguous-label-waist");
+  assert.equal(result.selectedSize,"L");
+  assert.equal(ui.chosen(),"L");
+  assert.ok(logs.some(x=>x.includes("Etikett 36 → L")));
+});
+test("bare Damen size 6 without waist never guesses US 6 or auto-saves",async()=>{
+  const ui=mockWomenSizes();
+  await assert.rejects(()=>createEngine(ui.doc).size({
+    size:"6",gender:"Damen",fit:"straight",category:"Jeans"
+  },()=>{}),/keine gültige flach gemessene Bundweite/);
   assert.equal(ui.chosen(),null);
 });
 test("women conversion respects Vinted 2XL alias of XXL",async()=>{
