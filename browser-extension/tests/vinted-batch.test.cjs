@@ -6,14 +6,14 @@ const vm=require("node:vm");
 const path=require("node:path");
 const code=fs.readFileSync(path.join(__dirname,"..","vinted-batch.js"),"utf8");
 
-function batchApi(){
+function batchApi(overrides={}){
   const module={exports:{}},listener=[];
   const chrome={
     runtime:{onMessage:{addListener(fn){listener.push(fn)}}},
     alarms:{onAlarm:{addListener(fn){listener.push(fn)}},
       clear:async()=>true,create:async()=>{}},
     storage:{local:{}},
-    tabs:{}
+    tabs:{get:overrides.getTab,sendMessage:overrides.sendMessage}
   };
   vm.runInNewContext(code,{chrome,module,URL,console,setTimeout,clearTimeout});
   return {api:module.exports,listener};
@@ -58,4 +58,80 @@ test("batch workflow is draft-only; never makes publishing call",()=>{
   assert.ok(!txt.includes('type:"publish_vinted"'));
   assert.ok(!txt.includes("type:'publish_vinted'"));
   assert.ok(txt.includes("await verifysave("));
+});
+
+
+test("initial about:blank is pending, not a false site-leave error",()=>{
+  const {api}=batchApi();
+  const nav=api.tabNavigationState({
+    url:"about:blank",pendingUrl:"https://www.vinted.de/items/new",
+    status:"loading"
+  },300);
+  assert.equal(nav.kind,"pending");
+  assert.equal(nav.where,"https://www.vinted.de/items/new");
+});
+test("new blank tab without a pending URL gets a short grace, but not forever",()=>{
+  const {api}=batchApi();
+  assert.equal(api.tabNavigationState({url:"",status:"loading"},100).kind,"pending");
+  assert.equal(api.tabNavigationState({url:"chrome://newtab/",status:"loading"},500).kind,"pending");
+  assert.equal(api.tabNavigationState({url:"about:blank",status:"complete"},9000).kind,"blocked");
+});
+test("foreign committed URL is blocked even if pending URL looks Vinted",()=>{
+  const {api}=batchApi();
+  const check=api.tabNavigationState({
+    url:"https://login.evil.example/phishing?secret=something",
+    pendingUrl:"https://www.vinted.de/items/new",status:"complete"
+  },100);
+  assert.equal(check.kind,"blocked");
+  assert.equal(check.where,"https://login.evil.example/phishing");
+  assert.equal(check.where.includes("secret"),false);
+});
+test("safe Vinted URLs proceed to engine-ready polling",()=>{
+  const {api}=batchApi();
+  assert.equal(api.tabNavigationState({
+    url:"https://www.vinted.de/items/new?foo=bar",
+    status:"loading"
+  },100).kind,"vinted");
+});
+test("waitForEditor survives about:blank and loading without misdiagnosing redirect",async()=>{
+  const frames=[
+    {url:"",pendingUrl:"https://www.vinted.de/items/new",status:"loading"},
+    {url:"about:blank",pendingUrl:"https://www.vinted.de/items/new",status:"loading"},
+    {url:"https://www.vinted.de/items/new",status:"loading"},
+    {url:"https://www.vinted.de/items/new",status:"complete"}
+  ];
+  let read=0,pings=0;
+  const {api}=batchApi({
+    getTab:async()=>frames[Math.min(read++,frames.length-1)],
+    sendMessage:async(tabId,message)=>{
+      assert.equal(tabId,42);
+      assert.equal(message.type,"PING_VINTED_ENGINE");
+      pings++;
+      return {ready:pings>=2};
+    }
+  });
+  await api.waitForEditor(42,2000,1);
+  assert.equal(read,4);
+  assert.equal(pings,2);
+});
+test("waitForEditor stops with safe URL diagnostics on genuine off-site redirect",async()=>{
+  const {api}=batchApi({
+    getTab:async()=>({url:"https://example.org/auth?token=dont-log-me",
+      status:"complete"}),
+    sendMessage:async()=>{throw Error("No extension should run here");}
+  });
+  await assert.rejects(api.waitForEditor(10,500,1),e=>{
+    assert.match(e.message,/https:\/\/example.org\/auth/);
+    assert.doesNotMatch(e.message,/dont-log-me/);
+    assert.match(e.message,/Weiterleitung|Anmeldung|umgeleitet/);
+    return true;
+  });
+});
+test("waitForEditor keeps waiting for Vinted login/form instead of reporting redirect",async()=>{
+  const {api}=batchApi({
+    getTab:async()=>({url:"https://www.vinted.de/member/login",status:"complete"}),
+    sendMessage:async()=>({ready:false})
+  });
+  await assert.rejects(api.waitForEditor(10,25,1),
+    /Verkaufsformular nach 0 Sekunden nicht bereit/);
 });
