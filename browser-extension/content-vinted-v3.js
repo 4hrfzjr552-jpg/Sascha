@@ -443,10 +443,22 @@
     let estimated=null;
     const estimator=window.SaschaVintedWaistEstimate;
     const group=catalog.classify(draft);
+    const measuredWaist=String(draft.measurements?.waist??"").trim();
+    log("[SIZE INPUT] size="+JSON.stringify(desired||"(keine Angabe)")+
+      " gender="+(group.gender||"unbekannt")+
+      " kind="+(group.kind||"unbekannt")+
+      " waistCm="+(measuredWaist||"(nicht übertragen)"));
     if(estimator?.isMissingSize(desired)||!desired){
       if(!estimator?.estimate)throw Error("Größen-Schätzfunktion fehlt – Extension aktualisieren");
       const result=estimator.estimate(draft,group);
-      if(!result.ok)throw Error("Keine Etikettgröße. "+result.reason);
+      if(!result.ok){
+        const hint=!measuredWaist?
+          " Die Maße sind auf der Sascha-AI-Seite möglicherweise sichtbar, "+
+          "werden aber nicht im Vinted-Entwurf mitgesendet. "+
+          "Sascha AI auf Vercel aktualisieren/bereitstellen und Entwurf "+
+          "erneut übernehmen." : "";
+        throw Error("Keine Etikettgröße. "+result.reason+hint);
+      }
       estimated=result;
       desired=result.size;
       log("[SIZE ESTIMATE] Bundweite flach "+result.waistCm+" cm; "+
