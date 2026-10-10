@@ -3,7 +3,14 @@
 // seen in the user's debug logs. Live Vinted remains an integration test.
 const { test }=require("node:test");
 const assert=require("node:assert/strict");
-const catalog=require("../vinted-catalog-v3.js");
+const fs=require("node:fs");
+const vm=require("node:vm");
+const path=require("node:path");
+// The parent Vite project is ESM, while Chrome MV3 loads this file as
+// a classic content script. Evaluate the classic script in an isolated VM.
+const context={window:{},module:{exports:{}}};
+vm.runInNewContext(fs.readFileSync(path.join(__dirname,"..","vinted-catalog-v3.js"),"utf8"),context);
+const catalog=context.module.exports;
 const {intentForDraft,selectLiveCategory,matchingRows,sizeChoice,classify}=catalog;
 const rows=[
   [1559,"Jeans Kinder > Mädchen > Hosen & Shorts"],
