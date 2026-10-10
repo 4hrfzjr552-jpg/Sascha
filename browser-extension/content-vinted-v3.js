@@ -1,5 +1,5 @@
-/* Sascha AI → Vinted form engine v3. Does not publish or save.
-   Requires vinted-catalog-v3.js to be loaded first. */
+/* Sascha AI → Vinted form engine v3. Saves drafts only upon explicit
+   batch request; never publishes a listing. */
 (() => {
   "use strict";
   if(window.__saschaVintedEngineV3)return;
@@ -805,8 +805,70 @@
       "[FERTIG] Felder bestätigt; bitte vor Speichern alles prüfen");
     return {results,stoppedAt};
   }
+  // Only explicitly labeled "Save draft" is allowed. Never publish.
+  const ALLOWED_DRAFT_BUTTONS=new Set([
+    "entwurf speichern","als entwurf speichern","entwurf sichern",
+    "save draft","save as draft","save to drafts"
+  ]);
+  const PUBLISH_TEXT=/ver[oö]ffentlichen|publish|jetzt einstellen|artikel einstellen|upload now|post listing/i;
+  function draftButtonCandidates(){
+    return visible('button,[role="button"],input[type="submit"],input[type="button"]')
+      .filter(el=>{
+        const label=norm(el.innerText||el.textContent||el.value||
+          el.getAttribute?.("aria-label")||el.getAttribute?.("title")||"")
+          .replace(/\s+/g," ").trim();
+        const testid=norm(el.getAttribute?.("data-testid")||"");
+        const allowed=ALLOWED_DRAFT_BUTTONS.has(label) ||
+          /^(?:upload-form-)?save-draft-button$/.test(testid);
+        return allowed&&!PUBLISH_TEXT.test(label)&&!el.disabled&&
+          el.getAttribute?.("aria-disabled")!=="true";
+      });
+  }
+  function draftSaveDiagnostics(){
+    return visible('button,[role="button"]').slice(-30).map(el=>({
+      label:String(el.innerText||el.textContent||el.getAttribute?.("aria-label")||"")
+        .trim().replace(/\s+/g," ").slice(0,85),
+      testid:String(el.getAttribute?.("data-testid")||"").slice(0,80),
+      disabled:!!el.disabled
+    }));
+  }
+  function draftSaveStatus(){
+    const signals=visible('[role="alert"],[role="status"],[aria-live],'+
+      '[data-testid*="toast" i],[class*="Toast" i],[class*="notification" i]');
+    const savedWords=/(?:entwurf(?:\s+(?:wurde|ist))?\s+gespeichert|als\s+entwurf\s+gespeichert|draft\s+(?:was\s+)?saved|saved\s+(?:as\s+)?(?:a\s+)?draft)/i;
+    const match=signals.find(el=>savedWords.test(String(el.textContent||"")));
+    return match?{saved:true,
+      evidence:String(match.textContent||"").trim().replace(/\s+/g," ").slice(0,110)
+    }:{saved:false};
+  }
+  function trySaveAsDraft(){
+    const buttons=draftButtonCandidates();
+    if(buttons.length!==1)return{
+      clicked:false,error:buttons.length===0?
+        "Kein eindeutiger Button 'Entwurf speichern' gefunden":
+        "Mehrere Entwurf-Speichern-Buttons sichtbar",
+      available:draftSaveDiagnostics()
+    };
+    const element=buttons[0];
+    element.scrollIntoView?.({block:"center"});
+    element.click();
+    return {clicked:true,label:String(element.textContent||element.value||"").trim().slice(0,80)};
+  }
+
   let running=false;
   chrome.runtime.onMessage.addListener((message,sender,sendResponse)=>{
+    if(message?.type==="PING_VINTED_ENGINE"){
+      sendResponse({ready:true});return false;
+    }
+    if(message?.type==="CHECK_VINTED_DRAFT_SAVE"){
+      sendResponse(draftSaveStatus());return false;
+    }
+    if(message?.type==="SAVE_VINTED_DRAFT"){
+      if(running){sendResponse({clicked:false,error:"Ausfüllung läuft noch"});return false;}
+      try{sendResponse(trySaveAsDraft());}
+      catch(e){sendResponse({clicked:false,error:e.message||String(e)});}
+      return false;
+    }
     if(message?.type!=="FILL_VINTED_FORM")return;
     if(running){sendResponse({success:false,error:"Ausfüllung läuft bereits"});return false;}
     running=true;
@@ -828,6 +890,7 @@
     articleTitle,liveCatalogRows,optionText,nameAlternatives,run,chooseCategory,size,
     sizeOptions,sizeMenuDiagnostic,openSizeMenu,selectWaistSizing,waistModeMatch,isCorrectFieldOption,
     price,priceCents,editablePriceField,images,selectedDraftImages,uploadPreviewArea,uploadPreviewCount,
-    imageFile,imageSourceKind
+    imageFile,imageSourceKind,
+    draftButtonCandidates,draftSaveDiagnostics,draftSaveStatus,trySaveAsDraft
   };
 })();
