@@ -112,3 +112,65 @@ test("explicit structured gender dominates keyword in description",()=>{
 test("jeans jacket not categorized as jeans trousers",()=>{
   assert.equal(intentForDraft({gender:"Herren",category:"Jeansjacke",fit:"straight"}).ok,false);
 });
+
+
+test("structured cut wins over 25 unrelated SEO cut keywords in description",()=>{
+  const draft={
+    gender:"Damen",category:"Jeans",fit:"straight",
+    title:"Diesel Damen Jeans Regular Fit W30",
+    description:"Keywords: skinny, bootcut, slim, boyfriend, straight, baggy"
+  };
+  const choice=intentForDraft(draft);
+  assert.equal(choice.ok,true);
+  assert.equal(choice.intent.fit,"straight");
+  assert.equal(choice.intent.source,"structured");
+  assert.equal(choice.category.id,1845);
+});
+test("explicit cut in title wins over conflicting fit keywords in description",()=>{
+  const d={
+    gender:"Herren",category:"Jeans",title:"Diesel Safado Straight Fit Jeans W32",
+    description:"SEO: skinny jeans, slim fit, bootcut, boyfriend, baggy"
+  };
+  const decision=intentForDraft(d);
+  assert.equal(decision.ok,true);
+  assert.equal(decision.intent.source,"title");
+  assert.equal(decision.intent.fit,"straight");
+  assert.equal(decision.category.id,1819);
+});
+test("if title does not declare fit, description may supply one clear fit",()=>{
+  const d={gender:"Herren",category:"Jeans",title:"Diesel Jeans Herren W32",
+    description:"Modell mit schmal geschnittenem Slim Fit"};
+  const found=intentForDraft(d);
+  assert.equal(found.ok,true);
+  assert.equal(found.intent.source,"description");
+  assert.equal(found.category.id,1818);
+});
+test("unsupported structured Tapered jeans never inherit SEO skinny keyword",()=>{
+  const d={gender:"Herren",category:"Jeans",fit:"tapered",
+    title:"Diesel Jeans",description:"SEO skinny slim straight"};
+  const result=intentForDraft(d);
+  assert.equal(result.ok,false);
+  assert.equal(result.intent.fit,"");
+  assert.equal(result.intent.source,"structured-unsupported");
+});
+test("genuinely ambiguous title and SEO-only cuts remain unresolved, not guessed",()=>{
+  const badTitle={gender:"Damen",category:"Jeans",title:"Skinny Slim Damen Jeans",
+    description:"Straight Fit Jeans"};
+  const first=intentForDraft(badTitle);
+  assert.equal(first.ok,false);
+  assert.equal(first.intent.source,"title-ambiguous");
+  const ambiguousDescription={gender:"Herren",category:"Jeans",
+    title:"Diesel Jeans",description:"skinny slim straight bootcut"};
+  const second=intentForDraft(ambiguousDescription);
+  assert.equal(second.ok,false);
+  assert.equal(second.intent.source,"description-ambiguous");
+});
+test("regular or straight fit from structured Sascha AI field is recognized",()=>{
+  for(const fit of ["regular","regular fit","straight fit","straight-fit"]){
+    const d={gender:"Herren",category:"Jeans",fit,title:"Diesel Jeans",
+      description:"skinny slim bootcut keywords"};
+    const result=intentForDraft(d);
+    assert.equal(result.ok,true,fit);
+    assert.equal(result.category.id,1819,fit);
+  }
+});

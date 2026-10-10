@@ -243,8 +243,10 @@
         "Speichere #"+row.artikelnummer+" ausdrücklich als Entwurf"));
   }
   function skippableUnfilledForm(phase,reason){
-    return phase==="filling"&&/^(?:Formular nicht vollständig:|Feld [a-z]+ (?:wurde nicht bestätigt|muss noch manuell geprüft werden))/.test(
-      String(reason||""));
+    const text=String(reason||"");
+    if(phase==="preflight")return /^Formular nicht vollständig: category:/.test(text);
+    return phase==="filling"&&
+      /^(?:Formular nicht vollständig:|Feld [a-z]+ (?:wurde nicht bestätigt|muss noch manuell geprüft werden))/.test(text);
   }
   async function retryPreSaveFormFailure(){
     if(busy)throw Error("Stapel läuft bereits");
@@ -498,15 +500,19 @@
       ["measured-waist","ambiguous-label-waist","w-label","us-label","eu-label"].includes(source);
   }
 
+  function preflightCategory(draft,api=globalThis.SaschaVintedCatalogV3){
+    if(!api?.intentForDraft)
+      throw Error("Vinted-Katalog für Vorabprüfung fehlt; Extension vollständig aktualisieren");
+    const resolved=api.intentForDraft(draft);
+    if(!resolved.ok)return {ok:false,reason:resolved.reason,source:resolved.intent?.source||"unresolved"};
+    return {ok:true,id:resolved.category.id,source:resolved.intent.source};
+  }
+
   async function single(row,source){
-    const tab=await chrome.tabs.create({
-      url:"https://www.vinted.de"+NEW_ITEM_PATH,
-      active:true
-    });
-    if(!tab.id)throw Error("Neuer Vinted-Tab konnte nicht erstellt werden");
-    await log("Öffne Vinted für #"+row.artikelnummer,{phase:"loading",vintedTabId:tab.id});
-    await waitForEditor(tab.id);
-    if(stopRequested)throw Error("Stapel wurde gestoppt");
+    // The category (especially the JEANS CUT) can be resolved without
+    // touching Vinted. Validate BEFORE opening a Vinted sales tab so that
+    // unresolved SEO-heavy jeans are not left half filled with title and
+    // description when the batch skips their unsaved form.
     await log("Lade Sascha-AI-Entwurf #"+row.artikelnummer,{phase:"fetching"});
     const data=await tabMessage(source.id,{
       type:"REQUEST_VINTED_DRAFT_FROM_SASCHA",draftId:row.id
@@ -516,6 +522,23 @@
         " nicht eindeutig laden: "+(data?.error||"Keine Daten"));
     if(data.payload.id!==row.id)
       throw Error("Sascha AI hat den falschen Entwurf zurückgegeben");
+    if(stopRequested)throw Error("Stapel wurde angehalten");
+    await log("Prüfe Jeans-Kategorie vor Öffnen von Vinted für #"+
+      row.artikelnummer,{phase:"preflight"});
+    const category=preflightCategory(data.payload);
+    if(!category.ok)
+      throw Error("Formular nicht vollständig: category: "+category.reason+
+        " (Quelle: "+category.source+"; Vinted-Tab nicht geöffnet)");
+    await log("Kategorie #"+category.id+" aus "+
+      category.source+" erkannt; öffne Vinted für #"+row.artikelnummer);
+    const tab=await chrome.tabs.create({
+      url:"https://www.vinted.de"+NEW_ITEM_PATH,
+      active:true
+    });
+    if(!tab.id)throw Error("Neuer Vinted-Tab konnte nicht erstellt werden");
+    await log("Öffne Vinted für #"+row.artikelnummer,{phase:"loading",vintedTabId:tab.id});
+    await waitForEditor(tab.id);
+    if(stopRequested)throw Error("Stapel wurde angehalten");
     await log("Größen-Daten für #"+row.artikelnummer+": "+draftSizeSummary(data.payload));
     await log("Fülle #"+row.artikelnummer,{phase:"filling"});
     const filled=await tabMessage(tab.id,{
@@ -795,6 +818,10 @@
       getState().then(async current=>{
         if(current?.status==="running")
           await put({...current,stopRequested:true,
+            logs:[...(current.logs||[]),
+              "Stopp über Extension angefordert – Artikel #"+
+              (current.queue?.[current.index]?.artikelnummer||"?")+
+              ", bisheriger Schritt: "+(current.phase||"unbekannt")].slice(-75),
             ...(busy?{}:{status:"stopped",phase:"stopped",
               error:"Stapel war nicht mehr aktiv. Vor Neustart Vinted-Entwürfe kontrollieren."})});
         sendResponse({success:true});
@@ -851,5 +878,5 @@
       formFailureMessage,draftSizeSummary,reviewableEstimatedSize,
       continuationRows,recoverablePreSaveFormFailure,skippableUnfilledForm,
       validSaveReceipt,storedSaveReceipt,
-      ambiguousSaveAtVerification,unverifiedArticleNumbers};
+      ambiguousSaveAtVerification,unverifiedArticleNumbers,preflightCategory};
 })();

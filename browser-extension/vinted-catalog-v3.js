@@ -34,12 +34,47 @@
     ["wide",/\b(baggy|wide leg|wide fit|loose fit|mom fit|mom jeans|boyfriend fit)\b/]
   ];
   const explicitFit={
-    "regular":"straight","regular fit":"straight","straight leg":"straight",
+    "regular":"straight","regular fit":"straight","regular-fit":"straight",
+    "straight fit":"straight","straight-fit":"straight",
+    "straight leg":"straight","classic straight":"straight",
     "skinny fit":"skinny","slim fit":"slim","ripped":"ripped",
     "cropped":"cropped","high waist":"high-waist",
     "high-waisted":"high-waist","high rise":"high-waist",
     "flare":"bootcut","flared":"bootcut","mom":"wide"
   };
+  // SEO keyword lists may mention several cuts. Do not let them override
+  // a single, clear fit from Sascha AI's structured data or product title.
+  function fitFromText(raw){
+    const value=norm(raw);
+    if(!value)return {fit:"",ambiguous:false};
+    const direct=explicitFit[value];
+    if(direct)return {fit:direct,ambiguous:false};
+    const matches=cutPatterns.filter(([,re])=>re.test(value)).map(([key])=>key);
+    if(/\b(ripped|distressed)\b/.test(value))matches.push("ripped");
+    if(/\bcropped\b/.test(value))matches.push("cropped");
+    if(/\b(hochbund|hohe taille|high waist|high rise)\b/.test(value))
+      matches.push("high-waist");
+    const unique=[...new Set(matches)];
+    return {fit:unique.length===1?unique[0]:"",ambiguous:unique.length>1};
+  }
+  function classifyFit(draft){
+    const sources=[
+      ["structured",[draft.fit,draft.cut,draft.jeansFit,draft.attributes?.fit]],
+      ["title",[draft.title]],
+      ["product",[draft.subcategory,draft.productType,draft.itemType]],
+      ["description",[String(draft.description||"").slice(0,1000)]]
+    ];
+    for(const [source,parts] of sources){
+      const raw=parts.filter(Boolean).join(" ");
+      const result=fitFromText(raw);
+      if(result.ambiguous)return {fit:"",source:source+"-ambiguous"};
+      if(result.fit)return {fit:result.fit,source};
+      // Unsupported exact cuts must not be overwritten by SEO copy.
+      if(source==="structured"&&/\b(tapered|loose|baggy|mom|relaxed)\b/.test(norm(raw)))
+        return {fit:"",source:"structured-unsupported"};
+    }
+    return {fit:"",source:"unresolved"};
+  }
   function oneGender(value){
     const v=norm(value);
     const matched=Object.entries(genderPatterns).filter(([,re])=>re.test(v)).map(([k])=>k);
@@ -57,17 +92,10 @@
     const denim=/\b(jeans|jeanhose|jeanshose|jeansshorts|denimhose|denim|ripped jeans)\b/.test(all);
     const shorts=/\b(jeansshorts|denim shorts|shorts|kurze jeans)\b/.test(all);
     const kind=jacket?"unsupported":denim?(shorts?"denim-shorts":"jeans"):"unsupported";
-    const supplied=norm([draft.fit,draft.cut,draft.jeansFit,draft.attributes?.fit].filter(Boolean).join(" "));
-    const source=supplied||norm(heading+" "+description);
-    const declared=explicitFit[source]||"";
-    const matches=cutPatterns.filter(([,re])=>re.test(source)).map(([key])=>key);
-    const unique=[...new Set(matches)];
-    let fit=declared || (unique.length===1?unique[0]:"");
-    if(!fit && /(?:^|\b)ripped(?:\b|$)/.test(source))fit="ripped";
-    if(!fit && /\bcropped\b/.test(source))fit="cropped";
-    if(!fit && /\b(hochbund|hohe taille|high waist|high rise)\b/.test(source))fit="high-waist";
-    if(kind==="denim-shorts")fit="";
-    return {gender,kind,fit,source:fit?(supplied?"structured":"text"):"unresolved"};
+    const resolved=classifyFit(draft);
+    const fit=kind==="denim-shorts"?"":resolved.fit;
+    return {gender,kind,fit,
+      source:kind==="denim-shorts"?"not-required":resolved.source};
   }
   function intentForDraft(draft){
     const intent=classify(draft);
@@ -120,7 +148,7 @@
     return {ok:false,reason:"Taillenumfang W"+n+
       " ist nicht sichtbar; keine Umrechnung auf XS–7XL"};
   }
-  const api=Object.freeze({norm,CATEGORIES,byId,classify,intentForDraft,matchingRows,
+  const api=Object.freeze({norm,CATEGORIES,byId,classify,fitFromText,classifyFit,intentForDraft,matchingRows,
     selectLiveCategory,sizeChoice});
   if(typeof module!=="undefined"&&module.exports)module.exports=api;
   root.SaschaVintedCatalogV3=api;
