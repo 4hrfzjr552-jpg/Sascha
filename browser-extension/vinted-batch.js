@@ -159,8 +159,13 @@
     // Explicit draft-only action: safe to retry neither it nor the workflow.
     await log("Speichere #"+row.artikelnummer+" ausdrücklich als Entwurf",{phase:"saving"});
     const click=await tabMessage(tab.id,{type:"SAVE_VINTED_DRAFT"},8500)
-      .catch(e=>({clicked:false,error:e.message}));
-    if(click?.clicked===false)throw Error("Speichern nicht gestartet: "+(click.error||"Button fehlt"));
+      .catch(e=>({uncertain:true,error:e.message}));
+    if(click?.clicked===false)throw Error("Speichern nicht gestartet: "+(click.error||"Button fehlt")+
+      (Array.isArray(click.available)?" · Buttons: "+JSON.stringify(click.available):""));
+    if(click?.uncertain){
+      await log("Speicher-Klick: Rückmeldung wegen möglichem Seitenwechsel unklar. "+
+        "Prüfe nur den Erfolg; klicke NICHT erneut.");
+    }
     // After navigation, a reply may be lost; still check state, but NEVER
     // click again because this could produce duplicate listings.
     await log("Prüfe Vinted-Speicherbestätigung für #"+row.artikelnummer,{
@@ -221,7 +226,9 @@
       stopRequested=true;
       getState().then(async current=>{
         if(current?.status==="running")
-          await put({...current,stopRequested:true});
+          await put({...current,stopRequested:true,
+            ...(busy?{}:{status:"stopped",phase:"stopped",
+              error:"Stapel war nicht mehr aktiv. Vor Neustart Vinted-Entwürfe kontrollieren."})});
         sendResponse({success:true});
       }).catch(e=>sendResponse({success:false,error:e.message}));
       return true;
