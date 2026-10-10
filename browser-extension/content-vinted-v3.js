@@ -658,9 +658,24 @@
     if(!input)throw Error("Bilder-Uploadelement nicht gefunden");
     // File inputs are often hidden: scroll to the upload area, not the input.
     await bringIntoView(input.parentElement||input,"images");
-    const files=await Promise.all(selected.map(imageFile));
-    if(files.some(file=>!file))
-      throw Error("Mindestens eines der ersten vier Bilder konnte nicht geladen werden");
+    // Always create new edited JPEGs. Never send original image bytes to
+    // Vinted, and never silently fall back to unedited files on edit failures.
+    const editor=window.SaschaVintedImageEdit;
+    if(!editor?.processImage)
+      throw Error("Bildbearbeitung fehlt: Extension vollständig aktualisieren");
+    const files=[];
+    for(let i=0;i<selected.length;i++){
+      const source=await imageFile(selected[i],i);
+      if(!source)throw Error("Bild "+(i+1)+" konnte nicht geladen werden");
+      const rendered=await editor.processImage(source,i);
+      if(!rendered?.file || rendered.file.type!=="image/jpeg")
+        throw Error("Bearbeitung von Bild "+(i+1)+" fehlgeschlagen");
+      files.push(rendered.file);
+      log("[IMAGE EDIT] "+(i+1)+"/"+selected.length+
+        " new="+rendered.file.name+
+        " blueMarks="+Number(rendered.marked||0)+
+        " cleanedPixels="+Number(rendered.replaced||0));
+    }
     const transfer=new DataTransfer();
     for(const file of files)transfer.items.add(file);
     input.files=transfer.files;
@@ -669,7 +684,7 @@
       throw Error("Browser hat nur "+assigned+"/"+files.length+" Bilddateien angenommen");
     log("[IMAGES SUBMIT] first="+files.length+" total="+draft.images.length+
       " skipped="+Math.max(0,draft.images.length-files.length)+
-      " assigned="+assigned);
+      " assigned="+assigned+" edited=true");
     const previewsBefore=uploadPreviewCount(input);
     input.dispatchEvent(new Event("change",{bubbles:true}));
     input.dispatchEvent(new Event("input",{bubbles:true}));
