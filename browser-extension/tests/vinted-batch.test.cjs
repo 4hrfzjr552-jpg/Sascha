@@ -622,3 +622,42 @@ test("skip-unverified button cannot affect another hose or a form that has not s
   assert.equal(result.success,false);
   assert.equal(box.store.vintedUnverifiedDraftArticles,undefined);
 });
+
+
+test("category preflight accepts actual structured fit without opening Vinted",()=>{
+  const {api}=batchApi();
+  const resolved=api.preflightCategory(
+    {gender:"Herren",category:"Jeans",fit:"straight"},
+    {intentForDraft:()=>({ok:true,intent:{source:"structured"},
+      category:{id:1819}})}
+  );
+  assert.equal(resolved.ok,true);
+  assert.equal(resolved.id,1819);
+  assert.equal(resolved.source,"structured");
+});
+test("missing jeans cut is safely skipped in preflight before any save click",()=>{
+  const {api}=batchApi();
+  const chosen=api.preflightCategory(
+    {gender:"Damen",category:"Jeans",title:"Damen Jeans"},
+    {intentForDraft:()=>({ok:false,reason:"Jeans-Schnitt nicht eindeutig erkannt",
+      intent:{source:"description-ambiguous"}})}
+  );
+  assert.equal(chosen.ok,false);
+  assert.equal(chosen.source,"description-ambiguous");
+  assert.equal(api.skippableUnfilledForm("preflight",
+    "Formular nicht vollständig: category: Jeans-Schnitt nicht eindeutig erkannt"),true);
+  assert.equal(api.skippableUnfilledForm("preflight",
+    "Speichern nicht eindeutig bestätigt"),false);
+  assert.equal(api.skippableUnfilledForm("saving",
+    "Formular nicht vollständig: category: Jeans-Schnitt nicht eindeutig erkannt"),false);
+});
+test("batch uses category preflight before creating Vinted tab",()=>{
+  const source=code;
+  const preflight=source.indexOf("const category=preflightCategory(data.payload);");
+  const create=source.indexOf("const tab=await chrome.tabs.create({",preflight);
+  const fill=source.indexOf("type:\"FILL_VINTED_FORM\"",preflight);
+  assert.ok(preflight>0);
+  assert.ok(create>preflight);
+  assert.ok(fill>create);
+  assert.match(source,/Stopp über Extension angefordert/);
+});
