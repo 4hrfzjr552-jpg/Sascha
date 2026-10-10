@@ -55,8 +55,53 @@ test("does not infer sizes for children, jackets, or unidentified gender",()=>{
     assert.equal(estimate({size:"",measurements:{waist:"40"}},kind).ok,false);
   }
 });
-test("girls/women adult jeans use same W proposal with review required",()=>{
+test("women's jeans propose a letter, never a W size, when waist is measured",()=>{
   const result=estimate({size:"Unbekannt",measurements:{waist:"41"}},women);
   assert.equal(result.ok,true);
-  assert.equal(result.size,"W32");
+  assert.equal(result.size,"L");
+  assert.equal(result.source,"measured-waist");
+  assert.equal(result.estimated,true);
+  const borderline=estimate({size:"",measurements:{waist:"39"}},women);
+  assert.equal(borderline.size,"M");
+});
+
+
+test("women's approximate size chart uses XS-3XL with cm ranges",()=>{
+  const {womenLetterFromCircumference}=moduleForTest.exports;
+  assert.equal(womenLetterFromCircumference(62),"XS");
+  assert.equal(womenLetterFromCircumference(70),"S");
+  assert.equal(womenLetterFromCircumference(75),"M");
+  assert.equal(womenLetterFromCircumference(81),"L");
+  assert.equal(womenLetterFromCircumference(88),"XL");
+  assert.equal(womenLetterFromCircumference(93),"XXL");
+  assert.equal(womenLetterFromCircumference(100),"3XL");
+  assert.equal(womenLetterFromCircumference(110),null);
+});
+test("women's labeled W36 converts only provisionally to letter XXL",()=>{
+  const {convertWomenLabel}=moduleForTest.exports;
+  const converted=convertWomenLabel("W36",women);
+  assert.equal(converted.ok,true);
+  assert.equal(converted.size,"XXL");
+  assert.equal(converted.estimated,true);
+  assert.equal(converted.converted,true);
+  assert.equal(converted.originalLabel,"W36");
+  assert.match(converted.reason,/vorläufig/);
+});
+test("explicit US and EU women size conversions are reviewable",()=>{
+  const {convertWomenLabel}=moduleForTest.exports;
+  assert.equal(convertWomenLabel("US 8",women).size,"M");
+  assert.equal(convertWomenLabel("EU 40",women).size,"L");
+  assert.equal(convertWomenLabel("DE 38",women).size,"M");
+  assert.equal(convertWomenLabel("US 99",women).ok,false);
+});
+test("bare numeric size is ambiguous EU versus W; never guess",()=>{
+  const {convertWomenLabel}=moduleForTest.exports;
+  assert.equal(convertWomenLabel("36",women).ok,false);
+  assert.equal(convertWomenLabel("W36",men).ok,false);
+  assert.equal(convertWomenLabel("S",women).ok,false);
+});
+test("women's XXL/2XL aliases are narrow and deterministic",()=>{
+  const {letterAliases}=moduleForTest.exports;
+  assert.deepEqual(Array.from(letterAliases("XXL")),["XXL","2XL"]);
+  assert.deepEqual(Array.from(letterAliases("M")),["M"]);
 });
