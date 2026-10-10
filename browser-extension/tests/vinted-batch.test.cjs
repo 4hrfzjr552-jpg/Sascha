@@ -368,7 +368,7 @@ test("a numeric women's label 6 estimated from actual waist can be saved as DRAF
 test("legacy one-item #67 completion appends lower unconfirmed #66 #65 (never #67 twice)",async()=>{
   const box=batchApi({
     state:{...failedSaveState(),status:"awaiting_confirmation",
-      phase:"awaiting_confirmation",queue:[pant(67,"pant67")],
+      phase:"awaiting_confirmation",queue:[{id:"pant67",artikelnummer:67,title:"Diesel Jeans 67"}],
       currentId:"pant67"},
     queryTabs:async()=>[{id:90,url:"https://sascha-sage.vercel.app/"}],
     sendMessage:async()=>({success:true,payload:[
@@ -387,7 +387,7 @@ test("legacy one-item #67 completion appends lower unconfirmed #66 #65 (never #6
 });
 test("completed 1/1 #67 can resume from #66 without uploading #67",async()=>{
   const previous={...failedSaveState(),status:"done",phase:"done",index:1,
-    queue:[pant(67,"pant67")],completed:["pant67"],currentId:null,error:null,
+    queue:[{id:"pant67",artikelnummer:67,title:"Diesel Jeans 67"}],completed:["pant67"],currentId:null,error:null,
     warnings:["Artikel #67: Größe XS geschätzt"]};
   const box=batchApi({state:previous,store:{vintedConfirmedArticleNumbers:[67]},
     queryTabs:async()=>[{id:90,url:"https://sascha-sage.vercel.app/"}],
@@ -408,7 +408,7 @@ test("completed 1/1 #67 can resume from #66 without uploading #67",async()=>{
 });
 test("completed queue resume stops without new eligible items and never repeats completed",async()=>{
   const previous={...failedSaveState(),status:"done",phase:"done",index:1,
-    queue:[pant(67,"pant67")],completed:["pant67"],currentId:null,error:null};
+    queue:[{id:"pant67",artikelnummer:67,title:"Diesel Jeans 67"}],completed:["pant67"],currentId:null,error:null};
   const box=batchApi({state:previous,
     store:{vintedConfirmedArticleNumbers:[67]},
     queryTabs:async()=>[{id:90,url:"https://sascha-sage.vercel.app/"}],
