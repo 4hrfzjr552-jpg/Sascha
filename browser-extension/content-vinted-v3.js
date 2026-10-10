@@ -211,66 +211,153 @@
     log("[BRAND SELECTED] "+draft.brand);
     return {success:true};
   }
-  const SIZE_OPTION_QUERY='[role="checkbox"][data-testid*="size-group" i], [data-testid*="size-grid-option" i]';
+  // Vinted currently has multiple versions of the same size widget:
+  // category-size-single-grid-content (older) and
+  // category-size-single-grid_chips-input (seen in the real 12:25 log).
+  // The latter can render its choices in a portal, outside the input wrapper.
+  const SIZE_OPTION_QUERY=[
+    '[role="checkbox"][data-testid*="size-group" i]',
+    '[data-testid*="size-grid-option" i]',
+    '[data-testid*="size-group" i][role="option"]',
+    '[role="option"]','[role="checkbox"]',
+    '[data-testid*="size" i][class*="option" i]'
+  ].join(",");
+  const SIZE_CONTENT_QUERY=[
+    '[data-testid="category-size-single-grid-content"]',
+    '[data-testid*="category-size-single-grid_chips-content" i]',
+    '[data-testid*="category-size-single-grid_chips-dropdown" i]',
+    '[data-testid*="size-single-grid-content" i]',
+    '[data-testid*="size-grid-content" i]',
+    '[data-testid*="category-size" i][class*="dropdown" i]'
+  ].join(",");
+  const sizeLabel=value=>/^(?:xxxxxxxl|xxxxxxl|xxxxxl|xxxxl|xxxl|xxl|xxs|xs|s|m|l|xl|[2-7]xl|w?\s?\d{2}(?:\s?l\d{2})?)$/.test(norm(value));
   function sizeGrids(){
-    return visible('[data-testid="category-size-single-grid-content"], [data-testid*="size-single-grid-content" i], [data-testid*="size-grid-content" i]');
+    return visible(SIZE_CONTENT_QUERY);
+  }
+  function sizeOptionNodes(root){
+    if(!root||!shown(root))return [];
+    const candidates=[...(root.matches?.(SIZE_OPTION_QUERY)?[root]:[]),...qa(SIZE_OPTION_QUERY,root)];
+    const result=[],seen=new Set();
+    for(const el of candidates){
+      const label=optionText(el);
+      if(!shown(el)||!sizeLabel(label))continue;
+      const row=el.closest?.('[role="checkbox"],[role="option"],[data-testid*="size-group" i]')||el;
+      if(!shown(row))continue;
+      const key=label+"|"+(row.getAttribute?.("data-testid")||"");
+      if(seen.has(key))continue;
+      seen.add(key);result.push({el:row,label});
+    }
+    return result;
+  }
+  function sizePopupRoots(){
+    const control=q("#size");
+    const primary=sizeGrids();
+    if(primary.some(el=>sizeOptionNodes(el).length>0))return primary;
+    // Explicit Vinted size options can be portaled outside the chips input.
+    const anchors=visible('[role="listbox"],[role="dialog"],[class*="dropdown" i],[class*="popover" i]')
+      .filter(el=>el!==control&&!el.contains(control)&&
+        !el.querySelector?.("#brand-search-input,#catalog-search-input"));
+    const portals=anchors.filter(el=>sizeOptionNodes(el).length>=3);
+    return [...new Set([...primary,...portals])];
   }
   function sizeGrid(){
-    return sizeGrids().find(grid=>visible(SIZE_OPTION_QUERY,grid).length>0) ||
-      sizeGrids()[0] || null;
+    return sizePopupRoots().find(grid=>sizeOptionNodes(grid).length>0)||
+      sizePopupRoots()[0]||null;
   }
   function sizeOptions(){
-    const grids=sizeGrids();
     const seen=new Set();
-    return grids.flatMap(grid=>visible(SIZE_OPTION_QUERY,grid))
-      .map(el=>({el,label:optionText(el)}))
-      .filter(o=>o.label && !seen.has(o.label) && seen.add(o.label));
+    const opts=sizePopupRoots().flatMap(sizeOptionNodes);
+    if(!opts.length){
+      // Older Vinted builds show size-only checkboxes directly in a portal.
+      // Restrict fallback to explicitly tagged size options, not arbitrary
+      // form checkboxes or shipping controls.
+      opts.push(...visible('[role="checkbox"][data-testid*="size-group" i], [data-testid*="size-grid-option" i]')
+        .filter(el=>sizeLabel(optionText(el)))
+        .map(el=>({el,label:optionText(el)})));
+    }
+    return opts.filter(({el,label})=>{
+      const key=el.getAttribute?.("data-testid")||label;
+      if(seen.has(key))return false;
+      seen.add(key);return true;
+    });
   }
   function sizeMenuReady(){
     return sizeOptions().length>0;
   }
+  function sizeOpenEvidence(control){
+    const testid=control.getAttribute?.("data-testid")||"";
+    const scope=testid.includes("_chips")?"category-size-single-grid_chips":
+      "category-size-single-grid";
+    const up=visible('[data-testid^="'+scope+'"][data-testid*="chevron-up" i]').length>0;
+    const expanded=control.getAttribute?.("aria-expanded")==="true";
+    const panel=sizePopupRoots().some(el=>shown(el)&&sizeOptionNodes(el).length>0);
+    return {up,expanded,panel,opened:up||expanded||panel};
+  }
   function sizeMenuDiagnostic(){
-    const control=q("#size"), grids=qa('[data-testid*="size" i][data-testid*="grid" i]');
-    const sizeFields=qa('input[id="size"],input[data-testid*="size" i]').slice(0,7);
-    const fields=sizeFields.map(el=>({
-      tag:el.tagName.toLowerCase(),id:el.id||"",
-      testid:el.getAttribute("data-testid")||"",
-      readonly:!!el.readOnly,shown:shown(el),
-      rect:el.getBoundingClientRect?{
-        y:Math.round(el.getBoundingClientRect().y),
-        bottom:Math.round(el.getBoundingClientRect().bottom)
-      }:null
+    const control=q("#size");
+    const testids=qa('[data-testid*="size" i]').slice(0,28);
+    const nodeInfo=testids.map(el=>({
+      testid:el.getAttribute?.("data-testid")||"",
+      role:el.getAttribute?.("role")||"",
+      shown:shown(el),
+      childSizeChoices:shown(el)?sizeOptionNodes(el).length:0
     }));
-    const gridInfo=grids.slice(0,8).map(el=>({
-      testid:el.getAttribute("data-testid")||"",
-      shown:shown(el),choices:visible(SIZE_OPTION_QUERY,el).length
-    }));
+    const visibleOptions=visible('[role="checkbox"],[role="option"],[data-testid*="option" i]')
+      .filter(el=>sizeLabel(optionText(el))).slice(0,28)
+      .map(el=>({text:optionText(el).slice(0,35),testid:el.getAttribute?.("data-testid")||"",
+        role:el.getAttribute?.("role")||""}));
+    const inputRect=control?.getBoundingClientRect?.();
     const active=document.activeElement;
-    return {fields,gridInfo,activeId:active?.id||"",
+    return {
+      field:{id:control?.id||"",testid:control?.getAttribute?.("data-testid")||"",
+        readonly:!!control?.readOnly,visible:shown(control),
+        y:inputRect?Math.round(inputRect.y):null},
+      openEvidence:control?sizeOpenEvidence(control):null,
+      widgetNodes:nodeInfo,
+      visibleSizeOptions:visibleOptions,
+      activeId:active?.id||"",
       brandSearchOpen:shown(q("#brand-search-input")),
       categorySearchOpen:shown(q("#catalog-search-input")),
-      viewportHeight:window.innerHeight||null};
+      viewportHeight:window.innerHeight||null
+    };
   }
   async function openSizeMenu(control,log){
-    const candidates=[{name:"input",el:control}];
-    const wrapper=control.closest?.('[data-testid*="size" i][class*="dropdown" i]') ||
-      control.parentElement?.closest?.('[class*="input-dropdown" i]') ||
-      control.parentElement;
-    if(wrapper && wrapper!==control)candidates.push({name:"wrapper",el:wrapper});
-    const chev=q('[data-testid="category-size-single-grid-chevron-down"], [data-testid*="size" i][data-testid*="chevron-down" i]');
-    if(chev && shown(chev) && !candidates.some(x=>x.el===chev))
-      candidates.push({name:"chevron",el:chev});
-    for(const {name,el} of candidates){
+    // Only click again when there is evidence the first attempt did NOT open
+    // a menu. Otherwise a second click may simply toggle it closed.
+    if(sizeMenuReady())return true;
+    await bringIntoView(control,"size",log);
+    log("[SIZE OPEN] click input "+(control.getAttribute?.("data-testid")||""));
+    control.click();
+    if(await until(sizeMenuReady,2200,140)){
+      log("[SIZE OPEN] choices="+sizeOptions().length+" via=input");return true;
+    }
+    let state=sizeOpenEvidence(control);
+    log("[SIZE STATE] after input "+JSON.stringify(state));
+    if(state.opened){
+      // Do not double-click a dropdown believed to be open.
+      await until(sizeMenuReady,1400,140);
       if(sizeMenuReady())return true;
-      if(!shown(el))continue;
-      await bringIntoView(el,"size",log);
-      log("[SIZE OPEN] click "+name);
-      el.click();
-      if(await until(sizeMenuReady,1600,130)){
-        log("[SIZE OPEN] choices="+sizeOptions().length+" via="+name);
+      log("[SIZE DIAG] "+JSON.stringify(sizeMenuDiagnostic()));
+      return false;
+    }
+    const testid=control.getAttribute?.("data-testid")||"";
+    const scope=testid.includes("_chips")?"category-size-single-grid_chips":
+      "category-size-single-grid";
+    const chevron=q('[data-testid^="'+scope+'"][data-testid*="chevron-down" i]');
+    const wrapper=control.closest?.('[class*="input-dropdown" i]')||
+      control.parentElement?.closest?.('[class*="input-dropdown" i]')||
+      control.parentElement;
+    const target=chevron&&shown(chevron)?{name:"chevron",el:chevron}:
+      wrapper&&wrapper!==control&&shown(wrapper)?{name:"wrapper",el:wrapper}:null;
+    if(target){
+      log("[SIZE OPEN] click "+target.name);
+      target.el.click();
+      if(await until(sizeMenuReady,2400,140)){
+        log("[SIZE OPEN] choices="+sizeOptions().length+" via="+target.name);
         return true;
       }
-      await sleep(150);
+      state=sizeOpenEvidence(control);
+      log("[SIZE STATE] after "+target.name+" "+JSON.stringify(state));
     }
     log("[SIZE DIAG] "+JSON.stringify(sizeMenuDiagnostic()));
     return false;
