@@ -37,9 +37,15 @@
       numbers.add(nr);
       return {id:d.id,artikelnummer:nr,title:String(d.title||"").slice(0,90),index};
     }).sort((a,b)=>a.artikelnummer-b.artikelnummer || a.index-b.index);
-    const selected=rows.findIndex(r=>r.id===selectedId);
-    if(selected<0)throw Error("Ausgewählte Hose nicht in der Entwurfsliste");
-    return rows.slice(selected);
+    const selected=rows.find(r=>r.id===selectedId);
+    if(!selected)throw Error("Ausgewählte Hose nicht in der Entwurfsliste");
+    // Start with the item the seller selected, then the lower article
+    // numbers (newest -> oldest) and finally wrap to higher numbers.
+    // The old rows.slice(selectedIndex) silently dropped #66/#65 if the
+    // seller began at #67. Never drop valid pants by numeric position.
+    return [selected,
+      ...rows.filter(r=>r.artikelnummer<selected.artikelnummer).reverse(),
+      ...rows.filter(r=>r.artikelnummer>selected.artikelnummer).reverse()];
   }
   function validVintedUrl(url){
     try{
@@ -217,32 +223,81 @@
   // An earlier version stored a one-item queue (0/1). After the user
   // confirms that existing draft in Vinted, discover the subsequent
   // eligible pants instead of declaring that old batch finished.
+  // For a saved one-item (old 1/1) batch, append other eligible pants
+  // without touching any confirmed one. Works with both lower AND higher
+  // article numbers, ordered relative to the last confirmed item.
+  function continuationRows(previous,live,confirmedNumbers=[]){
+    if(!previous||!Array.isArray(previous.queue)||!previous.queue.length)
+      throw Error("Keine frühere Warteschlange vorhanden");
+    if(!Array.isArray(live)||!live.length)return [];
+    const checked=orderedQueue(live,live[0].id);
+    const existing=new Set(previous.queue.map(r=>r.artikelnummer));
+    const confirmed=new Set(confirmedNumbers.map(Number));
+    const anchor=previous.queue[Math.min(previous.index,previous.queue.length-1)].artikelnummer;
+    const remaining=checked.filter(r=>!existing.has(r.artikelnummer)&&
+      !confirmed.has(r.artikelnummer));
+    return [
+      ...remaining.filter(r=>r.artikelnummer<anchor).sort((a,b)=>b.artikelnummer-a.artikelnummer),
+      ...remaining.filter(r=>r.artikelnummer>anchor).sort((a,b)=>b.artikelnummer-a.artikelnummer)
+    ].slice(0,MAX_BATCH-previous.queue.length);
+  }
+
   async function extendOldSingleQueue(current){
     state=current;
     if(current.index<current.queue.length-1)return current;
-    const row=current.queue[current.index];
-    if(!row)return current;
     try{
       const live=await refreshReadyDraftList();
-      const future=live.filter(d=>articleNumber(d.artikelnummer)>row.artikelnummer);
-      if(!future.length)return current;
-      const candidates=orderedQueue(future,
-        future.reduce((a,b)=>articleNumber(a.artikelnummer)<articleNumber(b.artikelnummer)?a:b).id);
       const confirmedRes=await chrome.storage.local.get(CONFIRMED_KEY);
-      const known=new Set(Array.isArray(confirmedRes[CONFIRMED_KEY])?
-        confirmedRes[CONFIRMED_KEY]:[]);
-      const before=new Set(current.queue.map(r=>r.artikelnummer));
-      const nextItems=candidates.filter(r=>!known.has(r.artikelnummer)&&
-        !before.has(r.artikelnummer)).slice(0,100-current.queue.length);
-      if(!nextItems.length)return current;
-      await log("Warteschlange aus Sascha AI erweitert: "+
-        nextItems.length+" weitere Hosen ab #"+nextItems[0].artikelnummer);
+      const confirmed=Array.isArray(confirmedRes[CONFIRMED_KEY])?
+        confirmedRes[CONFIRMED_KEY]:[];
+      const nextItems=continuationRows(current,live,confirmed);
+      if(!nextItems.length){
+        await log("Keine weiteren geeigneten, unbestätigten Hosen in Sascha AI "+
+          "(Import: "+live.length+" Hosen). "+
+          "Status und Bereitstellung der Web-App prüfen.");
+        return state;
+      }
+      await log("Warteschlange um "+nextItems.length+
+        " Hosen erweitert; nächste #"+nextItems[0].artikelnummer);
       return await put({...state,queue:[...state.queue,...nextItems]});
     }catch(e){
-      await log("Weitere Hosen konnten nicht automatisch geladen werden: "+
+      await log("Weitere Hosen konnten nicht geladen werden: "+
         String(e?.message||e));
       return state||current;
     }
+  }
+  async function resumeCompletedBatch(){
+    if(busy)throw Error("Ein anderer Stapel läuft");
+    const previous=await getState();
+    if(previous?.status!=="done"||!Array.isArray(previous.queue)||
+        previous.queue.length===0||!Array.isArray(previous.completed)||
+        !previous.completed.length)
+      throw Error("Kein abgeschlossener Stapel zum Fortsetzen vorhanden");
+    const live=await refreshReadyDraftList();
+    const saved=await chrome.storage.local.get(CONFIRMED_KEY);
+    const confirmed=Array.isArray(saved[CONFIRMED_KEY])?
+      saved[CONFIRMED_KEY]:[];
+    const nextItems=continuationRows(previous,live,confirmed);
+    if(!nextItems.length)
+      throw Error("Sascha AI liefert "+live.length+
+        " geeignete Hosen, aber keine weitere unbestätigte Hose "+
+        "neben den bereits erledigten. Prüfe in Sascha AI, ob die übrigen "+
+        "Hosen fertig generiert, nicht verkauft und mit Artikelnummer versehen sind; "+
+        "prüfe auch, ob die neue Web-App auf Vercel bereitgestellt wurde.");
+    stopRequested=false;
+    await chrome.alarms.clear(GUARD_ALARM);
+    await chrome.alarms.clear(NEXT_ALARM);
+    await chrome.storage.local.set({savedDrafts:live});
+    const next={...previous,queue:[...previous.queue,...nextItems],
+      status:"running",phase:"ready",error:null,stopRequested:false,
+      currentId:null,logs:[...(previous.logs||[]),
+        "Stapel mit "+nextItems.length+" weiteren Hosen fortgesetzt, "+
+        "ab #"+nextItems[0].artikelnummer+"; bestätigte Artikel bleiben erledigt"
+      ].slice(-75)};
+    await put(next);
+    void run();
+    return {success:true,count:nextItems.length,
+      nextArticle:nextItems[0].artikelnummer,state:next};
   }
 
   async function markConfirmed(next,evidence){
@@ -495,6 +550,11 @@
         .catch(e=>sendResponse({success:false,error:e.message}));
       return true;
     }
+    if(msg?.type==="RESUME_REMAINING_VINTED_BATCH"){
+      resumeCompletedBatch().then(sendResponse)
+        .catch(e=>sendResponse({success:false,error:e.message}));
+      return true;
+    }
     if(msg?.type==="CONFIRM_VINTED_DRAFT_SAVED"){
       (async()=>{
         if(busy)throw Error("Bitte warten, bis der aktuelle Ablauf gestoppt hat");
@@ -574,5 +634,6 @@
   if(typeof module!=="undefined"&&module.exports)
     module.exports={orderedQueue,articleNumber,validVintedUrl,savedUrl,saschaUrl,
       safeTabLocation,tabNavigationState,waitForEditor,recoverableSave,
-      formFailureMessage,draftSizeSummary,reviewableEstimatedSize};
+      formFailureMessage,draftSizeSummary,reviewableEstimatedSize,
+      continuationRows};
 })();
