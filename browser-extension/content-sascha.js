@@ -52,6 +52,7 @@
         {
           source: "sascha-ai-extension",
           type: "LIST_VINTED_DRAFTS",
+          includeEligiblePants: request.includeEligiblePants === true,
         },
         "*"
       );
