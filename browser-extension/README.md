@@ -1,4 +1,4 @@
-# Sascha AI → Vinted Assistant 3.17
+# Sascha AI → Vinted Assistant 3.18
 
 Die Chrome-Erweiterung übernimmt einen vollständigen Entwurf aus Sascha AI in die geöffnete Vinted-Verkaufsmaske. **Sie veröffentlicht und speichert nichts automatisch.** Alle Angaben vor dem Speichern prüfen.
 
@@ -39,7 +39,7 @@ Die folgende Zuordnung stammt aus realen Vinted-Katalog-Suchergebnissen und ist 
 2. ZIP entpacken und den **Ordner \`browser-extension\`** an einem festen Ort behalten.
 3. In Chrome \`chrome://extensions/\` öffnen und den Entwicklermodus aktivieren.
 4. „Entpackte Erweiterung laden“ wählen und den Ordner \`browser-extension\` auswählen.
-5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.17.0** stehen.
+5. Vinted und Sascha AI **neu laden**. Im Popup muss **3.18.0** stehen.
 
 **Updates:** Neue Dateien in denselben entpackten Erweiterungsordner kopieren, unter \`chrome://extensions/\` „Neu laden“ klicken und den Vinted-Tab aktualisieren. Nur „Download ZIP“ auszuführen aktualisiert die installierte Erweiterung nicht. Es ist weder \`git pull\` noch das Mergen eines GitHub-PR erforderlich, wenn die Version bereits in \`main\` liegt.
 
@@ -89,6 +89,20 @@ Ein echter Nutzer-Test ergab, dass Vinted die Hose **#73 bereits als Entwurf ang
 - Die Bestätigung ist die Aussage des Nutzers nach eigener Sichtprüfung, **keine behauptete automatische Vinted-Bestätigung**. Bei unbekannten Formular-/Foto-/Größenfehlern bleibt das Stoppen bestehen.
 
 **Nicht einfach erneut auf „Stapel starten“ für #73 klicken:** Du würdest sonst womöglich doppelte Entwürfe anlegen. Keine automatische Veröffentlichung.
+
+### Fehler „Formular nicht vollständig: size“ bei Hose #71 (3.18.0)
+
+Bei Artikel **#71** zeigt Sascha AI eine **flach gemessene Bundweite von 38 cm** und keine Innenbeinlänge. Das entspricht rechnerisch ungefähr **W30** (bei Herren) beziehungsweise einem unverbindlichen Buchstabengrößen-Vorschlag **M** (bei Damen). Die fehlende Innenbeinlänge beeinflusst die Taillengröße nicht.
+
+Die bisherige Stapelmeldung `Formular nicht vollständig: size` verschluckte den **konkreten Fehlergrund**, den die Vinted-Formular-Engine bereits liefert. Ab 3.18 zeigt sie stattdessen beispielsweise:
+
+- `Formular nicht vollständig: Größe: Taillenumfang geöffnet, aber W30 nicht als Option gefunden`
+- `Formular nicht vollständig: Größe: Keine Etikettgröße. Keine gültige flach gemessene Bundweite ... Die Maße sind ... nicht im Vinted-Entwurf mitgesendet ...`
+- `Formular nicht vollständig: Größe: Größe angeklickt, aber nicht als Feldwert bestätigt`
+
+Direkt vor dem Ausfüllen loggt die Extension `Größen-Daten für #71:` mit übertragener Etikettgröße, Bundweite und Zielbereich. Die Vinted-Seite loggt ergänzend `[SIZE INPUT]`. Dadurch ist klar unterscheidbar, ob die Website die **vorhandenen 38 cm tatsächlich an die Extension übermittelt**, Vinted den Taillenumfang-Dialog nicht öffnet oder Vinted die konkrete Größe nicht anbietet. Ein bereits vorhandenes echtes Größenetikett bleibt maßgeblich; unklare/geschätzte Größe muss vor dem Entwurf-Speichern überprüft werden.
+
+Bei fehlender Bundweite im Datenpaket Sascha AI auf Vercel aktualisieren beziehungsweise die Web-App neu bereitstellen; nur die Extension zu aktualisieren reicht dann nicht. Keine automatische Auswahl einer unpassenden Größe und keine Veröffentlichung.
 
 ## Automatischer Entwurfsstapel (Version 3.12)
 
