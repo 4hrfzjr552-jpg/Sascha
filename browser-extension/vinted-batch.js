@@ -183,7 +183,7 @@
     if(!state||!Array.isArray(state.queue))return false;
     const row=state.queue[state.index];
     if(!row||row.id!==state.currentId)return false;
-    if(state.status==="running"&&state.phase==="awaiting_confirmation")return true;
+    if(state.status==="awaiting_confirmation"&&state.phase==="awaiting_confirmation")return true;
     if(state.status!=="error"||state.phase!=="failed")return false;
     if(!/^Vinted hat das Speichern nicht eindeutig bestätigt\./.test(state.error||""))return false;
     // Only treat as recoverable if a save was actually attempted.
