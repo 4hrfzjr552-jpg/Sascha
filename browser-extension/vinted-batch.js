@@ -8,6 +8,7 @@
 (() => {
   "use strict";
   const KEY="vintedBatchState";
+  const CONFIRMED_KEY="vintedConfirmedArticleNumbers";
   const NEXT_ALARM="saschaVintedBatchNext";
   const GUARD_ALARM="saschaVintedBatchGuard";
   const MAX_BATCH=100;
@@ -189,6 +190,18 @@
     // Only treat as recoverable if a save was actually attempted.
     return (state.logs||[]).some(line=>/Prüfe Vinted-Speicherbestätigung für #/.test(line));
   }
+  // Keep an item-confirmation ledger across separate batches. A successful
+  // save (or explicit confirmation of an existing Vinted draft) should never
+  // be uploaded again merely because the user imported the queue afresh.
+  async function rememberConfirmed(row){
+    const res=await chrome.storage.local.get(CONFIRMED_KEY);
+    const previous=Array.isArray(res[CONFIRMED_KEY])?res[CONFIRMED_KEY]:[];
+    const value=Number(row?.artikelnummer);
+    if(!Number.isSafeInteger(value)||value<=0)return;
+    await chrome.storage.local.set({[CONFIRMED_KEY]:
+      [...new Set([...previous,value])].slice(-500)});
+  }
+
   async function markConfirmed(next,evidence){
     const row=next.queue[next.index];
     if(!row||next.currentId!==row.id)
@@ -200,6 +213,7 @@
       ". Keine erneute Übertragung."].slice(-75);
     const warnings=[...(next.warnings||[]),
       ...(next.pendingReviewWarnings||[])].slice(-100);
+    await rememberConfirmed(row);
     await chrome.alarms.clear(GUARD_ALARM);
     await chrome.alarms.clear(NEXT_ALARM);
     if(index>=next.queue.length){
@@ -208,7 +222,7 @@
     }else{
       await put({...next,status:"running",phase:"ready",index,
         currentId:null,completed,error:null,logs,warnings,pendingReviewWarnings:[]});
-      await chrome.alarms.create(NEXT_ALARM,{when:Date.now()+5000});
+      await chrome.alarms.create(NEXT_ALARM,{when:Date.now()+30000});
     }
     return {success:true,finished:index>=next.queue.length,
       completed:completed.length,nextArticle:next.queue[index]?.artikelnummer||null};
@@ -338,6 +352,7 @@
       {phase:"saved",
        warnings:[...(state?.warnings||[]),...pendingReviewWarnings].slice(-100),
        pendingReviewWarnings:[]});
+    await rememberConfirmed(row);
     // Close only a positively acknowledged saved listing tab; the next
     // iteration always starts from a clean form.
     try{await chrome.tabs.remove(tab.id);}catch(_){}
@@ -395,8 +410,9 @@
             phase:"ready"
           });
           await chrome.alarms.clear(GUARD_ALARM);
-          await chrome.alarms.create(NEXT_ALARM,{when:Date.now()+5000});
-          return;
+          await chrome.alarms.create(NEXT_ALARM,{when:Date.now()+30000});
+          await delay(1400);
+          continue; // Avoid waiting for a minimum 30s Chrome alarm
         }
       }
       await chrome.alarms.clear(GUARD_ALARM);
@@ -450,6 +466,7 @@
         const result=await markConfirmed(current,
           "vom Verkäufer im Vinted-Profil bestätigt");
         sendResponse(result);
+        if(!result.finished)void run(); // next immediately; 30s alarm is fallback
       })().catch(e=>sendResponse({success:false,error:e.message}));
       return true;
     }
@@ -473,15 +490,29 @@
       if(prior?.status==="running")
         throw Error("Ein früherer Stapel ist möglicherweise noch aktiv. "+
           "Bitte Vinted-Entwürfe prüfen, bevor ein neuer Stapel gestartet wird.");
-      const saved=(await chrome.storage.local.get("savedDrafts")).savedDrafts;
-      const queue=orderedQueue(saved,msg.selectedDraftId);
+      const stored=await chrome.storage.local.get(["savedDrafts",CONFIRMED_KEY]);
+      const saved=stored.savedDrafts;
+      const ordered=orderedQueue(saved,msg.selectedDraftId);
+      const known=new Set(Array.isArray(stored[CONFIRMED_KEY])?
+        stored[CONFIRMED_KEY]:[]);
+      // Recover confirmed rows from the previous batch state as well,
+      // including users who upgraded from older extension versions.
+      for(const id of prior?.completed||[]){
+        const row=(prior.queue||[]).find(item=>item.id===id);
+        if(row?.artikelnummer)known.add(Number(row.artikelnummer));
+      }
+      const queue=ordered.filter(row=>!known.has(row.artikelnummer));
+      if(!queue.length)throw Error("Keine unbestätigten Hosen mehr in diesem Stapel. "+
+        "Bereits bestätigte Artikel werden nicht doppelt angelegt.");
       stopRequested=false;
       await chrome.alarms.clear(NEXT_ALARM);
       await chrome.alarms.clear(GUARD_ALARM);
       await put({status:"running",phase:"ready",startedAt:Date.now(),queue,
         allowEstimatedSizes:msg.allowEstimatedSizes===true,
         index:0,currentId:null,completed:[],warnings:[],pendingReviewWarnings:[],logs:[
-          "Stapel gestartet: "+queue.length+" Hosen, nur als Entwurf, keine Veröffentlichung"
+          "Stapel gestartet: "+queue.length+" Hosen ab #"+
+            queue[0].artikelnummer+" (bereits bestätigte übersprungen), "+
+            "nur als Entwurf, keine Veröffentlichung"
         ],error:null,stopRequested:false});
       sendResponse({success:true,count:queue.length,state});
       void run();
