@@ -500,6 +500,42 @@ test("four Vinted preview thumbnails confirm the upload even after input reset",
   assert.equal(result.success,true);
   assert.ok(logs.some(l=>l.includes("verified=true")));
 });
+test("Vinted photo gallery without photo-upload testid is detected in enclosing section",()=>{
+  const input={closest(selector){
+    if(selector.includes("fieldset,section"))return section;
+    return null;
+  }};
+  const photos=Array.from({length:4},(_,i)=>({
+    isConnected:true,currentSrc:"https://other-photo-cdn.example/img-"+i+".jpg",
+    getClientRects:()=>[1],closest:()=>null,
+    getBoundingClientRect:()=>({width:120,height:165})
+  }));
+  const section={contains:el=>el===input,tagName:"SECTION",
+    querySelectorAll(selector){return selector==="img"?photos:[];},
+    getAttribute:()=>null};
+  const document={body:{},querySelectorAll(){return []}};
+  const e=createEngine(document);
+  assert.equal(e.uploadPreviewArea(input),section);
+  assert.equal(e.uploadPreviewCount(input),4);
+});
+test("Vinted gallery with CSS background-image thumbnails is detected",()=>{
+  const input={closest(selector){
+    return selector.includes("fieldset,section")?section:null;
+  }};
+  const thumbs=Array.from({length:4},(_,i)=>({
+    isConnected:true,
+    style:{backgroundImage:'url("https://cdn.example/p-'+i+'.jpg")'},
+    getClientRects:()=>[1],
+    getBoundingClientRect:()=>({width:100,height:140}),
+    closest:()=>null
+  }));
+  const section={tagName:"SECTION",contains:el=>el===input,
+    querySelectorAll(selector){
+      return selector.includes("background-image")?thumbs:[];
+    }};
+  const e=createEngine({body:{},querySelectorAll(){return []}});
+  assert.equal(e.uploadPreviewCount(input),4);
+});
 test("browser accepting fewer than four files is a genuine upload error",async()=>{
   const mock=imageTestEnv({sourceCount:5,assignCount:3});
   await assert.rejects(()=>createEngine(mock.document,mock.extra).images(mock.draft,()=>{}),
