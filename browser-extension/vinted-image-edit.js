@@ -1,7 +1,8 @@
 /* Sascha AI -> Vinted local image preparation (Chrome classic content script).
-   Keeps garment details untouched. Removes clearly electric-blue hand-written
-   marks from neutral outer background (as in user's sample), then exports an
-   actual new JPEG. No promise that any marketplace will accept the result.
+   Cleans blue pen marks from neutral background, then applies subtle color
+   grading calibrated from the user's original/edited reference image pair.
+   Garment shape, texture and visible condition remain unchanged. No promise
+   that a marketplace will accept or retain an edited image.
    Images never leave the browser for processing. */
 ((root) => {
   "use strict";
@@ -100,6 +101,37 @@
     return {data:imageData,marked:count,replaced};
   }
 
+  // Calibrated against the two original/edited sample images provided
+  // in conversation (identical composition, blue "1" on original).
+  // Target reference has lifted shadows, softer contrast, slightly more
+  // neutral denim blue and a brighter gray background. Apply the SAME subtle
+  // look to all first four photos; avoid random edits or artificial color casts.
+  // These per-channel fits are approximate: do not use to conceal defects.
+  const REFERENCE_COLOR_LOOK=Object.freeze({
+    id:"user-reference-soft-neutral-v1",
+    redGain:0.856,redLift:28.0,
+    greenGain:0.861,greenLift:26.9,
+    blueGain:0.813,blueLift:34.9
+  });
+  function gradeReferenceColors(imageData) {
+    const src=imageData?.data;
+    if(!src)return {pixels:0,look:REFERENCE_COLOR_LOOK.id};
+    let changed=0;
+    for(let i=0;i<src.length;i+=4){
+      const r=src[i],g=src[i+1],b=src[i+2];
+      const nr=Math.max(0,Math.min(255,Math.round(r*REFERENCE_COLOR_LOOK.redGain+
+        REFERENCE_COLOR_LOOK.redLift)));
+      const ng=Math.max(0,Math.min(255,Math.round(g*REFERENCE_COLOR_LOOK.greenGain+
+        REFERENCE_COLOR_LOOK.greenLift)));
+      const nb=Math.max(0,Math.min(255,Math.round(b*REFERENCE_COLOR_LOOK.blueGain+
+        REFERENCE_COLOR_LOOK.blueLift)));
+      if(nr!==r||ng!==g||nb!==b)changed++;
+      src[i]=nr;src[i+1]=ng;src[i+2]=nb;
+      // Retain the original alpha. Fabric/shadows/imperfections stay visible.
+    }
+    return {pixels:changed,look:REFERENCE_COLOR_LOOK.id};
+  }
+
   async function toJpegBlob(canvas){
     if(typeof canvas.toBlob!=="function")
       throw Error("JPEG-Export im Browser nicht verfügbar");
@@ -127,21 +159,24 @@
       ctx.imageSmoothingQuality="high";
       ctx.drawImage(bitmap,0,0,width,height);
       const pixels=ctx.getImageData(0,0,width,height);
+      // Mark removal operates on ORIGINAL colors before grading,
+      // so the blue pen can be detected without changing thresholds.
       const result=cleanupBackground(pixels);
-      if(result.replaced)ctx.putImageData(pixels,0,0);
+      const grade=gradeReferenceColors(pixels);
+      ctx.putImageData(pixels,0,0);
       const blob=await toJpegBlob(canvas);
       return {file:new File([blob],
           "sascha_vinted_"+String(index+1).padStart(2,"0")+"_clean.jpg",
           {type:"image/jpeg"}),
         originalName:file.name,marked:result.marked,replaced:result.replaced,
-        width,height};
+        colorLook:grade.look,gradedPixels:grade.pixels,width,height};
     }finally{
       bitmap.close?.();
     }
   }
 
   const api=Object.freeze({blueMarkupPixel,inOuterBackground,isNeutral,
-    makeMask,cleanupBackground,processImage});
+    makeMask,cleanupBackground,gradeReferenceColors,REFERENCE_COLOR_LOOK,processImage});
   if(typeof module!=="undefined"&&module.exports)module.exports=api;
   root.SaschaVintedImageEdit=api;
 })(typeof window!=="undefined"?window:globalThis);
