@@ -26,10 +26,10 @@
     children:/\b(kinder|baby|kids|children|jungen|madchen|junior|neugeboren)\b/
   };
   const cutPatterns=[
-    ["bootcut",/\b(bootcut|boot cut|flare|flared|schlaghose|schlaghosen|schlagjeans)\b/],
+    ["bootcut",/\b(bootcut|boot cut|boot-cut|flare|flared|schlaghose|schlaghosen|schlagjeans)\b/],
     ["skinny",/\b(skinny|super skinny|rohrenjeans|rohrenhose)\b/],
-    ["slim",/\b(slim|slimfit|schmal geschnitten|enge passform)\b/],
-    ["straight",/\b(straight|regular fit|regular jeans|gerade geschnitten|gerades bein|straight leg)\b/],
+    ["slim",/\b(slim|slimfit|slim fit|schmal geschnitten|enge passform)\b/],
+    ["straight",/\b(straight|regular fit|regular jeans|gerade geschnitten|gerades bein|straight leg|straight cut|regular straight|classic fit)\b/],
     ["boyfriend",/\b(boyfriend|boyfriend jeans)\b/],
     ["wide",/\b(baggy|wide leg|wide fit|loose fit|mom fit|mom jeans|boyfriend fit)\b/]
   ];
