@@ -174,22 +174,37 @@
     (active||control).dispatchEvent(event);
   }
   async function brand(draft,log){
-    const desired=norm(draft.brand);
-    if(!desired)throw Error("Marke fehlt im Entwurf");
+    const rawBrand=norm(draft.brand);
+    if(!rawBrand||["unbekannt","nicht erkennbar","unknown","no brand"].includes(rawBrand))
+      throw Error("Marke nicht eindeutig erkennbar – bitte in Sascha AI prüfen");
+    const brandAliases={
+      "diesel industry":["diesel"],
+      "d&g dolce & gabbana":["dolce & gabbana","d&g"]
+    };
+    const aliases=[...new Set([rawBrand,...(brandAliases[rawBrand]||[])])];
+    const desired=aliases[0];
     const control=required("#brand", "Markenfeld fehlt");
-    if(value(control)===desired)return {success:true};
+    if(aliases.includes(value(control)))return {success:true};
     await bringIntoView(control,"brand",log);
     control.click();
     const search=await until(()=>shown(q("#brand-search-input"))&&q("#brand-search-input"),3000);
     if(!search)throw Error("Vinted-Markensuche wurde nicht geöffnet");
     setReactValue(search,String(draft.brand));
-    const match=await until(()=>{
-      const rows=visible("li").filter(el=>
-        optionText(el)===desired &&
+    const findBrand=()=>visible("li").filter(el=>
+        aliases.includes(optionText(el)) &&
         (el.contains(search)===false));
+    let match=await until(()=>{
+      const rows=findBrand();
       return rows.find(el=>el.querySelector('input[type="radio"]')||
         el.querySelector('label[for]')||el.closest('[role=dialog]')) || rows[0] || null;
     },4200);
+    if(!match && aliases.length>1){
+      for(const alias of aliases.slice(1)){
+        setReactValue(search,alias);
+        match=await until(()=>findBrand().find(el=>optionText(el)===alias)||null,4200);
+        if(match)break;
+      }
+    }
     if(!match){
       log("[BRAND OPTIONS] "+JSON.stringify(visible("li").filter(el=>
         el.closest('[role=dialog], [class*="Dialog__portal"], .web_ui__Dialog__portal'))
@@ -202,7 +217,7 @@
     if(label&&shown(label))label.click();
     else if(radio)radio.click();
     else match.click();
-    const updated=await until(()=>value(q("#brand"))===desired,4200);
+    const updated=await until(()=>aliases.includes(value(q("#brand"))),4200);
     if(!updated)throw Error("Marke angeklickt, aber nicht übernommen");
     // Some Vinted builds leave the brand search open. Close it before size.
     if(shown(q("#brand-search-input")))closeActiveDialog(control);
@@ -555,6 +570,9 @@
   function isCorrectFieldOption(field,element,aliases) {
     const label=optionText(element);
     if(aliases.includes(label))return true;
+    if(field==="color")return aliases.some(a=>
+      label.startsWith(a+" /") || label.startsWith(a+"/") ||
+      label.startsWith(a+" (") || label.startsWith(a+" –"));
     if(field!=="condition")return false;
     // Vinted condition rows embed a long description after the heading,
     // e.g. "Sehr gut Ein nur selten benutzter Artikel ...".
