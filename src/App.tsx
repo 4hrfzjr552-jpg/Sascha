@@ -14,6 +14,7 @@ import {
 } from "./types";
 import {
   createVintedDraftFromPant,
+  keepExistingVintedDraftFields,
   loadVintedDraftsFromStorage,
   saveVintedDraftToStorage,
   saveVintedDraftsToStorage,
@@ -280,7 +281,8 @@ export default function App() {
     }
 
     const existing = vintedDrafts.find((d) => d.pantId === pant.id);
-    const draft = createVintedDraftFromPant(pant, existing?.id);
+    const generated = createVintedDraftFromPant(pant, existing?.id);
+    const draft = generated ? keepExistingVintedDraftFields(generated, existing) : null;
     if (!draft) {
       showToast("Vinted-Entwurf konnte nicht erstellt werden.", "error");
       return;
@@ -316,7 +318,8 @@ export default function App() {
     for (const pant of selectedPants) {
       if (isPantEligibleForVintedDraft(pant)) {
         const existing = newDraftsMap.get(pant.id);
-        const draft = createVintedDraftFromPant(pant, existing?.id);
+        const generated = createVintedDraftFromPant(pant, existing?.id);
+        const draft = generated ? keepExistingVintedDraftFields(generated, existing) : null;
         if (draft) {
           newDraftsMap.set(pant.id, draft);
           createdCount++;
