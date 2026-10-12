@@ -455,7 +455,7 @@
 
   async function size(draft,log){
     let desired=String(draft.size||"").trim();
-    const jeansPair=desired.match(/^(?:W\\s*)?(\\d{2})\\s*[\\/\\-]\\s*(?:L\\s*)?(\\d{2})$/i);
+    const jeansPair=desired.match(/^(?:W\s*)?(\d{2})\s*[\/-]\s*(?:L\s*)?(\d{2})$/i);
     if(jeansPair){
       desired="W"+jeansPair[1];
       log("[SIZE LABEL] "+draft.size+" → "+desired+" (L"+jeansPair[2]+" separate Länge)");
