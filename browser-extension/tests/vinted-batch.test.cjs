@@ -653,11 +653,53 @@ test("missing jeans cut is safely skipped in preflight before any save click",()
 });
 test("batch uses category preflight before creating Vinted tab",()=>{
   const source=code;
-  const preflight=source.indexOf("const category=preflightCategory(data.payload);");
+  const preflight=source.indexOf("const category=preflightCategory(draft);");
   const create=source.indexOf("const tab=await chrome.tabs.create({",preflight);
   const fill=source.indexOf("type:\"FILL_VINTED_FORM\"",preflight);
   assert.ok(preflight>0);
   assert.ok(create>preflight);
   assert.ok(fill>create);
   assert.match(source,/Stopp über Extension angefordert/);
+});
+
+test("per-article correction is applied without changing other pants",async()=>{
+  const box=batchApi({store:{vintedArticleCorrections:{
+    "16":{fit:"straight",brand:"Diesel",color:"blau"},
+    "18":{color:"grau"}
+  }}});
+  const fixed=await box.api.correctedDraft({
+    id:"p16",fit:"",brand:"unbekannt",color:"graublau"
+  },16);
+  assert.equal(fixed.fit,"straight");
+  assert.equal(fixed.brand,"Diesel");
+  assert.equal(fixed.color,"blau");
+  const untouched=await box.api.correctedDraft({id:"p19",brand:"unbekannt"},19);
+  assert.equal(untouched.brand,"unbekannt");
+  const grey=await box.api.correctedDraft({id:"p18",color:"graublau"},18);
+  assert.equal(grey.color,"grau");
+});
+test("unsafe field overrides are rejected rather than guessed",async()=>{
+  const box=batchApi({store:{vintedArticleCorrections:{
+    "16":{fit:"random"}, "28":{brand:"unbekannt"}, "18":{color:"purplish"}
+  }}});
+  await assert.rejects(box.api.correctedDraft({id:"p16"},16),/Ungültige manuelle Jeans-Schnittangabe/);
+  await assert.rejects(box.api.correctedDraft({id:"p28"},28),/nicht eindeutig/);
+  await assert.rejects(box.api.correctedDraft({id:"p18"},18),/Ungültige manuelle Vinted-Farbe/);
+});
+test("post-batch reconciliation confirms exact found draft without another upload",async()=>{
+  const record={id:"p71",artikelnummer:71,reviewWarnings:["size review"]};
+  const box=batchApi({state:{status:"done",phase:"done",queue:[{id:"p71",artikelnummer:71}],
+    index:1,currentId:null,completed:[],skipped:[],unverified:[record],warnings:[],logs:[]},
+    store:{vintedUnverifiedDraftArticles:[record]}});
+  const bad=await box.dispatch({type:"MARK_UNVERIFIED_DRAFT_FOUND",
+    draftId:"different",articleNumber:71});
+  assert.equal(bad.success,false);
+  const ok=await box.dispatch({type:"MARK_UNVERIFIED_DRAFT_FOUND",
+    draftId:"p71",articleNumber:71});
+  assert.equal(ok.success,true);
+  assert.deepEqual(Array.from(box.store.vintedConfirmedArticleNumbers),[71]);
+  assert.equal(box.store.vintedUnverifiedDraftArticles.length,0);
+  assert.deepEqual(Array.from(box.store.vintedBatchState.completed),["p71"]);
+  assert.equal(box.store.vintedBatchState.unverified.length,0);
+  assert.deepEqual(Array.from(box.store.vintedBatchState.warnings),["size review"]);
 });

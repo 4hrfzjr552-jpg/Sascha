@@ -74,6 +74,41 @@
       <div id="batchQueueHint" aria-live="polite" style="font-size:12px;line-height:1.5;padding:6px 0;">
         Noch keine fertigen Hosen importiert.
       </div>
+      <div style="padding:12px;border:1px solid var(--border);border-radius:8px;display:grid;gap:8px;">
+        <strong style="font-size:13px;">Fehlende Angaben je Hose korrigieren</strong>
+        <label for="correctionArticle" style="font-size:12px;">Artikelnummer</label>
+        <select id="correctionArticle" class="draft-select" aria-label="Artikelnummer auswählen"></select>
+        <label for="correctionFit" style="font-size:12px;">Jeans-Schnitt (nur wenn auf Etikett/Bildern erkennbar)</label>
+        <select id="correctionFit" class="draft-select">
+          <option value="">Keine Korrektur</option>
+          <option value="straight">Gerade / Straight / Regular</option>
+          <option value="slim">Slim</option>
+          <option value="skinny">Skinny</option>
+          <option value="bootcut">Bootcut / Schlaghose</option>
+          <option value="boyfriend">Boyfriend</option>
+          <option value="ripped">Ripped</option>
+          <option value="cropped">Cropped</option>
+          <option value="high-waist">High Waist</option>
+        </select>
+        <label for="correctionBrand" style="font-size:12px;">Marke (genau wie auf dem Etikett, falls bekannt)</label>
+        <input id="correctionBrand" maxlength="80" placeholder="z. B. Diesel" style="padding:8px;width:100%;box-sizing:border-box;" />
+        <label for="correctionColor" style="font-size:12px;">Vinted-Grundfarbe (selbst auswählen)</label>
+        <select id="correctionColor" class="draft-select">
+          <option value="">Keine Korrektur</option>
+          <option value="blau">Blau</option>
+          <option value="dunkelblau">Dunkelblau</option>
+          <option value="hellblau">Hellblau</option>
+          <option value="grau">Grau</option>
+          <option value="schwarz">Schwarz</option>
+          <option value="weiß">Weiß</option>
+          <option value="grün">Grün</option>
+          <option value="rot">Rot</option>
+          <option value="braun">Braun</option>
+          <option value="beige">Beige</option>
+        </select>
+        <button id="btnSaveCorrection" class="btn btn-secondary">Korrektur für diese Hose speichern</button>
+        <span id="correctionFeedback" role="status" style="font-size:12px;"></span>
+      </div>
       <button id="btnBatchStart" class="btn btn-primary" disabled>
         Ausgewählte Hose, danach weitere fertige Hosen als Entwürfe speichern
       </button>
@@ -92,6 +127,12 @@
       <button id="btnBatchConfirmSaved" class="btn btn-success" style="display:none;">
         Entwurf auf Vinted geprüft – als gespeichert bestätigen
       </button>
+      <div style="padding:12px;border:1px solid var(--border);border-radius:8px;display:grid;gap:8px;">
+        <strong style="font-size:13px;">Unbestätigte Entwürfe nachträglich prüfen</strong>
+        <span style="font-size:12px;">Nur bestätigen, wenn die Artikelnummer tatsächlich unter deinen Vinted-Entwürfen erscheint.</span>
+        <select id="unverifiedArticle" class="draft-select" aria-label="Unbestätigten Artikel auswählen"></select>
+        <button id="btnMarkUnverifiedSaved" class="btn btn-success" disabled>Bei Vinted gefunden – als gespeichert bestätigen</button>
+      </div>
       <div id="batchStatus" style="font-size:12px;line-height:1.5;display:none;padding:8px;border:1px solid var(--border);border-radius:8px;"
            aria-live="polite"></div>
 

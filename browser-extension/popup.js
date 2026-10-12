@@ -31,6 +31,14 @@ document.addEventListener("DOMContentLoaded", () => {
   const continueUnverifiedBatch = document.getElementById("continueUnverifiedBatch");
   const batchStatus = document.getElementById("batchStatus");
   const batchQueueHint = document.getElementById("batchQueueHint");
+  const correctionArticle=document.getElementById("correctionArticle");
+  const correctionFit=document.getElementById("correctionFit");
+  const correctionBrand=document.getElementById("correctionBrand");
+  const correctionColor=document.getElementById("correctionColor");
+  const btnSaveCorrection=document.getElementById("btnSaveCorrection");
+  const correctionFeedback=document.getElementById("correctionFeedback");
+  const unverifiedArticle=document.getElementById("unverifiedArticle");
+  const btnMarkUnverifiedSaved=document.getElementById("btnMarkUnverifiedSaved");
 
   const statusBox = document.getElementById("statusBox");
   const statusList = document.getElementById("statusList");
@@ -42,6 +50,109 @@ document.addEventListener("DOMContentLoaded", () => {
 
   let draftsList = [];
   let currentDraft = null;
+  let latestBatch=null;
+  let corrections={};
+  let unverifiedLedger=[];
+  function setCorrectionOptions(){
+    const selected=correctionArticle.value;
+    const rows=new Map();
+    for(const d of draftsList){
+      const nr=Number(d.artikelnummer);
+      if(Number.isSafeInteger(nr)&&nr>0)rows.set(nr,true);
+    }
+    for(const item of latestBatch?.skipped||[]){
+      const nr=Number(item.artikelnummer);
+      if(Number.isSafeInteger(nr)&&nr>0)rows.set(nr,true);
+    }
+    const sortedNumbers=[...rows.keys()].sort((a,b)=>b-a);
+    const previousNumbers=[...correctionArticle.options].map(option=>Number(option.value));
+    if(sortedNumbers.length===previousNumbers.length &&
+      sortedNumbers.every((nr,i)=>nr===previousNumbers[i]))return;
+    correctionArticle.replaceChildren();
+    for(const nr of sortedNumbers){
+      const option=document.createElement("option");
+      option.value=String(nr);
+      option.textContent="#"+nr+((latestBatch?.skipped||[]).some(x=>Number(x.artikelnummer)===nr)?" – übersprungen":"");
+      correctionArticle.appendChild(option);
+    }
+    if(rows.has(Number(selected)))correctionArticle.value=selected;
+    else if(currentDraft && rows.has(Number(currentDraft.artikelnummer)))
+      correctionArticle.value=String(currentDraft.artikelnummer);
+    displayCorrection();
+  }
+  function displayCorrection(){
+    const entry=corrections[correctionArticle.value]||{};
+    correctionFit.value=entry.fit||"";
+    correctionBrand.value=entry.brand||"";
+    correctionColor.value=entry.color||"";
+    correctionFeedback.textContent="";
+    btnSaveCorrection.disabled=!correctionArticle.value;
+  }
+  correctionArticle.addEventListener("change",displayCorrection);
+  chrome.storage.local.get("vintedArticleCorrections",res=>{
+    corrections=res.vintedArticleCorrections&&typeof res.vintedArticleCorrections==="object"?
+      res.vintedArticleCorrections:{};
+    displayCorrection();
+  });
+  btnSaveCorrection.addEventListener("click",async()=>{
+    const number=Number(correctionArticle.value);
+    if(!Number.isSafeInteger(number)||number<=0)return;
+    const fit=correctionFit.value;
+    const brand=correctionBrand.value.trim();
+    const color=correctionColor.value;
+    if(brand.length>80||/^(?:unbekannt|nicht erkennbar|unknown)$/i.test(brand)){
+      correctionFeedback.textContent="Bitte nur eine tatsächlich bekannte Marke eintragen.";
+      return;
+    }
+    const entry={};
+    if(fit)entry.fit=fit;
+    if(brand)entry.brand=brand;
+    if(color)entry.color=color;
+    const fresh=(await chrome.storage.local.get("vintedArticleCorrections"))
+      .vintedArticleCorrections||{};
+    if(Object.keys(entry).length)fresh[String(number)]=entry;
+    else delete fresh[String(number)];
+    await chrome.storage.local.set({vintedArticleCorrections:fresh});
+    corrections=fresh;
+    correctionFeedback.textContent="Korrektur für #"+number+" gespeichert. Beim nächsten Stapel wirksam.";
+  });
+  function renderUnverified(){
+    const selected=unverifiedArticle.value;
+    unverifiedArticle.replaceChildren();
+    for(const entry of unverifiedLedger){
+      if(!Number.isSafeInteger(Number(entry.artikelnummer)))continue;
+      const option=document.createElement("option");
+      option.value=String(entry.artikelnummer);
+      option.textContent="#"+entry.artikelnummer;
+      unverifiedArticle.appendChild(option);
+    }
+    if([...unverifiedArticle.options].some(x=>x.value===selected))
+      unverifiedArticle.value=selected;
+    btnMarkUnverifiedSaved.disabled=unverifiedArticle.options.length===0;
+  }
+  async function reloadUnverified(){
+    const stored=await chrome.storage.local.get("vintedUnverifiedDraftArticles");
+    unverifiedLedger=Array.isArray(stored.vintedUnverifiedDraftArticles)?
+      stored.vintedUnverifiedDraftArticles:[];
+    renderUnverified();
+  }
+  unverifiedArticle.addEventListener("change",renderUnverified);
+  btnMarkUnverifiedSaved.addEventListener("click",async()=>{
+    const nr=Number(unverifiedArticle.value);
+    const entry=unverifiedLedger.find(x=>Number(x.artikelnummer)===nr);
+    if(!entry)return;
+    if(!confirm("Ist Entwurf #"+nr+" wirklich auf Vinted unter deinen ENTWÜRFEN vorhanden? "+
+      "Nur dann bestätigen. Es erfolgt kein erneuter Versand."))return;
+    btnMarkUnverifiedSaved.disabled=true;
+    try{
+      const result=await chrome.runtime.sendMessage({type:"MARK_UNVERIFIED_DRAFT_FOUND",
+        articleNumber:nr,draftId:entry.id});
+      if(!result?.success)throw Error(result?.error||"Bestätigung fehlgeschlagen");
+      await reloadUnverified();
+    }catch(e){alert("Nachträgliche Bestätigung fehlgeschlagen: "+e.message);}
+    finally{renderUnverified();}
+  });
+  reloadUnverified().catch(()=>{});
 
   // Logger helper
   function logDebug(message) {
@@ -75,8 +186,10 @@ document.addEventListener("DOMContentLoaded", () => {
     if (draftsList.length > 0) {
       const selectedId = res.selectedDraftId || draftsList[0].id;
       selectDraftById(selectedId);
+      setCorrectionOptions();
     } else {
       renderCurrentDraft(null);
+      setCorrectionOptions();
     }
   });
 
@@ -468,6 +581,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function showBatchStatus(batch){
+    latestBatch=batch;
+    setCorrectionOptions();
     if(!batch){
       batchStatus.style.display="none";
       btnBatchStop.style.display="none";
@@ -489,6 +604,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const lines=[
       (stateLabels[batch.status]||batch.status||"Unbekannt")+
         " · "+done+"/"+total+" Vinted-Entwürfe bestätigt",
+      "Übersicht: "+done+" bestätigt · "+(batch.unverified?.length||0)+
+        " unbestätigt · "+(batch.skipped?.length||0)+" ohne Speichern übersprungen",
       current?"Aktuell: #"+current.artikelnummer:""
     ].filter(Boolean);
     if(batch.status==="running"&&batch.stopRequested)
@@ -537,6 +654,8 @@ document.addEventListener("DOMContentLoaded", () => {
     showBatchStatus(response.vintedBatchState||null);
   });
   chrome.storage.onChanged.addListener((changes,area)=>{
+    if(area==="local"&&changes.vintedUnverifiedDraftArticles)
+      reloadUnverified().catch(()=>{});
     if(area==="local"&&changes.vintedBatchState)
       showBatchStatus(changes.vintedBatchState.newValue||null);
   });

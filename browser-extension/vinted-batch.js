@@ -11,6 +11,7 @@
   const RECEIPT_KEY="vintedDraftSaveReceipt";
   const CONFIRMED_KEY="vintedConfirmedArticleNumbers";
   const UNVERIFIED_KEY="vintedUnverifiedDraftArticles";
+  const CORRECTIONS_KEY="vintedArticleCorrections";
   const NEXT_ALARM="saschaVintedBatchNext";
   const GUARD_ALARM="saschaVintedBatchGuard";
   const MAX_BATCH=100;
@@ -169,7 +170,7 @@
     if(!Number.isFinite(age)||age<0||age>120000)return false;
     const e=String(receipt.evidence||"");
     return /(?:entw[uü]rf.{0,75}gespeichert|als\s+entwurf.{0,60}gespeichert|draft.{0,75}saved|saved.{0,55}draft)/i.test(e)&&
-      !/(?:nicht\s+gespeichert|not\\s+saved|fehler|error|failed)/i.test(e);
+      !/(?:nicht\s+gespeichert|not\s+saved|fehler|error|failed)/i.test(e);
   }
   async function storedSaveReceipt(token,articleNumber){
     try{
@@ -182,12 +183,17 @@
   async function verifySave(tabId,originalUrl,articleNumber,attemptToken){
     const started=Date.now();
     let last={};
-    while(Date.now()-started<18000){
+    // Vinted may redirect after showing a short-lived success message.
+    // Give it additional time, without clicking Save a second time.
+    while(Date.now()-started<35000){
       const receipt=await storedSaveReceipt(attemptToken,articleNumber);
       if(receipt)return receipt;
-      const tab=await chrome.tabs.get(tabId);
+      let tab;
+      try{tab=await chrome.tabs.get(tabId);}
+      catch(e){throw Error("Speichern unklar: Vinted-Tab ist nicht mehr erreichbar; Entwürfe prüfen, nicht erneut senden.");}
       const url=tab.url||"";
-      if(savedUrl(url))return {ok:true,evidence:"Vinted-Entwurfsübersicht"};
+      // A generic /drafts URL does NOT prove this exact article was saved.
+      // Only a matching receipt or an identifiable draft card is sufficient.
       const navigation=tabNavigationState(tab,Date.now()-started);
       if(navigation.kind==="blocked")
         throw Error("Speichern unklar: Vinted-Tab wurde nach "+
@@ -479,7 +485,7 @@
     const reason=String(filled.results?.[failed]?.reason||
       filled.error||"Kein Fehlergrund gemeldet").slice(0,350);
     const diag=(Array.isArray(filled.logs)?filled.logs:[])
-      .filter(line=>/^\[(?:SIZE|STOP)(?:\s|\])/.test(String(line)))
+      .filter(line=>/^\[(?:SIZE|STOP|OPTIONS|BRAND OPTIONS)(?:\s|\])/.test(String(line)))
       .slice(-2).map(line=>String(line).slice(0,220)).join(" / ");
     const field=failed==="size"?"Größe":failed;
     return field+": "+reason+(diag?" (Details: "+diag+")":"");
@@ -515,6 +521,31 @@
     return {ok:true,id:resolved.category.id,source:resolved.intent.source};
   }
 
+  const VALID_FITS=new Set(["straight","slim","skinny","bootcut","boyfriend","ripped","cropped","high-waist"]);
+  const VALID_COLORS=new Set(["blau","grau","schwarz","weiß","grün","rot","beige","braun","gelb","rosa","lila","orange","dunkelblau","hellblau","marineblau"]);
+  async function correctedDraft(original,article){
+    const stored=(await chrome.storage.local.get(CORRECTIONS_KEY))[CORRECTIONS_KEY];
+    const correction=stored&&typeof stored==="object"?stored[String(article)]:null;
+    if(!correction||typeof correction!=="object")return original;
+    const updated={...original};
+    if(correction.fit){
+      if(!VALID_FITS.has(correction.fit))throw Error("Ungültige manuelle Jeans-Schnittangabe für #"+article);
+      updated.fit=correction.fit;
+    }
+    if(correction.brand){
+      const brand=String(correction.brand).trim().slice(0,80);
+      if(/^(?:unbekannt|nicht erkennbar|unknown)$/i.test(brand))
+        throw Error("Manuelle Marke von #"+article+" ist nicht eindeutig");
+      updated.brand=brand;
+    }
+    if(correction.color){
+      const color=String(correction.color).trim().toLowerCase();
+      if(!VALID_COLORS.has(color))throw Error("Ungültige manuelle Vinted-Farbe für #"+article);
+      updated.color=color;
+    }
+    return updated;
+  }
+
   async function single(row,source){
     // The category (especially the JEANS CUT) can be resolved without
     // touching Vinted. Validate BEFORE opening a Vinted sales tab so that
@@ -529,10 +560,12 @@
         " nicht eindeutig laden: "+(data?.error||"Keine Daten"));
     if(data.payload.id!==row.id)
       throw Error("Sascha AI hat den falschen Entwurf zurückgegeben");
+    const draft=await correctedDraft(data.payload,row.artikelnummer);
+    if(draft!==data.payload)await log("Manuelle Feldkorrekturen für #"+row.artikelnummer+" angewendet");
     if(stopRequested)throw Error("Stapel wurde angehalten");
     await log("Prüfe Jeans-Kategorie vor Öffnen von Vinted für #"+
       row.artikelnummer,{phase:"preflight"});
-    const category=preflightCategory(data.payload);
+    const category=preflightCategory(draft);
     if(!category.ok)
       throw Error("Formular nicht vollständig: category: "+category.reason+
         " (Quelle: "+category.source+"; Vinted-Tab nicht geöffnet)");
@@ -546,10 +579,10 @@
     await log("Öffne Vinted für #"+row.artikelnummer,{phase:"loading",vintedTabId:tab.id});
     await waitForEditor(tab.id);
     if(stopRequested)throw Error("Stapel wurde angehalten");
-    await log("Größen-Daten für #"+row.artikelnummer+": "+draftSizeSummary(data.payload));
+    await log("Größen-Daten für #"+row.artikelnummer+": "+draftSizeSummary(draft));
     await log("Fülle #"+row.artikelnummer,{phase:"filling"});
     const filled=await tabMessage(tab.id,{
-      type:"FILL_VINTED_FORM",draft:data.payload,debugMode:false,
+      type:"FILL_VINTED_FORM",draft,debugMode:false,
       // Only this expressly draft-saving queue may tolerate a photo gallery
       // that Vinted does not expose to the extension. Never for publishing.
       draftOnlyBatch:true
@@ -767,6 +800,36 @@
       })().catch(e=>sendResponse({success:false,error:e.message}));
       return true;
     }
+    if(msg?.type==="MARK_UNVERIFIED_DRAFT_FOUND"){
+      (async()=>{
+        if(busy)throw Error("Während laufendem Stapel keine nachträgliche Bestätigung");
+        const number=articleNumber(msg.articleNumber);
+        const id=msg.draftId;
+        if(!number||!validId(id))throw Error("Artikelnummer oder Entwurf-ID fehlt");
+        const stored=await chrome.storage.local.get(UNVERIFIED_KEY);
+        const records=Array.isArray(stored[UNVERIFIED_KEY])?stored[UNVERIFIED_KEY]:[];
+        const candidate=records.find(row=>articleNumber(row.artikelnummer)===number&&row.id===id);
+        if(!candidate)throw Error("Dieser Artikel ist nicht mehr als unbestätigt vorgemerkt");
+        const latest=await getState();
+        if(latest?.status==="running")throw Error("Stapel läuft noch");
+        // User has explicitly inspected this exact Vinted draft. No upload.
+        await rememberConfirmed(candidate);
+        await forgetUnverified(number);
+        if(latest){
+          const matching=latest.queue?.find(row=>row.id===id&&row.artikelnummer===number);
+          const completed=matching&&!(latest.completed||[]).includes(id)?
+            [...(latest.completed||[]),id]:(latest.completed||[]);
+          const unverified=(latest.unverified||[]).filter(row=>
+            articleNumber(row.artikelnummer)!==number);
+          const warnings=[...(latest.warnings||[]),...(candidate.reviewWarnings||[])].slice(-100);
+          await put({...latest,completed,unverified,warnings,
+            logs:[...(latest.logs||[]),"Entwurf #"+number+
+              " vom Verkäufer auf Vinted nachträglich als vorhanden bestätigt"].slice(-75)});
+        }
+        sendResponse({success:true,articleNumber:number});
+      })().catch(e=>sendResponse({success:false,error:e.message}));
+      return true;
+    }
     if(msg?.type==="GET_VINTED_BATCH_STATUS"){
       getState().then(s=>sendResponse({success:true,state:s}))
         .catch(e=>sendResponse({success:false,error:e.message}));
@@ -897,5 +960,5 @@
       formFailureMessage,draftSizeSummary,reviewableEstimatedSize,
       continuationRows,recoverablePreSaveFormFailure,skippableUnfilledForm,
       validSaveReceipt,storedSaveReceipt,
-      ambiguousSaveAtVerification,unverifiedArticleNumbers,preflightCategory};
+      ambiguousSaveAtVerification,unverifiedArticleNumbers,preflightCategory,correctedDraft};
 })();
