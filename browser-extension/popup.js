@@ -64,8 +64,12 @@ document.addEventListener("DOMContentLoaded", () => {
       const nr=Number(item.artikelnummer);
       if(Number.isSafeInteger(nr)&&nr>0)rows.set(nr,true);
     }
+    const sortedNumbers=[...rows.keys()].sort((a,b)=>b-a);
+    const previousNumbers=[...correctionArticle.options].map(option=>Number(option.value));
+    if(sortedNumbers.length===previousNumbers.length &&
+      sortedNumbers.every((nr,i)=>nr===previousNumbers[i]))return;
     correctionArticle.replaceChildren();
-    for(const nr of [...rows.keys()].sort((a,b)=>b-a)){
+    for(const nr of sortedNumbers){
       const option=document.createElement("option");
       option.value=String(nr);
       option.textContent="#"+nr+((latestBatch?.skipped||[]).some(x=>Number(x.artikelnummer)===nr)?" – übersprungen":"");
@@ -600,6 +604,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const lines=[
       (stateLabels[batch.status]||batch.status||"Unbekannt")+
         " · "+done+"/"+total+" Vinted-Entwürfe bestätigt",
+      "Übersicht: "+done+" bestätigt · "+(batch.unverified?.length||0)+
+        " unbestätigt · "+(batch.skipped?.length||0)+" ohne Speichern übersprungen",
       current?"Aktuell: #"+current.artikelnummer:""
     ].filter(Boolean);
     if(batch.status==="running"&&batch.stopRequested)
