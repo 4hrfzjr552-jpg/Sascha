@@ -86,6 +86,34 @@ export function createVintedDraftFromPant(
 }
 
 /**
+ * Retain seller corrections when generating a new Vinted draft from the
+ * latest AI result. Otherwise clicking "prepare drafts" silently discards
+ * carefully corrected sizes, brands, colors and fits.
+ * Never reopen drafts that were already marked as saved.
+ */
+export function keepExistingVintedDraftFields(
+  generated: VintedDraftData,
+  existing?: VintedDraftData
+): VintedDraftData {
+  if (!existing) return generated;
+  const keep = (previous?: string, next?: string) =>
+    previous && previous.trim().length > 0 ? previous : next;
+  return {
+    ...generated,
+    brand: keep(existing.brand, generated.brand),
+    model: keep(existing.model, generated.model),
+    fit: keep(existing.fit, generated.fit),
+    color: keep(existing.color, generated.color),
+    gender: keep(existing.gender, generated.gender),
+    size: keep(existing.size, generated.size),
+    condition: keep(existing.condition, generated.condition),
+    category: keep(existing.category, generated.category),
+    status: existing.status === "saved" ? "saved" : generated.status,
+    createdAt: existing.createdAt,
+  };
+}
+
+/**
  * Converts a VintedDraftData item to a JSON-compatible VintedDraftPayload for browser extensions,
  * dynamically fetching image dataUrls from the associated PantItem.
  */
