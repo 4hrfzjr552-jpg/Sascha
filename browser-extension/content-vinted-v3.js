@@ -13,10 +13,10 @@
     price:"Preis",images:"Bilder"};
   const COLORS={
     "hellblau":["hellblau","light blue"],"blau":["blau","blue"],
-    "dunkelblau":["dunkelblau","dark blue","navy"],"schwarz":["schwarz","black"],
+    "dunkelblau":["dunkelblau","dark blue","navy","marineblau"],"schwarz":["schwarz","black"],
     "weiß":["weiß","weiss","white"],"grau":["grau","grey","gray"],
     "beige":["beige"],"braun":["braun","brown"],"grun":["grun","grün","green"],
-    "rot":["rot","red"]
+    "rot":["rot","red"],"graublau":["graublau","blue grey","blue gray","grey blue","gray blue"]
   };
   const CONDITIONS={
     "sehr gut":["sehr gut","very good"],"gut":["gut","good"],
@@ -455,6 +455,14 @@
 
   async function size(draft,log){
     let desired=String(draft.size||"").trim();
+    // Jeans labels W30/L32 or 30/32 describe waist + inseam, not a
+    // combined Vinted size. Vinted's waist selector must receive W30.
+    const jeansPair=desired.match(/^(?:W\\s*)?(\\d{2})\\s*[\\/\\-]\\s*(?:L\\s*)?(\\d{2})$/i);
+    if(jeansPair){
+      desired="W"+jeansPair[1];
+      log("[SIZE LABEL] "+draft.size+" → "+desired+
+        " (Bundweite; L"+jeansPair[2]+" bleibt nur als Längenangabe erhalten)");
+    }
     let estimated=null;
     const estimator=window.SaschaVintedWaistEstimate;
     const group=catalog.classify(draft);
