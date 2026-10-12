@@ -485,7 +485,7 @@
     const reason=String(filled.results?.[failed]?.reason||
       filled.error||"Kein Fehlergrund gemeldet").slice(0,350);
     const diag=(Array.isArray(filled.logs)?filled.logs:[])
-      .filter(line=>/^\[(?:SIZE|STOP)(?:\s|\])/.test(String(line)))
+      .filter(line=>/^\[(?:SIZE|STOP|OPTIONS|BRAND OPTIONS)(?:\s|\])/.test(String(line)))
       .slice(-2).map(line=>String(line).slice(0,220)).join(" / ");
     const field=failed==="size"?"Größe":failed;
     return field+": "+reason+(diag?" (Details: "+diag+")":"");
