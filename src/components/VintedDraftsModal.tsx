@@ -353,6 +353,37 @@ export const VintedDraftsModal: React.FC<VintedDraftsModalProps> = ({
                           />
                         </div>
 
+                        {/* Jeans-Schnitt: optional, aber für eindeutige Vinted-Kategorie nötig */}
+                        <div>
+                          <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1">
+                            Jeans-Schnitt
+                          </label>
+                          <select
+                            value={draft.fit || ""}
+                            onChange={(e) =>
+                              onUpdateDraft({
+                                ...draft,
+                                fit: e.target.value,
+                                updatedAt: Date.now(),
+                              })
+                            }
+                            className="w-full rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 px-3 py-2 text-xs font-semibold text-stone-900 dark:text-stone-100 focus:outline-none focus:border-stone-900 min-h-[40px]"
+                          >
+                            <option value="">Bitte anhand der Hose auswählen</option>
+                            <option value="straight">Straight / Regular (gerade)</option>
+                            <option value="slim">Slim (schmal)</option>
+                            <option value="skinny">Skinny (eng)</option>
+                            <option value="bootcut">Bootcut / Schlaghose</option>
+                            <option value="boyfriend">Boyfriend</option>
+                            <option value="ripped">Ripped (zerrissen)</option>
+                            <option value="cropped">Cropped (verkürzt)</option>
+                            <option value="high-waist">High Waist</option>
+                          </select>
+                          <p className="mt-1 text-[11px] text-stone-500 dark:text-stone-400">
+                            Ohne eindeutig erkennbaren Schnitt nicht raten.
+                          </p>
+                        </div>
+
                         {/* Größe */}
                         <div>
                           <label className="block text-xs font-bold text-stone-700 dark:text-stone-300 mb-1">
