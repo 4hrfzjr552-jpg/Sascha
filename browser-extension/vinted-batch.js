@@ -170,7 +170,7 @@
     if(!Number.isFinite(age)||age<0||age>120000)return false;
     const e=String(receipt.evidence||"");
     return /(?:entw[uü]rf.{0,75}gespeichert|als\s+entwurf.{0,60}gespeichert|draft.{0,75}saved|saved.{0,55}draft)/i.test(e)&&
-      !/(?:nicht\s+gespeichert|not\\s+saved|fehler|error|failed)/i.test(e);
+      !/(?:nicht\s+gespeichert|not\s+saved|fehler|error|failed)/i.test(e);
   }
   async function storedSaveReceipt(token,articleNumber){
     try{
@@ -188,7 +188,9 @@
     while(Date.now()-started<35000){
       const receipt=await storedSaveReceipt(attemptToken,articleNumber);
       if(receipt)return receipt;
-      const tab=await chrome.tabs.get(tabId);
+      let tab;
+      try{tab=await chrome.tabs.get(tabId);}
+      catch(e){throw Error("Speichern unklar: Vinted-Tab ist nicht mehr erreichbar; Entwürfe prüfen, nicht erneut senden.");}
       const url=tab.url||"";
       // A generic /drafts URL does NOT prove this exact article was saved.
       // Only a matching receipt or an identifiable draft card is sufficient.
@@ -958,5 +960,5 @@
       formFailureMessage,draftSizeSummary,reviewableEstimatedSize,
       continuationRows,recoverablePreSaveFormFailure,skippableUnfilledForm,
       validSaveReceipt,storedSaveReceipt,
-      ambiguousSaveAtVerification,unverifiedArticleNumbers,preflightCategory};
+      ambiguousSaveAtVerification,unverifiedArticleNumbers,preflightCategory,correctedDraft};
 })();
