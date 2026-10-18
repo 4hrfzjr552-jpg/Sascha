@@ -58,6 +58,7 @@ import { ExpenseModal } from "./components/ExpenseModal";
 import { SoldModal } from "./components/SoldModal";
 import { BatchSelectionModal } from "./components/BatchSelectionModal";
 import { VintedDraftsModal } from "./components/VintedDraftsModal";
+import { ListingsWorkspace } from "./components/ListingsWorkspace";
 import {
   Plus,
   Sparkles,
@@ -349,6 +350,28 @@ export default function App() {
         "error"
       );
     }
+  };
+
+  // New listings workspace uses the same Vinted draft storage as the
+  // existing Studio and extension. Apply the entire selection atomically,
+  // avoiding stale React state when preparing dozens of jeans at once.
+  const handlePrepareListingsDrafts = async (items: PantItem[]) => {
+    const byPant = new Map(vintedDrafts.map(d => [d.pantId,d]));
+    let added=0,skipped=0;
+    for(const item of items){
+      if(!isPantEligibleForVintedDraft(item)){skipped++;continue;}
+      const previous=byPant.get(item.id);
+      const made=createVintedDraftFromPant(item,previous?.id);
+      const result=made?keepExistingVintedDraftFields(made,previous):null;
+      if(!result){skipped++;continue;}
+      byPant.set(item.id,result);
+      added++;
+    }
+    if(!added){showToast("Keine fertig generierten Artikel mit Fotos ausgewählt.","error");return;}
+    const next=[...byPant.values()];
+    await saveVintedDraftsToStorage(next);
+    setVintedDrafts(next);
+    showToast(added+" Vinted-Entwürfe vorbereitet"+(skipped?" ("+skipped+" übersprungen)":"")+".","success");
   };
 
   // Prompt Save
@@ -1361,8 +1384,29 @@ export default function App() {
     return <Auth onSuccess={() => {}} />;
   }
 
+  const isListingsView = typeof window !== "undefined" && window.location.pathname === "/listings";
+
   return (
     <div className="min-h-screen bg-stone-100 dark:bg-stone-950 text-stone-900 dark:text-stone-100 font-sans antialiased flex flex-col selection:bg-stone-900 selection:text-stone-100 dark:selection:bg-stone-100 dark:selection:text-stone-900 transition-colors">
+      {isListingsView ? (
+        <ListingsWorkspace
+          pants={pants}
+          drafts={vintedDrafts}
+          userEmail={session.user.email}
+          isSyncing={isSyncing}
+          onCreate={handleAddNewPant}
+          onUpdate={handleUpdatePant}
+          onSaleStatusChange={handleSaleStatusChange}
+          onPrepareDraft={handlePrepareSingleVintedDraft}
+          onPrepareMany={handlePrepareListingsDrafts}
+          onOpenDrafts={() => setIsVintedDraftsOpen(true)}
+          onExportCsv={handleExportCsv}
+          onEditSold={pant => setPantForSaleModalId(pant.id)}
+          onDelete={id => setPantToDeleteId(id)}
+          onNotify={showToast}
+        />
+      ) : (
+        <>
       {/* Sticky Header */}
       <Header
         userEmail={session.user.email}
@@ -1642,6 +1686,8 @@ export default function App() {
           ))}
         </div>
       </main>
+        </>
+      )}
 
       {/* Floating Toast Notification */}
       {toastMessage && (
