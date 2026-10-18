@@ -142,6 +142,7 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Right side icons & Stats button */}
           <div className="flex items-center gap-1.5 shrink-0">
+            <a href="/listings" id="open-listings-workspace" className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-xs font-bold text-emerald-800 transition hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300" title="Listing-Cockpit öffnen"><ShoppingBag className="h-4 w-4"/><span>Listings</span></a>
             {/* Button Statistiken */}
             <button
               id="open-stats-btn"
