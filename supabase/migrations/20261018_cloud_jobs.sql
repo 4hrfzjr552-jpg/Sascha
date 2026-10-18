@@ -82,6 +82,12 @@ begin
   if auth.role() <> 'service_role' then
     raise exception 'Nur der Cloud-Worker darf Aufträge übernehmen.';
   end if;
+  -- Three expired leases indicate a crashed/stalled job: fail it instead of
+  -- leaving it marked running forever.
+  update public.cloud_jobs set
+    status='failed', error='Worker nach drei Versuchen nicht erreichbar.',
+    finished_at=now(), lease_until=null, updated_at=now()
+  where status='running' and lease_until < now() and attempts >= 3;
   return query
   with candidate as (
     select j.id from public.cloud_jobs j
