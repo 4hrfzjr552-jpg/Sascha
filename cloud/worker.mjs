@@ -39,6 +39,7 @@ async function analyzeJob(job) {
     .eq('id', job.pant_id).eq('user_id', job.user_id).single();
   if (error || !row) throw new Error('Artikel fehlt oder gehört nicht zum Auftraggeber.');
   const pant = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
+  if (pant?.cloudLastAnalysisJobId === job.id) return; // already committed before a worker restart
   if (!pant || !String(pant.artikelnummer ?? '').trim()) {
     throw new Error('Artikelnummer fehlt.');
   }
@@ -81,6 +82,7 @@ async function analyzeJob(job) {
   // Optimistic write: never overwrite changes a seller made while AI was busy.
   const next = {
     ...pant, result: body.data, status: 'done', errorMessage: undefined,
+    cloudLastAnalysisJobId: job.id,
     updatedAt: Date.now(),
   };
   let query = supabase.from('pants')
