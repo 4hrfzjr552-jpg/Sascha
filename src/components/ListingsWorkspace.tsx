@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { PantItem, SaleStatus, VintedDraftData } from "../types";
 import { isPantEligibleForVintedDraft } from "../lib/vintedDraftUtils";
-import { Archive, ArrowDownUp, ArrowLeft, BarChart3, Check, CheckCircle2, ChevronRight, ClipboardList, Copy, Download, Grid2X2, Layers3, List, Loader2, Package, Pencil, Plus, Search, ShoppingBag, Sparkles, Trash2, X } from "lucide-react";
+import { Archive, ArrowDownUp, ArrowLeft, BarChart3, Check, CheckCircle2, ChevronRight, ClipboardList, Cloud, Copy, Download, Inbox, Grid2X2, Layers3, List, Loader2, Package, Pencil, Plus, Search, ShoppingBag, Sparkles, Trash2, X } from "lucide-react";
 
 interface Props {
   pants: PantItem[];
@@ -157,7 +157,9 @@ export const ListingsWorkspace:React.FC<Props>=({
           <button type="button" onClick={()=>go("/")} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-stone-600 hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-stone-800"><Sparkles className="h-4 w-4"/> KI-Studio</button>
           <span className="flex items-center gap-3 rounded-xl bg-emerald-50 px-3 py-3 text-sm font-bold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"><Layers3 className="h-4 w-4"/> Listings <span className="ml-auto text-xs">{pants.length}</span></span>
           <button type="button" onClick={onOpenDrafts} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-stone-600 hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-stone-800"><ClipboardList className="h-4 w-4"/> Vinted-Entwürfe <span className="ml-auto text-xs">{drafts.length}</span></button>
-          <button type="button" onClick={onExportCsv} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-stone-600 hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-stone-800"><Download className="h-4 w-4"/> CSV-Export</button>
+          <button type="button" onClick={()=>go("/cloud")} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-stone-600 hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-stone-800"><Cloud className="h-4 w-4"/> Cloud-Aufträge</button>
+           <button type="button" onClick={()=>go("/inbox")} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-stone-600 hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-stone-800"><Inbox className="h-4 w-4"/> Nachrichten</button>
+           <button type="button" onClick={onExportCsv} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-stone-600 hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-stone-800"><Download className="h-4 w-4"/> CSV-Export</button>
         </nav>
         <div className="mt-auto rounded-2xl bg-stone-950 p-4 text-xs leading-relaxed text-stone-300 dark:bg-stone-800"><div className="mb-2 font-bold text-white">Dein Shop, dein Überblick</div>Diese Daten stammen aus Sascha AI. Vinted-Aufrufe und Favoriten werden hier noch nicht live synchronisiert.</div>
         <p className="mt-4 truncate text-xs text-stone-400">{userEmail}</p>
@@ -170,7 +172,7 @@ export const ListingsWorkspace:React.FC<Props>=({
         <main className="mx-auto max-w-[1440px] space-y-6 px-4 py-8 sm:px-7">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div><p className="text-[11px] font-bold uppercase tracking-[0.15em] text-emerald-700">DEIN VERKAUFSCOCKPIT</p><h1 className="mt-1 text-3xl font-black tracking-tight sm:text-4xl">Meine Listings</h1><p className="mt-2 text-sm text-stone-500">Artikel, Preise und Entwürfe auf einen Blick.</p></div>
-            <div className="flex flex-wrap gap-2"><button type="button" className={btn} onClick={onOpenDrafts}><ClipboardList className="h-4 w-4"/> Vinted-Entwürfe <span>{drafts.length}</span></button><button type="button" className={primary} onClick={async()=>{await onCreate();go("/");}}><Plus className="h-4 w-4"/> Neuer Artikel</button></div>
+            <div className="flex flex-wrap gap-2"><button type="button" className={btn} onClick={()=>go("/inbox")}><Inbox className="h-4 w-4"/> Nachrichten</button><button type="button" className={btn} onClick={()=>go("/cloud")}><Cloud className="h-4 w-4"/> Cloud-Aufträge</button><button type="button" className={btn} onClick={onOpenDrafts}><ClipboardList className="h-4 w-4"/> Vinted-Entwürfe <span>{drafts.length}</span></button><button type="button" className={primary} onClick={async()=>{await onCreate();go("/");}}><Plus className="h-4 w-4"/> Neuer Artikel</button></div>
           </div>
           <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
             {card("Artikel gesamt",String(totals.all),totals.ready+" bereit",<ShoppingBag className="h-4 w-4"/>)}

@@ -3,6 +3,14 @@
     {
       "source": "/listings",
       "destination": "/index.html"
+    },
+    {
+      "source": "/cloud",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/inbox",
+      "destination": "/index.html"
     }
   ]
 }
