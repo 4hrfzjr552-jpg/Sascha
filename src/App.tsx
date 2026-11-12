@@ -788,9 +788,9 @@ export default function App() {
     targetPant: PantItem,
     promptToUse: string
   ): Promise<boolean> => {
-    // Check article number requirement
-    if (!targetPant.artikelnummer?.trim()) {
-      showToast("Bitte zuerst eine Artikelnummer eintragen.", "error");
+    // A missing article number can be read from the fifth bag photo.
+    if (!targetPant.artikelnummer?.trim() && targetPant.images.length !== 5) {
+      showToast("Für automatische Artikelnummer bitte 5 Fotos hochladen (Tüte zuletzt).", "error");
       return false;
     }
 
@@ -841,11 +841,17 @@ export default function App() {
         return false;
       }
 
-      // Success - format title with artikelnummer and description with keywords
+      // Preserve manually entered numbers; otherwise accept only validated bag OCR.
       const rawResult = data.data;
+      const resolvedArticleNumber = targetPant.artikelnummer?.trim() || String(rawResult.artikelnummer || "").trim();
+      if (!/^\\d{1,8}$/.test(resolvedArticleNumber) && !targetPant.artikelnummer?.trim()) {
+        showToast("Artikelnummer nicht eindeutig erkannt. Bitte manuell eintragen.", "error");
+        await handleUpdatePant({ ...targetPant, status: "error", errorMessage: "Artikelnummer nicht lesbar.", updatedAt: Date.now() });
+        return false;
+      }
       const formattedTitle = formatTitleWithArticleNumber(
         rawResult.title || "",
-        targetPant.artikelnummer
+        resolvedArticleNumber
       );
       const formattedDescription = appendKeywordsToDescription(
         rawResult.description || "",
@@ -854,6 +860,7 @@ export default function App() {
 
       const donePant: PantItem = {
         ...targetPant,
+        artikelnummer: resolvedArticleNumber,
         status: "done",
         saleStatus: targetPant.saleStatus === "draft" ? "ready" : targetPant.saleStatus,
         errorMessage: undefined,
@@ -1146,7 +1153,7 @@ export default function App() {
 
     for (const p of visiblePants) {
       const hasImages = p.images.length > 0;
-      const hasArtNr = Boolean(p.artikelnummer?.trim());
+      const hasArtNr = Boolean(p.artikelnummer?.trim()) || p.images.length === 5;
       const isDone = p.status === "done" && Boolean(p.result);
 
       if (isDone) {

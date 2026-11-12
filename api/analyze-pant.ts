@@ -320,6 +320,11 @@ Vermeide typische KI-Sätze wie:
 
 Die Anzeige soll wie eine normale gute Vinted-Anzeige wirken: kurz, sauber und sympathisch.`;
 
+    const detectBagNumber = !String(artikelnummer || "").trim() && images.length === 5;
+    if (!String(artikelnummer || "").trim() && !detectBagNumber) {
+      return res.status(400).json({ error: "Für die automatische Artikelnummer bitte fünf Fotos hochladen (Tüte als Foto 5)." });
+    }
+
     const fullPromptText = `${userPromptInstructions}
 
 Hose #${number || 1}
@@ -515,6 +520,12 @@ ${parsedResult.keywords.join(", ")}`;
       }
     }
 
+    const detectedBagNumber = String(parsedResult.bagArticleNumber || "").trim();
+    if (detectBagNumber && !/^\\d{1,8}$/.test(detectedBagNumber)) {
+      return res.status(422).json({ error: "Handgeschriebene Artikelnummer auf Foto 5 nicht eindeutig lesbar. Bitte manuell eintragen." });
+    }
+    const finalArticleNumber = String(artikelnummer || "").trim() || detectedBagNumber;
+    parsedResult.artikelnummer = finalArticleNumber;
     parsedResult.pricing = sanitizePricing(parsedResult.pricing);
 
     if (parsedResult.title) {
