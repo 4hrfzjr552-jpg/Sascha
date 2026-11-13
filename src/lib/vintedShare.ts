@@ -47,7 +47,7 @@ export async function shareVintedPhotos(
   // The fifth source photo is reserved for the grey article-number bag.
   // Never include it in the customer-facing image share.
   const listingOriginals = pant.images.length === 5 ? pant.images.slice(0, 4) : pant.images;
-  const photos = [...(pant.fitpic ? [pant.fitpic] : []), ...listingOriginals];
+  const photos = [...(pant.fitpicApproved && pant.fitpic ? [pant.fitpic] : []), ...listingOriginals];
   if (photos.length === 0) {
     return {
       success: false,
