@@ -100,7 +100,7 @@ export async function generatePantFitpic(
     data = JSON.parse(raw);
   } catch {
     const vercelCode = response.headers.get("x-vercel-error")
-      || raw.match(/\\b(FUNCTION_INVOCATION_FAILED|FUNCTION_INVOCATION_TIMEOUT|FUNCTION_PAYLOAD_TOO_LARGE)\\b/)?.[1];
+      || ["FUNCTION_INVOCATION_FAILED", "FUNCTION_INVOCATION_TIMEOUT", "FUNCTION_PAYLOAD_TOO_LARGE"].find((code) => raw.includes(code));
     const requestId = response.headers.get("x-vercel-id");
     const errorCode = vercelCode ? ` – ${vercelCode}` : "";
     const requestSuffix = requestId ? ` (Request-ID: ${requestId})` : "";
