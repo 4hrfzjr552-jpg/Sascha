@@ -5,25 +5,26 @@ import { createClient } from "@supabase/supabase-js";
  * Generates ONE synthetic try-on photo. Source photos remain untouched.
  * The endpoint requires an authenticated Supabase session to limit API abuse.
  */
+// Deliberately mundane backgrounds, not fashion/editorial settings.
 const ROOMS = [
-  "a modest bright bedroom with a plain white dresser, wood floor and full-length mirror",
-  "a lived-in apartment bedroom with a white wardrobe and a bed partly visible",
-  "a simple bedroom with a tall frameless mirror beside a window and oak-look flooring",
-  "a small tidy room with white walls, a wardrobe, and natural daylight",
-  "an ordinary apartment hallway with a full-length mirror, neutral walls and pale wood floor",
-  "a minimal bedroom with an open wardrobe door and a simple rug",
-  "a casual bedroom with a basic dresser, light wooden floor and soft afternoon light",
-  "a regular bedroom with a white door, a standing mirror and slightly uneven window light",
+  "an ordinary bright bedroom with a white wardrobe, pale wooden floor and simple mirror",
+  "a small clean bedroom with a white dresser and a partly visible bed",
+  "a simple apartment room with a standing mirror and plain white wall",
+  "a normal bedroom with light laminate floor and a narrow white wardrobe",
+  "a modest bedroom with a closed door, white furniture and a tall mirror",
+  "a regular apartment bedroom with a chest of drawers and a window out of frame",
+  "a simple bright hallway with a normal full-length mirror and pale floor",
+  "a plain bedroom with neutral walls, a closed wardrobe and a basic bed",
 ];
 const POSES = [
-  "front-facing, weight resting on one leg, phone held at face height",
-  "slightly angled to the mirror, one hand in the jeans pocket",
-  "relaxed straight-on stance, both pant legs visible",
-  "a casual three-quarter angle, free hand by the side",
-  "standing naturally with feet slightly apart and phone covering the face",
-  "slightly shifted hips, one leg a little forward",
-  "full-length mirror selfie from a little higher angle",
-  "ordinary mirror selfie with a mild diagonal phone angle",
+  "feet naturally shoulder-width apart, relaxed shoulders, phone casually covering the whole face",
+  "one foot a little ahead of the other, free arm hanging naturally, face hidden by the phone",
+  "feet together, slight asymmetry, no fashion pose, phone fully covering the face",
+  "slight body angle, relaxed posture, free hand at the side, face hidden by the phone",
+  "straight-on casual full-length selfie, knees relaxed, phone fully over the face",
+  "ordinary standing pose, little shift in weight, phone hiding the face",
+  "subtle three-quarter stance like an everyday seller, phone obscuring the face",
+  "simple standing mirror selfie with one arm resting at the side, face obscured",
 ];
 
 function clean(value: unknown, max = 90): string {
@@ -82,15 +83,22 @@ export default async function handler(req: any, res: any) {
       clean(details?.fit),
     ].filter(Boolean).join(", ");
 
-    const prompt = `Create exactly ONE photorealistic vertical 3:4 mirror selfie that could plausibly be taken casually with a phone by a private adult selling used jeans. The attached photo shows the ACTUAL PAIR OF JEANS being sold. It is the garment reference, not a photo style reference.
+    const prompt = `You are doing an accurate virtual try-on of an EXISTING second-hand pair of jeans from the reference photo. Produce exactly ONE vertical 3:4 ordinary mirror selfie. The jeans MUST match the attached source, which is a PRODUCT REFERENCE PHOTO, not a styling reference.
 
-HIGHEST PRIORITY: The synthetic person must wear THAT exact pair of jeans. Preserve its actual color, dye wash, fading, cut, rise, length, leg width, seams, distressing and visible pocket/brand details as closely as the input allows. Do not invent or modify logos, rips, branding or the fabric pattern. Do not beautify or change the shape of the jeans. When a detail is not visible, keep it unremarkable rather than inventing it. Garment information: ${meta || "jeans as shown in reference"}.
+NON-NEGOTIABLE ITEM FIDELITY:
+- Keep denim color, wash, faded patches, leg width, fit, rise, length, hems, pockets, stitching, wrinkles, rips and signs of wear as close as possible to the reference. Do not redesign the jeans, make them slimmer, recolor them or give them a new fit.
+- ABSOLUTELY NO NEW WRITING, LETTERS, NUMBERS, HANDWRITTEN INVENTORY LABELS, LARGE LOGOS OR MARKS ANYWHERE ON THE JEANS. If a number or handwritten writing exists in the reference photo outside the garment, it is ONLY an inventory note and MUST NOT appear on the jeans. Never paint an article number such as 109 on any thigh or pant leg. Existing small authentic brand labels may stay only if visibly present in source.
+- No drawings, no overlay text, no price tags, no advertisement, no fake decorations.
+- If a garment detail cannot be seen, render a plain realistic continuation rather than inventing embellishments.
+- Do not change the photographed pants to another design. Reference item: ${meta || "jeans in attached product photo"}.
 
-Person: ${persona} Keep body type, hairstyle and appearance consistent with this fixed fictional persona across generations, although the phone naturally hides most of the face.
-Location: ${ROOMS[index]}.
-Pose: ${POSES[index]}.
+SCENE: A non-professional private seller's casual phone snapshot, not modeling. ${ROOMS[index]}. Ordinary daylight and slightly imperfect mobile phone exposure. No staged pose, no studio, no flashy lighting, no symmetrical editorial look, no idealized skin or body proportions, no unnatural pose or AI-looking texture.
 
-Make it an authentic home mirror selfie: ordinary natural window light, slight perspective imperfections, handheld phone in front of face, unposed expression/body language, subtle natural wrinkles in T-shirt, real-world apartment decor, normal mobile-phone exposure. Entire jeans from waist through hems and shoes must be visible. NO professional studio, NO fashion editorial, NO runway model, NO cinematic lights, NO stylization, NO text, NO watermark, NO collage, NO additional garments, NO exaggerated anatomy. Return ONLY the new photo.`;
+PERSON: ${persona}
+POSE: ${POSES[index]}.
+PHONE: Must obscure the ENTIRE FACE, including eyes, nose and mouth; no visible face to recognize. The phone must be in one hand reflected in the mirror, normal smartphone size. Keep the full jeans from waistband to both cuffs and the footwear in frame. Plain shirt, simple white sneakers, realistic casual body anatomy.
+
+The subject must look like an everyday person taking a quick authentic mirror photo in their bedroom. RETURN ONLY THE PHOTO. NO text, captions, labels, numbering or watermarks.`;
 
     const ai = new GoogleGenAI({ apiKey: geminiKey });
     const model = process.env.FITPIC_MODEL || "gemini-3.1-flash-image";
@@ -102,17 +110,68 @@ Make it an authentic home mirror selfie: ordinary natural window light, slight p
       ],
       config: { responseModalities: ["IMAGE"] },
     });
+    let generated: { data: string; mimeType: string } | null = null;
     for (const candidate of response.candidates || []) {
       for (const part of candidate.content?.parts || []) {
         if (part.inlineData?.data && part.inlineData?.mimeType?.startsWith("image/")) {
-          return res.status(200).json({
-            success: true,
-            image: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`,
-          });
+          generated = { data: part.inlineData.data, mimeType: part.inlineData.mimeType };
+          break;
         }
       }
+      if (generated) break;
     }
-    return res.status(502).json({ success: false, error: "Die Bild-KI hat kein Foto geliefert." });
+    if (!generated) {
+      return res.status(502).json({ success: false, error: "Die Bild-KI hat kein Foto geliefert." });
+    }
+
+    // Second, independent visual check: reject the exact class of errors
+    // reported by users (invented article numbers on pant legs and modified jeans).
+    // This check is not infallible: the customer must still approve the preview.
+    let review: any;
+    try {
+      const qa = await ai.models.generateContent({
+        model: process.env.FITPIC_QA_MODEL || "gemini-2.5-flash",
+        contents: [
+          { text: `Compare IMAGE ONE (actual denim product) with IMAGE TWO (generated try-on image).
+Respond with JSON only: {"approved": boolean, "issues": string[]}.
+Set approved=false when you see ANY:
+1. Added handwriting, digit(s), inventory/stock number, conspicuous text, fictional logo or writing PRINTED ON the jeans (e.g. "109" on the thigh), which was not actually on the product.
+2. Jeans that visibly differ from the original in wash/color, pattern, rise, cut, leg width, pockets or rips.
+3. Mirror selfie with visibly uncovered face, staged fashion pose, unrealistic anatomy, or a blurry/deformed garment.
+4. Full waistband/legs/hem not visible.
+Ignore legitimate tiny brand tags and normal indoor furniture. Reject obvious errors, not minor lighting or wrinkle differences.
+Return compact JSON with the exact key names approved and issues. No markdown.` },
+          { inlineData: { mimeType: match[1], data: match[2] } },
+          { inlineData: { mimeType: generated.mimeType, data: generated.data } },
+        ],
+        config: { responseMimeType: "application/json" },
+      });
+      review = JSON.parse((qa.text || "").trim());
+    } catch (checkError) {
+      console.error("[generate-fitpic] automated quality check unavailable:", checkError);
+      return res.status(503).json({
+        success: false,
+        error: "Fitpic-Prüfung fehlgeschlagen. Es wurde kein unkontrolliertes KI-Bild übernommen.",
+      });
+    }
+
+    if (review?.approved !== true) {
+      console.warn("[generate-fitpic] rejected by review:", review?.issues);
+      const detectedIssues = Array.isArray(review?.issues)
+        ? review.issues.filter((item: unknown) => typeof item === "string").slice(0, 2)
+        : [];
+      return res.status(422).json({
+        success: false,
+        error: "KI-Fitpic wegen Qualitätsfehler abgelehnt" +
+          (detectedIssues.length ? ": " + detectedIssues.join("; ").slice(0, 180) : ".") +
+          " Bitte neu erstellen.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      image: `data:${generated.mimeType};base64,${generated.data}`,
+    });
   } catch (error: any) {
     const rawStatus = Number(error?.status || error?.statusCode || 500);
     const status = [429, 503].includes(rawStatus) ? rawStatus : 500;
