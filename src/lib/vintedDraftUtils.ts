@@ -165,8 +165,9 @@ export async function getVintedDraftPayload(
 
   // Reject an old draft's fitpic reference if it was never approved.
   // This also protects previously generated bad fitpics after deployment.
-  if (activePant?.fitpic && !activePant.fitpicApproved) {
-    targetImageIds = targetImageIds.filter((id) => id !== activePant.fitpic?.id);
+  if (activePant && !activePant.fitpicApproved) {
+    // Covers stale old draft references even when the fitpic was discarded.
+    targetImageIds = targetImageIds.filter((id) => !id.startsWith("fitpic-"));
   }
 
   // Fetch staged bulk images from IndexedDB if needed
