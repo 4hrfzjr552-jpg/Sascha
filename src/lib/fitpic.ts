@@ -92,11 +92,22 @@ export async function generatePantFitpic(
     }),
   });
 
+  // A Vercel runtime crash is often returned as HTML or plain text,
+  // not JSON. Surface its safe error code / request ID for diagnosis.
+  const raw = await response.text();
   let data: { success?: boolean; image?: string; error?: string };
   try {
-    data = await response.json();
+    data = JSON.parse(raw);
   } catch {
-    throw new Error(`Fitpic-Server antwortet nicht mit JSON (HTTP ${response.status}).`);
+    const vercelCode = response.headers.get("x-vercel-error")
+      || ["FUNCTION_INVOCATION_FAILED", "FUNCTION_INVOCATION_TIMEOUT", "FUNCTION_PAYLOAD_TOO_LARGE"].find((code) => raw.includes(code));
+    const requestId = response.headers.get("x-vercel-id");
+    const errorCode = vercelCode ? ` – ${vercelCode}` : "";
+    const requestSuffix = requestId ? ` (Request-ID: ${requestId})` : "";
+    throw new Error(
+      `Fitpic-Serverfehler (HTTP ${response.status}${errorCode})${requestSuffix}. ` +
+      "Die Vercel-Funktion konnte keine gültige Antwort liefern. Bitte unter Vercel → Logs den Aufruf prüfen."
+    );
   }
 
   if (!response.ok || !data.success || !data.image?.startsWith("data:image/")) {

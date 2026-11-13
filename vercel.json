@@ -4,5 +4,10 @@
       "source": "/listings",
       "destination": "/index.html"
     }
-  ]
+  ],
+  "functions": {
+    "api/generate-fitpic.ts": {
+      "maxDuration": 300
+    }
+  }
 }

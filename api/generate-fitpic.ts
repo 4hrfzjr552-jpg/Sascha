@@ -53,6 +53,8 @@ export default async function handler(req: any, res: any) {
   if (!token) {
     return res.status(401).json({ success: false, error: "Bitte erneut anmelden." });
   }
+  let stage = "Authentifizierung";
+  const invocationStart = Date.now();
   try {
     const authClient = createClient(supabaseUrl, supabaseKey);
     const { data, error } = await authClient.auth.getUser(token);
@@ -60,6 +62,7 @@ export default async function handler(req: any, res: any) {
       return res.status(401).json({ success: false, error: "Anmeldung abgelaufen. Bitte erneut anmelden." });
     }
 
+    stage = "Referenzbilder vorbereiten";
     const { image, images, gender, variation, details } = req.body || {};
     const inputImages = Array.isArray(images) ? images : (typeof image === "string" ? [image] : []);
     if (inputImages.length < 2 || inputImages.length > 5) {
@@ -87,6 +90,7 @@ export default async function handler(req: any, res: any) {
       totalBytes += length;
       sources.push({mimeType:parsed[1],data:parsed[2]});
     }
+    console.info("[generate-fitpic] source images", { count: sources.length, totalBytes });
     if (totalBytes > 6_000_000) {
       return res.status(413).json({success:false,error:"Originalfotos insgesamt zu groß. Bitte komprimieren."});
     }
@@ -124,7 +128,10 @@ CASUAL PHOTO LOOK: ordinary private bedroom mirror selfie, simple white shirt an
 
 The final image must depict one person wearing the EXACT JEANS from the photos as closely as possible. RETURN ONLY THE IMAGE.`;
 
-    const ai = new GoogleGenAI({ apiKey: geminiKey });
+    const ai = new GoogleGenAI({
+      apiKey: geminiKey,
+      httpOptions: { timeout: 65_000 },
+    });
     const model = process.env.FITPIC_MODEL || "gemini-3.1-flash-image";
     const candidateModels = Array.from(new Set([
       ...(process.env.FITPIC_QA_MODEL ? [process.env.FITPIC_QA_MODEL.trim()] : []),
@@ -179,6 +186,7 @@ Return JSON {"photos":[{"index":1,"kind":"inventory","confidence":0.99},...]} wi
       scanContents.push({ inlineData: { mimeType: source.mimeType, data: source.data } });
     });
     let selectedIndices: number[];
+    stage = "Jeans-Fotos auswählen";
     try {
       const classification = await inspectJson(scanContents, {
         type: Type.OBJECT,
@@ -209,12 +217,15 @@ Return JSON {"photos":[{"index":1,"kind":"inventory","confidence":0.99},...]} wi
       });
     }
 
+    console.info("[generate-fitpic] photo sorting complete", { includedIndices: selectedIndices.map(i => i + 1), elapsedMs: Date.now() - invocationStart });
     const referenceContents: any[] = [];
     selectedIndices.forEach((sourceIndex, i) => {
       const source = sources[sourceIndex];
       referenceContents.push({ text: `GARMENT REFERENCE ${i + 1}: authentic jeans photo ${sourceIndex + 1}, NOT an inventory bag. The first reference should show full front.` });
       referenceContents.push({ inlineData: { mimeType: source.mimeType, data: source.data } });
     });
+    stage = "Jeans-Fitpic generieren";
+    console.info("[generate-fitpic] generating fitpic", { model, references: selectedIndices.length, elapsedMs: Date.now() - invocationStart });
     const response = await ai.models.generateContent({
       model,
       contents: [...referenceContents, { text: prompt + "\\nFollow the attached garment reference images ONLY. Inventory bag photos were excluded by an earlier inspection. Metadata (secondary, only if it matches the photos): " + (meta || "none") }],
@@ -236,6 +247,8 @@ Return JSON {"photos":[{"index":1,"kind":"inventory","confidence":0.99},...]} wi
 
     // Independent quality check compares ALL selected real garment references.
     // A broken reviewer never causes an unverified photo to be accepted.
+    stage = "Fitpic-Qualitätsprüfung";
+    console.info("[generate-fitpic] starting quality review", { elapsedMs: Date.now() - invocationStart });
     let review: { approved: boolean; confidence: number; issues: string[] };
     try {
       const rawReview = await inspectJson([
@@ -270,6 +283,7 @@ No invented approval. Always return the full structured response.` },
       });
     }
 
+    console.info("[generate-fitpic] review complete", { approved: review.approved, confidence: review.confidence, elapsedMs: Date.now() - invocationStart });
     if (!review.approved) {
       console.warn("[generate-fitpic] image quality rejected:", review.issues, "confidence", review.confidence);
       return res.status(422).json({
@@ -287,12 +301,12 @@ No invented approval. Always return the full structured response.` },
   } catch (error: any) {
     const rawStatus = Number(error?.status || error?.statusCode || 500);
     const status = [429, 503].includes(rawStatus) ? rawStatus : 500;
-    console.error("[generate-fitpic]", error);
+    console.error("[generate-fitpic] failed", { stage, elapsedMs: Date.now() - invocationStart }, error);
     return res.status(status).json({
       success: false,
       error: status === 429
         ? "KI-Bildlimit erreicht. Später erneut probieren."
-        : "Fitpic konnte nicht erstellt werden. Originalbilder und Anzeige bleiben erhalten.",
+        : `Fitpic fehlgeschlagen bei: ${stage}. Details stehen in den Vercel-Logs; Originalbilder und Anzeige bleiben erhalten.`,
     });
   }
 }
