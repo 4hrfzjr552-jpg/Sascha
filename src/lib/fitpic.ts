@@ -10,8 +10,7 @@ export type FitpicGender = "men" | "women";
  */
 export function fitpicSourceImages(pant: Pick<PantItem, "images">): PantImage[] {
   const images = pant.images || [];
-  return (images.length === 5 ? images.slice(0, 4) : images.slice(0, 4))
-    .filter((img) => Boolean(img.dataUrl));
+  return images.slice(0, 4).filter((img) => Boolean(img.dataUrl));
 }
 
 /** The model determines gender from structured analysis, never from a filename. */
@@ -42,13 +41,33 @@ export async function generatePantFitpic(
   }
   if (!accessToken) throw new Error("Bitte erneut anmelden, um ein Fitpic zu erstellen.");
 
-  const images: string[] = [];
-  for (const source of sources) {
-    const prepared = await compressDataUrl(source.dataUrl, 1100, 0.7);
-    if (!/^data:image\/(?:jpeg|png|webp);base64,/.test(prepared)) {
+  // Vercel's request limit is smaller than the server's per-image limits.
+  // Four separately compressed references can still exceed the HTTP body cap.
+  // Recompress all photos at progressively smaller dimensions until the full
+  // front/back/detail evidence fits, rather than silently dropping a view.
+  const MAX_REFERENCES_JSON_CHARS = 3_600_000;
+  const compressionLevels = [
+    { maxDimension: 1200, quality: 0.76 },
+    { maxDimension: 1000, quality: 0.68 },
+    { maxDimension: 820, quality: 0.58 },
+  ];
+  let images: string[] = [];
+  for (const level of compressionLevels) {
+    images = await Promise.all(
+      sources.map((source) =>
+        compressDataUrl(source.dataUrl, level.maxDimension, level.quality)
+      )
+    );
+    if (images.some((prepared) => !/^data:image\/(?:jpeg|png|webp);base64,/.test(prepared))) {
       throw new Error("Ein Originalfoto konnte nicht geladen werden. Bitte die Seite neu laden und erneut versuchen.");
     }
-    images.push(prepared);
+    // JSON adds only a small amount of overhead beyond these data URLs.
+    if (images.reduce((sum, prepared) => sum + prepared.length, 0) <= MAX_REFERENCES_JSON_CHARS) {
+      break;
+    }
+  }
+  if (images.reduce((sum, prepared) => sum + prepared.length, 0) > MAX_REFERENCES_JSON_CHARS) {
+    throw new Error("Die Originalfotos sind zusammen zu groß. Bitte kleinere Fotos hochladen.");
   }
 
   const variation = fitpicVariationForPant(pant);

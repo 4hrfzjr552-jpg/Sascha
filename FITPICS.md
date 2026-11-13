@@ -29,6 +29,7 @@ Im Fehlerfall wird die Textanzeige weiterhin gespeichert und das Originalmateria
 - Die Bild-KI soll die vollständige Vorderseite selbst unter den Referenzen erkennen; die anderen Fotos dienen zum Erhalt von Farbe/Waschung, Schnitt, Taschen, Label und Nähte.
 - Ein separater visueller Gemini-Check prüft das erzeugte Foto anhand **aller** Referenzen. Sichtbare Änderungen an Bootcut/Beinweite, Waschung oder erfundene Zahlen sollen zur Ablehnung führen.
 - Kein automatisches Durchprobieren zahlreicher Ergebnisse: Bildgenerierung und Qualitätssicherung können API-Gebühren verbrauchen.
+- Vor dem Hochladen werden alle 2–4 Referenzbilder bei Bedarf schrittweise komprimiert, damit die Anfrage unter dem Vercel-Uploadlimit bleibt. Keine Referenzansicht wird hierfür stillschweigend weggelassen. Ist die Anfrage selbst danach zu groß, erscheint eine Fehlermeldung statt eines unvollständigen KI-Fotos.
 - **Kein pixelgenauer Transfer garantiert.** Bitte das Fitpic vor der Freigabe immer manuell mit den Originalen vergleichen. Bei falscher Jeans: „Fitpic neu erstellen“ oder verwerfen.
 
 Empfohlen: Foto 1/2 mit ganzer Vorderseite, ein Foto mit ganzer Rückseite, dann detailreiche Aufnahmen; falls vorhanden Foto 5 ausschließlich als Tütennummer.
