@@ -26,7 +26,7 @@ export interface VintedPublishingPlan {
   createdAt: number;
   slots: VintedScheduledSlot[];
   /** Manual confirmations persist across recalculations: never suggest the same item again. */
-  publishedDraftIds: string[];
+  publishedArticleNumbers: string[];
 }
 
 function partsInBerlin(when: Date): { date: string; time: string } {
@@ -72,12 +72,12 @@ export function buildVintedPublishingPlan(
   previous?: VintedPublishingPlan | null,
 ): VintedPublishingPlan {
   const time = berlinTimeNow(now);
-  const publishedDraftIds = [...new Set([
-    ...(previous?.publishedDraftIds || []),
-    ...(previous?.slots || []).filter(s => s.status === "published").map(s => s.draftId),
+  const publishedArticleNumbers = [...new Set([
+    ...(previous?.publishedArticleNumbers || []),
+    ...(previous?.slots || []).filter(s => s.status === "published").map(s => s.articleNumber),
   ])];
-  const publishedSet = new Set(publishedDraftIds);
-  const pending = eligibleVintedDrafts(drafts).filter(d => !publishedSet.has(d.id));
+  const publishedSet = new Set(publishedArticleNumbers);
+  const pending = eligibleVintedDrafts(drafts).filter(d => !publishedSet.has(String(d.artikelnummer)));
   const slots: VintedScheduledSlot[] = [];
   let index = 0;
   for (let dayOffset = 0; dayOffset < 90 && index < pending.length; dayOffset++) {
@@ -96,7 +96,7 @@ export function buildVintedPublishingPlan(
       });
     }
   }
-  return { enabled: true, createdAt: now.getTime(), slots, publishedDraftIds };
+  return { enabled: true, createdAt: now.getTime(), slots, publishedArticleNumbers };
 }
 
 export function markVintedSlot(
@@ -108,9 +108,9 @@ export function markVintedSlot(
   return {
     ...plan,
     slots: plan.slots.map(s => s.id === slotId ? {...s, status} : s),
-    publishedDraftIds: status === "published"
-      ? [...new Set([...(plan.publishedDraftIds || []), plan.slots.find(s => s.id === slotId)!.draftId])]
-      : [...(plan.publishedDraftIds || [])],
+    publishedArticleNumbers: status === "published"
+      ? [...new Set([...(plan.publishedArticleNumbers || []), plan.slots.find(s => s.id === slotId)!.articleNumber])]
+      : [...(plan.publishedArticleNumbers || [])],
   };
 }
 
@@ -130,9 +130,9 @@ export function readVintedPublishingPlan(raw: string | null): VintedPublishingPl
     if (!valid) return null;
     return {
       ...(candidate as VintedPublishingPlan),
-      publishedDraftIds: Array.isArray(candidate.publishedDraftIds)
-        ? candidate.publishedDraftIds.filter((id): id is string => typeof id === "string")
-        : candidate.slots.filter(s => s.status === "published").map(s => s.draftId),
+      publishedArticleNumbers: Array.isArray(candidate.publishedArticleNumbers)
+        ? candidate.publishedArticleNumbers.filter((id): id is string => typeof id === "string")
+        : candidate.slots.filter(s => s.status === "published").map(s => s.articleNumber),
     };
   } catch {
     return null;
