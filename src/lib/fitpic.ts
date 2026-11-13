@@ -4,13 +4,13 @@ import { compressDataUrl } from "./imageCompressor";
 export type FitpicGender = "men" | "women";
 
 /**
- * A written stock number on the fifth bag photo must never reach the image
- * generator. Preserve the 5 originals for analysis, but use only garment photos
- * (up to four) when producing a synthetic illustration.
+ * Send all original pictures to the SERVER photo inspector, even if the
+ * handwritten inventory bag was uploaded at position 1 instead of 5.
+ * The inspector excludes inventory photos before image generation / QA.
+ * No positioning assumption: a user's 5 existing photos are never altered.
  */
 export function fitpicSourceImages(pant: Pick<PantItem, "images">): PantImage[] {
-  const images = pant.images || [];
-  return images.slice(0, 4).filter((img) => Boolean(img.dataUrl));
+  return (pant.images || []).slice(0, 5).filter((img) => Boolean(img.dataUrl));
 }
 
 /** The model determines gender from structured analysis, never from a filename. */
@@ -42,14 +42,15 @@ export async function generatePantFitpic(
   if (!accessToken) throw new Error("Bitte erneut anmelden, um ein Fitpic zu erstellen.");
 
   // Vercel's request limit is smaller than the server's per-image limits.
-  // Four separately compressed references can still exceed the HTTP body cap.
+  // Five independently compressed photos can still exceed the HTTP body cap.
   // Recompress all photos at progressively smaller dimensions until the full
-  // front/back/detail evidence fits, rather than silently dropping a view.
-  const MAX_REFERENCES_JSON_CHARS = 3_600_000;
+  // inventory / front / back / detail evidence fits, rather than dropping a view.
+  const MAX_REFERENCES_JSON_CHARS = 3_400_000;
   const compressionLevels = [
     { maxDimension: 1200, quality: 0.76 },
     { maxDimension: 1000, quality: 0.68 },
     { maxDimension: 820, quality: 0.58 },
+    { maxDimension: 680, quality: 0.53 },
   ];
   let images: string[] = [];
   for (const level of compressionLevels) {
