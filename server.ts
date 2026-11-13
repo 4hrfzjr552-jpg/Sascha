@@ -5,6 +5,7 @@ import express from "express";
 import path from "path";
 import { GoogleGenAI, Type } from "@google/genai";
 import { createServer as createViteServer } from "vite";
+import generateFitpicHandler from "./api/generate-fitpic";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -90,6 +91,9 @@ app.get("/api/health", (_req, res) => {
     timestamp: new Date().toISOString(),
   });
 });
+
+// Reuse the Vercel fitpic handler for local development.
+app.post("/api/generate-fitpic", (req, res) => generateFitpicHandler(req, res));
 
 // Primary pant analysis endpoint
 app.post("/api/analyze-pant", async (req, res) => {

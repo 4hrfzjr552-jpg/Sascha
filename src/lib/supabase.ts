@@ -87,7 +87,7 @@ export async function getSignedImageUrl(storagePath: string): Promise<string | n
  * Get batch signed URLs for images
  */
 export async function resolvePantSignedUrls(pant: PantItem): Promise<PantItem> {
-  if (!pant.images || pant.images.length === 0) return pant;
+  if ((!pant.images || pant.images.length === 0) && !pant.fitpic) return pant;
 
   const updatedImages = await Promise.all(
     pant.images.map(async (img) => {
@@ -101,7 +101,13 @@ export async function resolvePantSignedUrls(pant: PantItem): Promise<PantItem> {
     })
   );
 
-  return { ...pant, images: updatedImages };
+  let fitpic = pant.fitpic;
+  if (fitpic?.storagePath) {
+    const signedUrl = await getSignedImageUrl(fitpic.storagePath);
+    if (signedUrl) fitpic = { ...fitpic, dataUrl: signedUrl };
+  }
+
+  return { ...pant, images: updatedImages, fitpic };
 }
 
 /**
@@ -116,7 +122,7 @@ export async function deletePantImagesFromStorage(userId: string, pantId: string
 
       if (pathsToDelete.length > 0) {
         await supabase.storage.from(BUCKET_NAME).remove(pathsToDelete);
-        return;
+        // Also list leftovers (e.g. the separately stored fitpic).
       }
     }
 
@@ -188,9 +194,21 @@ export async function savePantToSupabase(userId: string, pant: PantItem): Promis
     }
   }
 
+  let processedFitpic = pant.fitpic;
+  if (processedFitpic?.dataUrl.startsWith('data:')) {
+    const storagePath = await uploadPantImage(userId, pant.id, processedFitpic);
+    const signedUrl = await getSignedImageUrl(storagePath);
+    processedFitpic = {
+      ...processedFitpic,
+      storagePath,
+      dataUrl: signedUrl || processedFitpic.dataUrl,
+    };
+  }
+
   const updatedPant: PantItem = {
     ...pant,
     images: processedImages,
+    fitpic: processedFitpic,
     updatedAt: Date.now(),
   };
 
@@ -202,8 +220,12 @@ export async function savePantToSupabase(userId: string, pant: PantItem): Promis
       name: img.name,
       size: img.size,
       storagePath: img.storagePath,
-      dataUrl: img.storagePath ? '' : img.dataUrl, // Keep dataUrl empty if storagePath exists
+      dataUrl: img.storagePath ? '' : img.dataUrl,
     })),
+    fitpic: updatedPant.fitpic ? {
+      ...updatedPant.fitpic,
+      dataUrl: updatedPant.fitpic.storagePath ? '' : updatedPant.fitpic.dataUrl,
+    } : undefined,
   };
 
   const payload = {

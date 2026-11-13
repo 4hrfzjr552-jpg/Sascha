@@ -40,6 +40,8 @@ interface PantCardProps {
   onDelete: (id: string) => void;
   onDuplicate: (pant: PantItem) => void;
   onAnalyze: (pant: PantItem) => void;
+  onGenerateFitpic?: (pant: PantItem) => void;
+  isGeneratingFitpic?: boolean;
   onSaleStatusChange: (pant: PantItem, status: SaleStatus) => void;
   onEditSale: (pant: PantItem) => void;
   isAnalyzingAny: boolean;
@@ -57,6 +59,8 @@ export const PantCard: React.FC<PantCardProps> = ({
   onDelete,
   onDuplicate,
   onAnalyze,
+  onGenerateFitpic,
+  isGeneratingFitpic = false,
   onSaleStatusChange,
   onEditSale,
   isAnalyzingAny,
@@ -296,7 +300,7 @@ export const PantCard: React.FC<PantCardProps> = ({
 
   const isCollapsed = Boolean(pant.isCollapsed);
   const isAnalyzing = pant.status === "analyzing";
-  const firstPhoto = pant.images.length > 0 ? pant.images[0].dataUrl : null;
+  const firstPhoto = pant.fitpic?.dataUrl || (pant.images.length > 0 ? pant.images[0].dataUrl : null);
 
   return (
     <div
@@ -582,6 +586,50 @@ export const PantCard: React.FC<PantCardProps> = ({
               <div className="mb-3 flex items-center gap-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs font-medium animate-fade-in">
                 <Info className="h-4 w-4 shrink-0" />
                 <span>Maximal 5 Fotos je Hose erlaubt. Überschüssige Dateien wurden ignoriert.</span>
+              </div>
+            )}
+
+            {/* Synthetic title image is separate from original source photos. */}
+            {(pant.fitpic || pant.fitpicError || (pant.status === "done" && onGenerateFitpic)) && (
+              <div className="mb-3 rounded-xl border border-stone-200 dark:border-stone-700 p-3 bg-stone-50 dark:bg-stone-800/60">
+                <div className="flex items-start gap-3 flex-wrap">
+                  {pant.fitpic && (
+                    <img
+                      src={pant.fitpic.dataUrl}
+                      alt="KI-generiertes Tragebeispiel als Titelbild"
+                      className="h-36 w-28 object-cover rounded-lg border border-stone-300 dark:border-stone-600"
+                    />
+                  )}
+                  <div className="flex-1 min-w-[160px] space-y-2">
+                    <div className="font-bold text-xs text-stone-900 dark:text-stone-100">
+                      {pant.fitpic ? "Titelbild: KI-Fitpic" : "KI-Fitpic als Titelbild"}
+                    </div>
+                    <p className="text-xs text-stone-600 dark:text-stone-300">
+                      KI-generiertes Tragebeispiel. Die Originalfotos bleiben unverändert und folgen beim Export.
+                    </p>
+                    {pant.fitpicError && <p className="text-xs text-rose-700 dark:text-rose-300">{pant.fitpicError}</p>}
+                    {onGenerateFitpic && pant.status === "done" && (
+                      <button
+                        type="button"
+                        disabled={isGeneratingFitpic || isAnalyzing}
+                        onClick={() => onGenerateFitpic(pant)}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-semibold disabled:opacity-50"
+                      >
+                        {isGeneratingFitpic ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
+                        {isGeneratingFitpic ? "Fitpic entsteht…" : pant.fitpic ? "Fitpic neu erstellen" : "Fitpic erstellen"}
+                      </button>
+                    )}
+                    {pant.fitpic && (
+                      <button
+                        type="button"
+                        onClick={() => onUpdate({ ...pant, fitpic: undefined, fitpicError: undefined })}
+                        className="block text-xs underline text-stone-600 dark:text-stone-300"
+                      >
+                        Fitpic entfernen
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
 

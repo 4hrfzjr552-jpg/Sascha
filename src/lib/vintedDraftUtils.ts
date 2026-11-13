@@ -49,7 +49,7 @@ export function createVintedDraftFromPant(
     material: "",
   };
 
-  const imageRefs = (pant.images || []).map((img) => ({
+  const imageRefs = [...(pant.fitpic ? [pant.fitpic] : []), ...(pant.images || [])].map((img) => ({
     id: img.id,
     name: img.name,
   }));
@@ -66,7 +66,9 @@ export function createVintedDraftFromPant(
     pantId: pant.id,
     artikelnummer: pant.artikelnummer?.trim() || undefined,
     title: result.title || "",
-    description: result.description || "",
+    description: pant.fitpic
+      ? `${result.description || ""}\n\nHinweis: Titelbild ist ein KI-generiertes Tragebeispiel. Originalfotos folgen.`
+      : result.description || "",
     price: defaultPrice,
     brand: detected.brand || "",
     model: detected.model || "",
@@ -137,7 +139,7 @@ export async function getVintedDraftPayload(
   }
 
   if (activePant && activePant.images) {
-    activePant.images.forEach((img) => {
+    [...(activePant.fitpic ? [activePant.fitpic] : []), ...activePant.images].forEach((img) => {
       if (img.id) {
         pantImagesMap.set(img.id, {
           dataUrl: img.dataUrl || "",
@@ -158,7 +160,7 @@ export async function getVintedDraftPayload(
 
   // Fallback 2: If draft has no image references but pant has images, fall back to all pant image IDs
   if (targetImageIds.length === 0 && activePant && activePant.images && activePant.images.length > 0) {
-    targetImageIds = activePant.images.map((img) => img.id);
+    targetImageIds = [...(activePant.fitpic ? [activePant.fitpic] : []), ...activePant.images].map((img) => img.id);
   }
 
   // Fetch staged bulk images from IndexedDB if needed
@@ -180,9 +182,12 @@ export async function getVintedDraftPayload(
     targetImageIds.map(async (id, idx) => {
       let found = pantImagesMap.get(id);
 
-      // Fallback 3: Positional matching with activePant.images
-      if ((!found || (!found.dataUrl && !found.storagePath)) && activePant && activePant.images && activePant.images[idx]) {
-        const fallbackImg = activePant.images[idx];
+      // Fallback 3: positional matching in final listing photo order.
+      const orderedImages = activePant
+        ? [...(activePant.fitpic ? [activePant.fitpic] : []), ...(activePant.images || [])]
+        : [];
+      if ((!found || (!found.dataUrl && !found.storagePath)) && orderedImages[idx]) {
+        const fallbackImg = orderedImages[idx];
         found = {
           dataUrl: fallbackImg.dataUrl || "",
           name: fallbackImg.name,

@@ -44,6 +44,7 @@ import {
   appendKeywordsToDescription,
 } from "./lib/titleUtils";
 import { sortPantsByArticleNumber } from "./lib/articleNumberUtils";
+import { generatePantFitpic } from "./lib/fitpic";
 import { isPantMissingMeasurements } from "./lib/measurementUtils";
 import { Auth } from "./components/Auth";
 import { Header } from "./components/Header";
@@ -91,6 +92,7 @@ export default function App() {
 
   // App data state
   const [pants, setPants] = useState<PantItem[]>([]);
+  const [fitpicBusyIds, setFitpicBusyIds] = useState<string[]>([]);
   const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
   const [vintedDrafts, setVintedDrafts] = useState<VintedDraftData[]>([]);
   const [customPrompt, setCustomPrompt] = useState<string>(DEFAULT_VINTED_PROMPT);
@@ -786,7 +788,8 @@ export default function App() {
   // Single Pant AI Analysis
   const analyzeSinglePant = async (
     targetPant: PantItem,
-    promptToUse: string
+    promptToUse: string,
+    createFitpic = false
   ): Promise<boolean> => {
     // A missing article number can be read from the fifth bag photo.
     if (!targetPant.artikelnummer?.trim() && targetPant.images.length !== 5) {
@@ -882,7 +885,27 @@ export default function App() {
         updatedAt: Date.now(),
       };
 
-      await handleUpdatePant(donePant);
+      // A fitpic is a separate illustration; it does not count towards the
+      // five original photos or interfere with article-number recognition.
+      let completedPant = donePant;
+      if (createFitpic) {
+        try {
+          const generated = await generatePantFitpic(donePant, session?.access_token || "");
+          completedPant = {
+            ...donePant,
+            fitpic: generated.fitpic,
+            fitpicVariation: generated.variation,
+            fitpicError: undefined,
+          };
+        } catch (error: any) {
+          completedPant = {
+            ...donePant,
+            fitpicError: error?.message || "Fitpic konnte nicht erstellt werden.",
+          };
+          console.warn("Fitpic generation failed; listing still completed:", error);
+        }
+      }
+      await handleUpdatePant(completedPant);
       return true;
     } catch (err: any) {
       console.error("Client side pant analysis exception:", err);
@@ -900,9 +923,30 @@ export default function App() {
   // Card trigger handler for single analysis
   const handleAnalyzeFromCard = async (pant: PantItem) => {
     if (isBatchRunning) return;
-    const success = await analyzeSinglePant(pant, customPrompt);
+    const success = await analyzeSinglePant(pant, customPrompt, true);
     if (success) {
       showToast(`Anzeige für Hose #${pant.number} fertiggestellt!`, "success");
+    }
+  };
+
+  const handleGenerateFitpic = async (pant: PantItem) => {
+    if (fitpicBusyIds.includes(pant.id)) return;
+    setFitpicBusyIds((prev) => [...prev, pant.id]);
+    try {
+      const generated = await generatePantFitpic(pant, session?.access_token || "");
+      await handleUpdatePant({
+        ...pant,
+        fitpic: generated.fitpic,
+        fitpicVariation: generated.variation,
+        fitpicError: undefined,
+      });
+      showToast(`Fitpic für Hose #${pant.number} erstellt!`, "success");
+    } catch (error: any) {
+      const message = error?.message || "Fitpic konnte nicht erstellt werden.";
+      await handleUpdatePant({ ...pant, fitpicError: message });
+      showToast(message, "error");
+    } finally {
+      setFitpicBusyIds((prev) => prev.filter((id) => id !== pant.id));
     }
   };
 
@@ -1683,6 +1727,8 @@ export default function App() {
               onDelete={(id) => setPantToDeleteId(id)}
               onDuplicate={handleDuplicatePant}
               onAnalyze={handleAnalyzeFromCard}
+              onGenerateFitpic={handleGenerateFitpic}
+              isGeneratingFitpic={fitpicBusyIds.includes(pant.id)}
               onSaleStatusChange={handleSaleStatusChange}
               onEditSale={(p) => setPantForSaleModalId(p.id)}
               isAnalyzingAny={isBatchRunning}
