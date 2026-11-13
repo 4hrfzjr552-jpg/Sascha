@@ -4,11 +4,15 @@ on:
   push:
     paths:
       - 'src/**'
+      - 'api/**'
+      - 'tests/**'
       - 'vercel.json'
       - '.github/workflows/listings-ui.yml'
   pull_request:
     paths:
       - 'src/**'
+      - 'api/**'
+      - 'tests/**'
       - 'vercel.json'
       - '.github/workflows/listings-ui.yml'
 
@@ -24,6 +28,8 @@ jobs:
           node-version: '22'
       - name: Install dependencies
         run: npm ci --ignore-scripts
+      - name: Listing correctness tests
+        run: node --experimental-strip-types --test tests/article-number-validation.test.mjs tests/listing-rules.test.mjs
       - name: TypeScript check
         run: npm run lint
       - name: Vite production build

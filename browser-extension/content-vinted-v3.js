@@ -113,8 +113,9 @@
     const resolved=catalog.intentForDraft(draft);
     log("[CATEGORY INTENT] "+JSON.stringify(resolved.ok?
       {gender:resolved.intent.gender,kind:resolved.intent.kind,
-        fit:resolved.intent.fit,id:resolved.category.id,
-        label:resolved.category.name}:resolved));
+        fit:resolved.intent.fit,hint:resolved.intent.hint,id:resolved.category.id,
+        label:resolved.category.name,fallback:!!resolved.fallback,
+        note:resolved.reason||undefined}:resolved));
     if(!resolved.ok)throw Error(resolved.reason);
     const target=resolved.category;
     const control=required('#category, input[data-testid="catalog-select-dropdown-input"]',
@@ -123,7 +124,7 @@
     control.click();
     if(!await until(()=>shown(q("#catalog-search-input")),2800))
       throw Error("Vinted hat die Kategoriesuche nicht geöffnet");
-    const terms=[target.term,"Jeans"];
+    const terms=[target.term,...(target.terms||[]),"Jeans"];
     let match=null;
     for(const term of [...new Set(terms)]){
       const search=q("#catalog-search-input");
@@ -145,17 +146,21 @@
       throw Error("Vinted zeigt die bestätigte Kategorie #"+target.id+
         " ("+target.name+") nicht an");
     }
-    // Click the actual Vinted-provided radio option, never a generic Jeans row.
+    // Click only a unique candidate validated from Vinted's own live catalog.
     const {radio,row}=match.entry;
-    const label=q('label[for="'+radio.id+'"]');
+    const label=radio?q('label[for="'+radio.id+'"]'):null;
     if(label&&shown(label))label.click();
-    else if(radio.click)radio.click();
+    else if(radio?.click)radio.click();
     else row.click();
+    const entryText=norm(match.entry.text);
+    if(match.idDrift)log("[CATEGORY ID CHANGED] Vinted liefert #"+match.id+
+      " statt #"+target.id+"; gleicher Name und Zielgruppe sind bestätigt");
+    if(match.generic)log("[CATEGORY FALLBACK] "+match.tier+" → "+entryText.slice(0,100));
     const applied=await until(()=>{
-      const input=q("#category");
-      const chosen=value(input);
-      return !catalogPanelOpen() && (chosen===norm(target.name) ||
-        chosen.includes(norm(target.name)));
+      const chosen=value(q("#category"));
+      return !catalogPanelOpen() && !!chosen &&
+        (chosen===norm(target.name)||chosen.includes(norm(target.name))||
+         (chosen.length>3 && entryText.includes(chosen)));
     },4600,170);
     if(!applied){
       log("[CATEGORY VERIFY] value="+value(q("#category"))+
@@ -163,8 +168,8 @@
       await hideCategoryPanel();
       throw Error("Kategorie #"+target.id+" wurde angeklickt, aber nicht bestätigt");
     }
-    log("[CATEGORY SELECTED] "+target.gender+" / "+target.fit+" / "+
-      target.name+" (#"+target.id+")");
+    log("[CATEGORY SELECTED] "+target.gender+" / "+(target.fit||"-")+
+      " / "+(value(q("#category"))||target.name)+" (#"+(match.id||target.id||"?")+")");
     return {success:true};
   }
   function optionText(el){return text(el).replace(/\s+/g," ").trim();}

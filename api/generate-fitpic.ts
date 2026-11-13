@@ -58,17 +58,35 @@ export default async function handler(req: any, res: any) {
       return res.status(401).json({ success: false, error: "Anmeldung abgelaufen. Bitte erneut anmelden." });
     }
 
-    const { image, gender, variation, details } = req.body || {};
-    if (typeof image !== "string") {
-      return res.status(400).json({ success: false, error: "Ein Originalfoto der Jeans fehlt." });
+    const { image, images, gender, variation, details } = req.body || {};
+    const inputImages = Array.isArray(images) ? images : (typeof image === "string" ? [image] : []);
+    if (inputImages.length < 2 || inputImages.length > 4) {
+      return res.status(400).json({
+        success:false,
+        error:"Bitte 2 bis 4 Originalfotos der Jeans verwenden (ganze Vorderseite, Rückseite und Details)."
+      });
     }
-    const match = image.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/);
-    if (!match) {
-      return res.status(400).json({ success: false, error: "Bitte ein gültiges JPEG-, PNG- oder WebP-Bild verwenden." });
+    const sources: Array<{mimeType:string; data:string}> = [];
+    let totalBytes = 0;
+    for (const input of inputImages) {
+      if (typeof input !== "string") {
+        return res.status(400).json({success:false,error:"Ungültiges Originalfoto."});
+      }
+      const parsed = input.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/);
+      if (!parsed) {
+        return res.status(400).json({
+          success:false,error:"Alle Fotos müssen JPEG-, PNG- oder WebP-Bilddaten sein."
+        });
+      }
+      const length = Buffer.from(parsed[2], "base64").length;
+      if (!length || length > 2_500_000) {
+        return res.status(413).json({success:false,error:"Mindestens ein Foto ist zu groß (über 2,5 MB)."});
+      }
+      totalBytes += length;
+      sources.push({mimeType:parsed[1],data:parsed[2]});
     }
-    const binary = Buffer.from(match[2], "base64");
-    if (!binary.length || binary.length > 2_500_000) {
-      return res.status(413).json({ success: false, error: "Originalfoto ist zu groß (maximal 2,5 MB)." });
+    if (totalBytes > 6_000_000) {
+      return res.status(413).json({success:false,error:"Originalfotos insgesamt zu groß. Bitte komprimieren."});
     }
 
     const female = gender === "women";
@@ -79,36 +97,45 @@ export default async function handler(req: any, res: any) {
     const meta = [
       clean(details?.brand),
       clean(details?.model),
+      clean(details?.size),
       clean(details?.color),
       clean(details?.fit),
     ].filter(Boolean).join(", ");
 
-    const prompt = `You are doing an accurate virtual try-on of an EXISTING second-hand pair of jeans from the reference photo. Produce exactly ONE vertical 3:4 ordinary mirror selfie. The jeans MUST match the attached source, which is a PRODUCT REFERENCE PHOTO, not a styling reference.
+    const prompt = `Create EXACTLY ONE photorealistic vertical 3:4 mirror selfie, with the SAME PHYSICAL JEANS shown in the attached original reference photos. This is a virtual try-on for a secondhand item, NOT a request to design similar trousers.
 
-NON-NEGOTIABLE ITEM FIDELITY:
-- Keep denim color, wash, faded patches, leg width, fit, rise, length, hems, pockets, stitching, wrinkles, rips and signs of wear as close as possible to the reference. Do not redesign the jeans, make them slimmer, recolor them or give them a new fit.
-- ABSOLUTELY NO NEW WRITING, LETTERS, NUMBERS, HANDWRITTEN INVENTORY LABELS, LARGE LOGOS OR MARKS ANYWHERE ON THE JEANS. If a number or handwritten writing exists in the reference photo outside the garment, it is ONLY an inventory note and MUST NOT appear on the jeans. Never paint an article number such as 109 on any thigh or pant leg. Existing small authentic brand labels may stay only if visibly present in source.
-- No drawings, no overlay text, no price tags, no advertisement, no fake decorations.
-- If a garment detail cannot be seen, render a plain realistic continuation rather than inventing embellishments.
-- Do not change the photographed pants to another design. Reference item: ${meta || "jeans in attached product photo"}.
+The reference photos are of ONE PAIR and have DIFFERENT PURPOSES. Identify which original photo shows the complete FRONT from waist to bottom hems; use that as the primary silhouette and color reference even if it is not the first attachment. Identify the BACK view and close-up shots as additional physical evidence for pocket design, stitching, brand patch, fade placement and waistband. NEVER use any photo of an inventory bag. All submitted attachments depict the real jeans.
 
-SCENE: A non-professional private seller's casual phone snapshot, not modeling. ${ROOMS[index]}. Ordinary daylight and slightly imperfect mobile phone exposure. No staged pose, no studio, no flashy lighting, no symmetrical editorial look, no idealized skin or body proportions, no unnatural pose or AI-looking texture.
+NON-NEGOTIABLE FIDELITY:
+- Transfer precisely the original lightness/darkness, denim color, faded areas, waist/rise, inseam proportions, leg opening and width, pocket placement, stitches, distressing, hems and bootcut/straight/slim silhouette.
+- If the source shows light pale-blue flared jeans, NEVER output ordinary medium-blue straight jeans. Do not make legs narrower or alter the silhouette to make the person look fashionable.
+- Keep the original brand and visible labels only if present on the pants, but never invent readable labels or logos.
+- ABSOLUTELY NO extra writing, digits, handwritten inventory numbers, pen marks, annotations, text overlays, stickers or made-up branding on the clothing. Numbers on the bag/notes are NOT part of the denim.
+- Do not borrow denim designs from your learned generic fashion patterns. If a detail is unclear, use a realistic plain continuation, never a conspicuous invented feature.
+- If accurate reproduction is impossible, do not intentionally substitute different pants.
 
-PERSON: ${persona}
+PERSON: ${persona}. An adult everyday person, no fashion modeling. Keep face fully obscured by smartphone.
 POSE: ${POSES[index]}.
-PHONE: Must obscure the ENTIRE FACE, including eyes, nose and mouth; no visible face to recognize. The phone must be in one hand reflected in the mirror, normal smartphone size. Keep the full jeans from waistband to both cuffs and the footwear in frame. Plain shirt, simple white sneakers, realistic casual body anatomy.
+ROOM: ${ROOMS[index]}.
 
-The subject must look like an everyday person taking a quick authentic mirror photo in their bedroom. RETURN ONLY THE PHOTO. NO text, captions, labels, numbering or watermarks.`;
+CASUAL PHOTO LOOK: ordinary private bedroom mirror selfie, simple white shirt and everyday white sneakers, uneven natural window light, natural creases, relaxed posture and imperfect handheld smartphone framing. Entire waistband, full legs and both hems and shoes visible. Not cinematic, not studio, not professional, no fashion editorial, no stylization, no glossy skin, no additional garments or artificial objects.
+
+The final image must depict one person wearing the EXACT JEANS from the photos as closely as possible. RETURN ONLY THE IMAGE.`;
+
+    // Give the model every valid garment reference, not just a waistband close-up.
+    // The text between images tells it to infer the full front and back.
+    const sourceContents: any[] = [];
+    sources.forEach((source, i) => {
+      sourceContents.push({text: `Original reference ${i + 1} of ${sources.length}: same real pair of jeans; use full-length front to establish cut and wash, all others to establish exact details.`});
+      sourceContents.push({inlineData:{mimeType:source.mimeType,data:source.data}});
+    });
 
     const ai = new GoogleGenAI({ apiKey: geminiKey });
     const model = process.env.FITPIC_MODEL || "gemini-3.1-flash-image";
     const response = await ai.models.generateContent({
       model,
-      contents: [
-        { inlineData: { mimeType: match[1], data: match[2] } },
-        { text: prompt },
-      ],
-      config: { responseModalities: ["IMAGE"] },
+      contents: [...sourceContents, { text: prompt }],
+      config: { responseModalities: ["IMAGE"], imageConfig: { aspectRatio: "3:4" } },
     });
     let generated: { data: string; mimeType: string } | null = null;
     for (const candidate of response.candidates || []) {
@@ -132,17 +159,18 @@ The subject must look like an everyday person taking a quick authentic mirror ph
       const qa = await ai.models.generateContent({
         model: process.env.FITPIC_QA_MODEL || "gemini-2.5-flash",
         contents: [
-          { text: `Compare IMAGE ONE (actual denim product) with IMAGE TWO (generated try-on image).
-Respond with JSON only: {"approved": boolean, "issues": string[]}.
-Set approved=false when you see ANY:
-1. Added handwriting, digit(s), inventory/stock number, conspicuous text, fictional logo or writing PRINTED ON the jeans (e.g. "109" on the thigh), which was not actually on the product.
-2. Jeans that visibly differ from the original in wash/color, pattern, rise, cut, leg width, pockets or rips.
-3. Mirror selfie with visibly uncovered face, staged fashion pose, unrealistic anatomy, or a blurry/deformed garment.
-4. Full waistband/legs/hem not visible.
-Ignore legitimate tiny brand tags and normal indoor furniture. Reject obvious errors, not minor lighting or wrinkle differences.
-Return compact JSON with the exact key names approved and issues. No markdown.` },
-          { inlineData: { mimeType: match[1], data: match[2] } },
-          { inlineData: { mimeType: generated.mimeType, data: generated.data } },
+          {text: `You are a STRICT secondhand clothing authenticity inspector. The first ${sources.length} images show the ORIGINAL real jeans from multiple angles. The FINAL IMAGE is an AI-generated try-on. Compare all original photos against the final image.
+Return JSON only: {"approved": boolean, "confidence": number, "issues": string[]}.
+Reject immediately if:
+1. ANY added handwriting, digits, inventory/stock number or fake logo on the legs (especially large numbers like 109).
+2. WRONG jeans: different wash, lightness/darkness, color, fade patches, missing details, back-pocket stitching or visibly changed leg width, bootcut/flare vs straight/slim.
+3. Incorrectly changed rise/hem proportions or dramatically different pockets, branding or distressing.
+4. Face uncovered, unnatural legs, fake-looking skin, professional fashion pose, or missing waistband/hems.
+5. Cannot verify full pair of jeans from reference photos.
+Use evidence from ALL original photos; strong color or fit mismatches are NEVER acceptable. Set approved=true only if faithfully reproduced, with confidence >=0.85; otherwise false. If unsure, reject. Response is JSON, no markdown.`},
+          ...sourceContents,
+          {text:"Final image to verify (generated try-on photo):"},
+          {inlineData:{mimeType:generated.mimeType,data:generated.data}},
         ],
         config: { responseMimeType: "application/json" },
       });
@@ -155,7 +183,7 @@ Return compact JSON with the exact key names approved and issues. No markdown.` 
       });
     }
 
-    if (review?.approved !== true) {
+    if (review?.approved !== true || typeof review.confidence !== "number" || review.confidence < 0.85) {
       console.warn("[generate-fitpic] rejected by review:", review?.issues);
       const detectedIssues = Array.isArray(review?.issues)
         ? review.issues.filter((item: unknown) => typeof item === "string").slice(0, 2)

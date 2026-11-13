@@ -43,7 +43,7 @@ import {
   formatTitleWithArticleNumber,
   appendKeywordsToDescription,
 } from "./lib/titleUtils";
-import { sortPantsByArticleNumber } from "./lib/articleNumberUtils";
+import { sortPantsByArticleNumber, isValidArticleNumber } from "./lib/articleNumberUtils";
 import { generatePantFitpic, fitpicVariationForPant } from "./lib/fitpic";
 import { isPantMissingMeasurements } from "./lib/measurementUtils";
 import { Auth } from "./components/Auth";
@@ -847,7 +847,7 @@ export default function App() {
       // Preserve manually entered numbers; otherwise accept only validated bag OCR.
       const rawResult = data.data;
       const resolvedArticleNumber = targetPant.artikelnummer?.trim() || String(rawResult.artikelnummer || "").trim();
-      if (!/^\\d{1,8}$/.test(resolvedArticleNumber) && !targetPant.artikelnummer?.trim()) {
+      if (!isValidArticleNumber(resolvedArticleNumber) && !targetPant.artikelnummer?.trim()) {
         showToast("Artikelnummer nicht eindeutig erkannt. Bitte manuell eintragen.", "error");
         await handleUpdatePant({ ...targetPant, status: "error", errorMessage: "Artikelnummer nicht lesbar.", updatedAt: Date.now() });
         return false;

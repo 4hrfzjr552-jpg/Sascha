@@ -1,4 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
+import { LISTING_RULES, detectedSchema, generateWithFallback, cleanBagNumber } from "./_listingRules";
 
 export const config = {
   maxDuration: 60,
@@ -339,14 +340,16 @@ WICHTIGE REGELN:
 - Wenn Marke, Modell, Größe, Schnitt oder Material nicht sicher erkennbar sind, weglassen oder leer lassen.
 - Manuelle Maße haben immer Vorrang.
 - Die Keywords müssen genau 25 passende Suchbegriffe sein.
-- Preisvorschläge (pricing) müssen gerundete Zahlenwerte >= 0 in Euro enthalten, mit der strikten Reihenfolge: quickSalePrice <= minimumPrice <= realisticPrice <= listingPrice. Schreibe Preise NICHT in die Vinted-Beschreibung.`;
+- Preisvorschläge (pricing) müssen gerundete Zahlenwerte >= 0 in Euro enthalten, mit der strikten Reihenfolge: quickSalePrice <= minimumPrice <= realisticPrice <= listingPrice. Schreibe Preise NICHT in die Vinted-Beschreibung.
+
+${LISTING_RULES}`;
 
     const ai = getGeminiClient();
 
     const requestConfig = {
       systemInstruction:
-        "Du bist ein Vinted-Assistent für Bekleidung und Hosen. Erstelle authentische, menschlich klingende Anzeigen. Erfinde niemals Daten, Marken oder Maße.",
-      temperature: 0.2,
+        "Du bist ein Vinted-Assistent für Bekleidung und Jeans mit Erfahrung in Suchoptimierung. Erfinde niemals Daten, Marken oder Maße; lies Etiketten besonders genau.",
+      temperature: 0.35,
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.OBJECT,
@@ -363,26 +366,10 @@ WICHTIGE REGELN:
               type: Type.STRING,
             },
           },
-          detected: {
-            type: Type.OBJECT,
-            properties: {
-              brand: { type: Type.STRING },
-              model: { type: Type.STRING },
-              gender: { type: Type.STRING },
-              size: { type: Type.STRING },
-              color: { type: Type.STRING },
-              fit: { type: Type.STRING },
-              material: { type: Type.STRING },
-            },
-            required: [
-              "brand",
-              "model",
-              "gender",
-              "size",
-              "color",
-              "fit",
-              "material",
-            ],
+          detected: detectedSchema,
+          bagArticleNumber: {
+            type: Type.STRING,
+            description: "Handgeschriebene Ziffern auf dem fünften Foto (graue Tüte), sonst leer.",
           },
           pricing: {
             type: Type.OBJECT,
@@ -427,67 +414,10 @@ WICHTIGE REGELN:
       },
     };
 
-    const candidateModels = [
-      "gemini-3.1-flash-lite",
-      "gemini-3.6-flash",
-      "gemini-3.8-flash",
-    ];
-
-    let response: any = null;
-    let lastError: any = null;
-
-    for (const model of candidateModels) {
-      try {
-        response = await ai.models.generateContent({
-          model,
-          contents: [
-            ...imageParts,
-            {
-              text: fullPromptText,
-            },
-          ],
-          config: requestConfig,
-        });
-
-        if (response?.text) {
-          break;
-        }
-      } catch (err: any) {
-        lastError = err;
-
-        const status =
-          err?.status ||
-          err?.statusCode ||
-          err?.error?.code;
-
-        const message =
-          err?.message ||
-          err?.error?.message ||
-          "";
-
-        console.log(
-          `Gemini model ${model}:`,
-          message.slice(0, 200)
-        );
-
-        if (
-          status === 429 ||
-          message.includes("429") ||
-          message.includes("RESOURCE_EXHAUSTED") ||
-          message.toLowerCase().includes("quota")
-        ) {
-          throw err;
-        }
-      }
-    }
-
-    if (!response?.text) {
-      if (lastError) {
-        throw lastError;
-      }
-
-      throw new Error("Keine Antwort von Gemini erhalten.");
-    }
+    const response: any = await generateWithFallback(ai, {
+      contents: [...imageParts, {text: fullPromptText}],
+      config: requestConfig,
+    });
 
     const rawText = response.text;
 
@@ -520,8 +450,8 @@ ${parsedResult.keywords.join(", ")}`;
       }
     }
 
-    const detectedBagNumber = String(parsedResult.bagArticleNumber || "").trim();
-    if (detectBagNumber && !/^\\d{1,8}$/.test(detectedBagNumber)) {
+    const detectedBagNumber = cleanBagNumber(parsedResult.bagArticleNumber);
+    if (detectBagNumber && !detectedBagNumber) {
       return res.status(422).json({ error: "Handgeschriebene Artikelnummer auf Foto 5 nicht eindeutig lesbar. Bitte manuell eintragen." });
     }
     const finalArticleNumber = String(artikelnummer || "").trim() || detectedBagNumber;
@@ -533,11 +463,7 @@ ${parsedResult.keywords.join(", ")}`;
         .replace(/\s*#[\w\-\.\/]+$/i, "")
         .trim();
 
-      const trimmedArt = artikelnummer
-        ? String(artikelnummer)
-            .trim()
-            .replace(/^#+/, "")
-        : "";
+      const trimmedArt = finalArticleNumber.replace(/^#+/, "");
 
       if (trimmedArt) {
         const suffix = ` ${trimmedArt}`;

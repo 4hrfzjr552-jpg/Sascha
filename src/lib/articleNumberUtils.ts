@@ -1,4 +1,9 @@
-import { PantItem } from "../types";
+import type { PantItem } from "../types";
+
+/** Validates an explicitly handwritten stock number (1 to 8 digits). */
+export function isValidArticleNumber(value: string): boolean {
+  return /^\d{1,8}$/.test(value);
+}
 
 /**
  * Normalizes an article number string for comparison.

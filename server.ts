@@ -6,6 +6,7 @@ import path from "path";
 import { GoogleGenAI, Type } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 import generateFitpicHandler from "./api/generate-fitpic";
+import { LISTING_RULES, detectedSchema, generateWithFallback, cleanBagNumber } from "./api/_listingRules";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -300,178 +301,43 @@ WICHTIGE REGELN:
 - NIEMALS Angaben erfinden! Wenn Marke, Modell, Größe, Schnitt oder Material nicht sicher erkennbar sind, lasse sie weg oder schreibe "nicht angegeben" bzw. nenne nur das Sichtbare.
 - Manuelle Maße des Nutzers haben IMMER Vorrang gegenüber Schätzungen aus Bildern.
 - Die Keywords müssen genau 25 thematisch passende Suchbegriffe als Liste von Strings sein (z.B. ["jeans", "vintage", "mom jeans", ...]).
-- Preisvorschläge (pricing) müssen gerundete Zahlenwerte >= 0 in Euro enthalten, mit der strikten Reihenfolge: quickSalePrice <= minimumPrice <= realisticPrice <= listingPrice. Schreibe Preise NICHT in die Vinted-Beschreibung.`;
+- Preisvorschläge (pricing) müssen gerundete Zahlenwerte >= 0 in Euro enthalten, mit der strikten Reihenfolge: quickSalePrice <= minimumPrice <= realisticPrice <= listingPrice. Schreibe Preise NICHT in die Vinted-Beschreibung.
+
+${LISTING_RULES}`;
 
     const ai = getGeminiClient();
 
-    // Candidate models in order of priority:
-    // gemini-3.1-flash-lite has high capacity and stability against 503 spikes,
-    // followed by gemini-3.6-flash and gemini-3.8-flash.
-    const candidateModels = [
-      "gemini-3.1-flash-lite",
-      "gemini-3.6-flash",
-      "gemini-3.8-flash",
-    ];
-
-    let response: any = null;
-    let lastError: any = null;
-
     const requestConfig = {
-      systemInstruction:
-        "Du bist ein professioneller Vinted-Assistent für Bekleidung/Hosen. Du erstellst authentische, menschlich klingende Anzeigen. Du erfindest NIEMALS Daten, Marken oder Maße.",
-      temperature: 0.2,
+      systemInstruction: "Du bist ein Vinted-Assistent. Lies Marke, Modell, Größe und den Schnitt genau von den Originalfotos ab. Schreibe menschlich, suchfreundlich und ohne erfundene Angaben.",
+      temperature: 0.35,
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.OBJECT,
         properties: {
-          title: {
-            type: Type.STRING,
-            description: "Kurzer, suchfreundlicher Vinted-Titel, max. 100 Zeichen.",
-          },
-          description: {
-            type: Type.STRING,
-            description:
-              "Komplette Vinted-Beschreibung gegliedert nach ZUSTAND, GRÖẞE, MAẞE, DETAILS, EXTRAS, VERSAND, Fragen.",
-          },
-          keywords: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.STRING,
-            },
-            description: "Genau 25 relevante Suchbegriffe / Tags.",
-          },
-          detected: {
-            type: Type.OBJECT,
-            properties: {
-              brand: {
-                type: Type.STRING,
-                description: "Erkannte Marke oder leer wenn unklar.",
-              },
-              model: {
-                type: Type.STRING,
-                description: "Erkanntes Modell oder Schnittbezeichnung.",
-              },
-              gender: {
-                type: Type.STRING,
-                description: "Damen, Herren oder Unisex (nur wenn erkennbar).",
-              },
-              size: {
-                type: Type.STRING,
-                description: "Größe laut Etikett oder W/L Angabe.",
-              },
-              color: {
-                type: Type.STRING,
-                description: "Farbe oder Waschung.",
-              },
-              fit: {
-                type: Type.STRING,
-                description: "Schnitt / Passform (z.B. Slim Fit, Straight, Wide Leg, Mom Jeans).",
-              },
-              material: {
-                type: Type.STRING,
-                description: "Materialzusammensetzung (nur falls Etikett lesbar).",
-              },
-            },
-            required: [
-              "brand",
-              "model",
-              "gender",
-              "size",
-              "color",
-              "fit",
-              "material",
-            ],
-          },
+          title: { type: Type.STRING },
+          description: { type: Type.STRING },
+          keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
+          detected: detectedSchema,
+          bagArticleNumber: { type: Type.STRING, description: "Handgeschriebene Zahl nur auf Foto 5 (graue Tüte), sonst leer" },
           pricing: {
             type: Type.OBJECT,
             properties: {
-              listingPrice: {
-                type: Type.NUMBER,
-                description: "Preis in Euro zum Einstellen auf Vinted",
-              },
-              realisticPrice: {
-                type: Type.NUMBER,
-                description: "Realistischer Verkaufspreis in Euro",
-              },
-              quickSalePrice: {
-                type: Type.NUMBER,
-                description: "Preis für einen schnellen Verkauf in Euro",
-              },
-              minimumPrice: {
-                type: Type.NUMBER,
-                description: "Preis in Euro, unter den man möglichst nicht gehen sollte",
-              },
-              reasoning: {
-                type: Type.STRING,
-                description: "Kurze Begründung, max. 1-2 Sätze.",
-              },
+              listingPrice: { type: Type.NUMBER },
+              realisticPrice: { type: Type.NUMBER },
+              quickSalePrice: { type: Type.NUMBER },
+              minimumPrice: { type: Type.NUMBER },
+              reasoning: { type: Type.STRING }
             },
-            required: [
-              "listingPrice",
-              "realisticPrice",
-              "quickSalePrice",
-              "minimumPrice",
-              "reasoning",
-            ],
-          },
+            required:["listingPrice","realisticPrice","quickSalePrice","minimumPrice","reasoning"]
+          }
         },
-        required: ["title", "description", "keywords", "detected", "pricing"],
-      },
-    };
-
-    // Helper for sleeping with jitter
-    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-    // Try models with clean retry on demand spikes
-    for (let i = 0; i < candidateModels.length; i++) {
-      const model = candidateModels[i];
-      try {
-        response = await ai.models.generateContent({
-          model,
-          contents: [
-            ...imageParts,
-            {
-              text: fullPromptText,
-            },
-          ],
-          config: requestConfig,
-        });
-        if (response?.text) {
-          break;
-        }
-      } catch (err: any) {
-        lastError = err;
-        const errStatus = err?.status || err?.statusCode || err?.error?.code;
-        const errMsg = err?.message || err?.error?.message || "";
-        console.log(`[AI Info] Model ${model} request note:`, errMsg.slice(0, 100));
-
-        // If rate limit (429), break immediately and propagate
-        if (
-          errStatus === 429 ||
-          errMsg.includes("429") ||
-          errMsg.includes("RESOURCE_EXHAUSTED") ||
-          errMsg.includes("quota")
-        ) {
-          throw err;
-        }
-
-        // If 503 or high demand spike, pause briefly before next model candidate
-        const is503 =
-          errStatus === 503 ||
-          errMsg.includes("503") ||
-          errMsg.includes("high demand") ||
-          errMsg.includes("UNAVAILABLE");
-
-        if (is503 && i < candidateModels.length - 1) {
-          const waitTime = 600 + Math.floor(Math.random() * 400);
-          await sleep(waitTime);
-        }
+        required:["title","description","keywords","detected","pricing"]
       }
-    }
-
-    if (!response && lastError) {
-      throw lastError;
-    }
+    };
+    const response: any = await generateWithFallback(ai, {
+      contents: [...imageParts, {text:fullPromptText}],
+      config:requestConfig
+    });
 
     const rawText = response.text || "{}";
     let parsedResult;
@@ -483,6 +349,16 @@ WICHTIGE REGELN:
       parsedResult = JSON.parse(cleaned);
     }
 
+    const detectBagNumber = !String(artikelnummer || "").trim() && images.length === 5;
+    if (!String(artikelnummer || "").trim() && !detectBagNumber) {
+      return res.status(400).json({error:"Für die automatische Artikelnummer bitte fünf Fotos hochladen (Tüte zuletzt)."});
+    }
+    const bagNumber = cleanBagNumber(parsedResult.bagArticleNumber);
+    if (detectBagNumber && !bagNumber) {
+      return res.status(422).json({error:"Artikelnummer auf Foto 5 nicht sicher lesbar. Bitte manuell eintragen."});
+    }
+    const resolvedArticleNumber = String(artikelnummer || "").trim() || bagNumber;
+    parsedResult.artikelnummer = resolvedArticleNumber;
     parsedResult.pricing = sanitizePricing(parsedResult.pricing);
 
     // Automatically append keywords to the bottom of the description
@@ -496,9 +372,7 @@ WICHTIGE REGELN:
     // Automatically attach Artikelnummer to the end of the title if provided (without hashtag)
     if (parsedResult.title) {
       let cleanTitle = parsedResult.title.replace(/\s*#[\w\-\.\/]+$/i, "").trim();
-      const trimmedArt = artikelnummer
-        ? String(artikelnummer).trim().replace(/^#+/, "")
-        : "";
+      const trimmedArt = resolvedArticleNumber.replace(/^#+/, "");
       if (trimmedArt) {
         // Strip if already ending with trimmedArt to avoid duplicate appending
         const escapedArt = trimmedArt.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
