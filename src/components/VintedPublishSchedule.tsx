@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { CalendarClock, CheckCircle2, ExternalLink, RefreshCw, SkipForward } from "lucide-react";
-import type { VintedDraftData } from "../types";
+import { CalendarClock, CheckCircle2, Copy, ExternalLink, RefreshCw, SkipForward } from "lucide-react";
+import type { PantItem, VintedDraftData } from "../types";
+import { createVintedDraftFromPant, isPantEligibleForVintedDraft } from "../lib/vintedDraftUtils";
 import {
   VINTED_PLAN_STORAGE_KEY, VINTED_SLOT_TIMES,
   berlinTimeNow, buildVintedPublishingPlan, eligibleVintedDrafts,
@@ -10,6 +11,7 @@ import {
 
 interface Props {
   drafts: VintedDraftData[];
+  pants: PantItem[];
 }
 
 /**
@@ -17,14 +19,26 @@ interface Props {
  * The existing Chrome extension can prepare Vinted forms/drafts, but an
  * ordinary Vinted account requires an explicit user publication step.
  */
-export const VintedPublishSchedule: React.FC<Props> = ({ drafts }) => {
+export const VintedPublishSchedule: React.FC<Props> = ({ drafts, pants }) => {
   const [plan, setPlan] = useState<VintedPublishingPlan | null>(() => {
     try { return readVintedPublishingPlan(window.localStorage.getItem(VINTED_PLAN_STORAGE_KEY)); }
     catch { return null; }
   });
   const [now, setNow] = useState(() => new Date());
   const [storageError, setStorageError] = useState(false);
-  const ready = useMemo(() => eligibleVintedDrafts(drafts), [drafts]);
+  // Include already analysed pants even before the seller individually clicks
+  // "Vinted draft vorbereiten". The IDs match the existing browser extension.
+  const scheduleDrafts = useMemo(() => {
+    const byPantId = new Map(drafts.map(d => [d.pantId, d]));
+    const readyPants = pants
+      .filter(p => isPantEligibleForVintedDraft(p))
+      .filter(p => !["uploaded", "sold", "archived"].includes(p.saleStatus))
+      .map(p => byPantId.get(p.id) || createVintedDraftFromPant(p, `vinted_auto_${p.id}`))
+      .filter((d): d is VintedDraftData => d !== null);
+    const fromPants = new Set(readyPants.map(d => d.pantId));
+    return [...readyPants, ...drafts.filter(d => !fromPants.has(d.pantId))];
+  }, [drafts, pants]);
+  const ready = useMemo(() => eligibleVintedDrafts(scheduleDrafts), [scheduleDrafts]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
@@ -111,7 +125,7 @@ export const VintedPublishSchedule: React.FC<Props> = ({ drafts }) => {
       {plan && (
         <>
           <p className="text-xs text-stone-600 dark:text-stone-400">
-            {plan.enabled ? "Zeitplan aktiv" : "Zeitplan pausiert"} · {activeSlots.length} offen · {plan.publishedDraftIds?.length || publishedCount} bestätigt · {skippedCount} übersprungen.
+            {plan.enabled ? "Zeitplan aktiv" : "Zeitplan pausiert"} · {activeSlots.length} offen · {plan.publishedArticleNumbers?.length || publishedCount} bestätigt · {skippedCount} übersprungen.
             Die Zuordnung wird nur in diesem Browser gespeichert.
           </p>
 
@@ -119,7 +133,7 @@ export const VintedPublishSchedule: React.FC<Props> = ({ drafts }) => {
             {showSlots.length === 0 ? (
               <p className="text-xs text-stone-500">Keine weiteren Anzeigen eingeplant.</p>
             ) : showSlots.map(slot => {
-              const missing = !drafts.some(d => d.id === slot.draftId);
+              const missing = !scheduleDrafts.some(d => d.id === slot.draftId);
               const due = `${slot.date}T${slot.time}` <= `${berlin.date}T${berlin.time}`;
               return (
                 <div key={slot.id} className="rounded-xl bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 p-2.5 flex flex-col gap-2">
@@ -140,6 +154,21 @@ export const VintedPublishSchedule: React.FC<Props> = ({ drafts }) => {
                       className="inline-flex items-center gap-1 px-2.5 py-1.5 min-h-[36px] rounded-lg bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900 text-xs font-semibold">
                       <ExternalLink className="w-3.5 h-3.5"/> Vinted öffnen
                     </a>
+                    <button type="button" onClick={async () => {
+                      const draft = scheduleDrafts.find(d => d.id === slot.draftId);
+                      if (!draft) return;
+                      try {
+                        await navigator.clipboard.writeText(
+                          draft.title + "\\n\\n" + draft.description +
+                          (draft.price ? "\\n\\nPreis: " + draft.price + " €" : "")
+                        );
+                      } catch {
+                        window.alert("Kopieren ist auf diesem Gerät nicht verfügbar.");
+                      }
+                    }}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 min-h-[36px] rounded-lg border border-stone-200 dark:border-stone-700 text-xs text-stone-600 dark:text-stone-300">
+                      <Copy className="w-3.5 h-3.5"/> Text kopieren
+                    </button>
                     <button type="button" onClick={() => update(slot, "published")}
                       className="inline-flex items-center gap-1 px-2.5 py-1.5 min-h-[36px] rounded-lg border border-emerald-300 dark:border-emerald-900 text-emerald-700 dark:text-emerald-300 text-xs font-semibold">
                       <CheckCircle2 className="w-3.5 h-3.5"/> Veröffentlicht
