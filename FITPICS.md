@@ -1,6 +1,6 @@
 # KI-Fitpic als erstes Verkaufsfoto
 
-Sascha AI erstellt bei der **Einzelgenerierung** einer Anzeige ein zusätzliches, fiktives Spiegelselfie, in dem die Jeans aus dem ersten Originalfoto getragen wird. Die vorhandenen Fotos (max. fünf, einschließlich Tütenbild an Position 5) bleiben unverändert. KI-Bilder ersetzen keine Originalfotos.
+Sascha AI erstellt bei der **Einzelgenerierung** einer Anzeige ein zusätzliches, fiktives Spiegelselfie, in dem die Jeans aus mehreren geprüften Originalfotos getragen wird. Die vorhandenen Fotos (max. fünf, einschließlich Tütenbild an Position 5) bleiben unverändert. KI-Bilder ersetzen keine Originalfotos.
 
 ## Verwendung
 1. Für jede Hose die normalen Originalfotos hochladen, das Jeansfoto vorne an Position 1 platzieren. Wenn die Artikelnummer nicht manuell eingegeben ist, müssen es genau fünf Fotos sein (graue Tüte als Foto 5).
@@ -25,11 +25,16 @@ Im Fehlerfall wird die Textanzeige weiterhin gespeichert und das Originalmateria
 
 ## Genauere Jeans-Fitpics (Mehrfachreferenz)
 - Sascha AI sendet jetzt **2–4 Originalfotos** (Vorderseite in voller Länge, Rückseite und Details), nicht nur die erste, eventuell stark herangezoomte Bundaufnahme.
-- Foto 5 mit der handschriftlichen Artikelnummer auf der grauen Tüte wird weiterhin **nicht** an die Fitpic-KI gesendet.
+- Vor dem Fitpic sortiert eine Gemini-Bilderkennung bis zu fünf hochgeladene Fotos nach vollständiger Jeans-Vorderseite, Rückseite, Details und Artikelnummer-Tüte. Die Tüte wird **unabhängig von ihrer Position** aus den Bildgenerator- und Qualitätsprüfer-Referenzen ausgeschlossen. Bei unsicherer Erkennung wird die Generierung sicherheitshalber abgebrochen. Für die **Artikelnummer-Erkennung der normalen Anzeige** muss das Tütenfoto weiterhin an Position 5 stehen.
 - Die Bild-KI soll die vollständige Vorderseite selbst unter den Referenzen erkennen; die anderen Fotos dienen zum Erhalt von Farbe/Waschung, Schnitt, Taschen, Label und Nähte.
-- Ein separater visueller Gemini-Check prüft das erzeugte Foto anhand **aller** Referenzen. Sichtbare Änderungen an Bootcut/Beinweite, Waschung oder erfundene Zahlen sollen zur Ablehnung führen.
+- Ein separater visueller Gemini-Check prüft das erzeugte Foto anhand **aller Jeans-Referenzen**. Bildsortierung und Qualitätsprüfung nutzen die für die Anzeigenanalyse konfigurierten Gemini-Vision-Modelle als Fallback, statt nur ein veraltetes Standardmodell. Bei Kontingent- oder Modelldefekten gibt es nun differenzierte Fehlermeldungen. Sichtbare Änderungen an Bootcut/Beinweite, Waschung oder erfundene Zahlen sollen zur Ablehnung führen.
 - Kein automatisches Durchprobieren zahlreicher Ergebnisse: Bildgenerierung und Qualitätssicherung können API-Gebühren verbrauchen.
 - Vor dem Hochladen werden alle 2–4 Referenzbilder bei Bedarf schrittweise komprimiert, damit die Anfrage unter dem Vercel-Uploadlimit bleibt. Keine Referenzansicht wird hierfür stillschweigend weggelassen. Ist die Anfrage selbst danach zu groß, erscheint eine Fehlermeldung statt eines unvollständigen KI-Fotos.
 - **Kein pixelgenauer Transfer garantiert.** Bitte das Fitpic vor der Freigabe immer manuell mit den Originalen vergleichen. Bei falscher Jeans: „Fitpic neu erstellen“ oder verwerfen.
 
-Empfohlen: Foto 1/2 mit ganzer Vorderseite, ein Foto mit ganzer Rückseite, dann detailreiche Aufnahmen; falls vorhanden Foto 5 ausschließlich als Tütennummer.
+Empfohlen: Eine gut erkennbare **ganze Vorderseite** (Bund bis Säume) und eine Rückseite, ergänzt durch Detailaufnahmen. Das Tütenbild für die handschriftliche **Artikelnummer bleibt auf Foto 5**. Falls es versehentlich auf Foto 1 liegt, wird es für das Fitpic trotzdem erkannt und ausgeschlossen; die reguläre automatische Artikelnummer-Erkennung benötigt weiterhin Foto 5.
+
+## Fehlerbehebung
+- **„Fitpic-Prüfung fehlgeschlagen“** bedeutete früher meist eine technische Ausnahme bei Gemini/JSON, nicht zwingend eine veränderte Jeans. Jetzt wird auf weitere konfigurierte Gemini-Vision-Modelle ausgewichen und das Problem besser benannt. Ein ungeprüftes Bild wird **niemals automatisch freigegeben**.
+- **„Gesamte Jeans-Vorderseite“ fehlt**: Ein Foto hochladen, das Bund, beide Hosenbeine und Säume komplett zeigt. Aus reinen Bund-/Etikett-Details lässt sich ein ehrliches Fitpic nicht zuverlässig ableiten.
+- 5 hochgeladene Fotos einschließlich Tüte werden zu einer kompakten Anfrage komprimiert. Bildsortierung und Qualitätscheck können zusätzliche API-Aufrufe verursachen. Die Qualitätskontrolle garantiert keine pixelgetreue Wiedergabe.
