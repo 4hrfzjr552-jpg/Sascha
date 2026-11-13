@@ -48,6 +48,9 @@ export interface PantItem {
   number: number;
   artikelnummer?: string;
   images: PantImage[];
+  /** Synthetic try-on illustration; kept separate from the five source photos. */
+  fitpic?: PantImage;
+  fitpicVariation?: number;
   measurements: PantMeasurements;
   customNotes: string;
   status: PantStatus;
