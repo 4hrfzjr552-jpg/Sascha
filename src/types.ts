@@ -50,6 +50,8 @@ export interface PantItem {
   images: PantImage[];
   /** Synthetic try-on illustration; kept separate from the five source photos. */
   fitpic?: PantImage;
+  /** Explicit approval required before inclusion in customer-facing photos. */
+  fitpicApproved?: boolean;
   fitpicVariation?: number;
   fitpicError?: string;
   measurements: PantMeasurements;

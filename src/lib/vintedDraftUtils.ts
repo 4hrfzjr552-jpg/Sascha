@@ -49,7 +49,7 @@ export function createVintedDraftFromPant(
     material: "",
   };
 
-  const imageRefs = [...(pant.fitpic ? [pant.fitpic] : []), ...(pant.images || [])].map((img) => ({
+  const imageRefs = [...(pant.fitpicApproved && pant.fitpic ? [pant.fitpic] : []), ...(pant.images || [])].map((img) => ({
     id: img.id,
     name: img.name,
   }));
@@ -66,7 +66,7 @@ export function createVintedDraftFromPant(
     pantId: pant.id,
     artikelnummer: pant.artikelnummer?.trim() || undefined,
     title: result.title || "",
-    description: pant.fitpic
+    description: pant.fitpicApproved && pant.fitpic
       ? `${result.description || ""}\n\nHinweis: Titelbild ist ein KI-generiertes Tragebeispiel. Originalfotos folgen.`
       : result.description || "",
     price: defaultPrice,
@@ -139,7 +139,7 @@ export async function getVintedDraftPayload(
   }
 
   if (activePant && activePant.images) {
-    [...(activePant.fitpic ? [activePant.fitpic] : []), ...activePant.images].forEach((img) => {
+    [...(activePant.fitpicApproved && activePant.fitpic ? [activePant.fitpic] : []), ...activePant.images].forEach((img) => {
       if (img.id) {
         pantImagesMap.set(img.id, {
           dataUrl: img.dataUrl || "",
@@ -160,7 +160,14 @@ export async function getVintedDraftPayload(
 
   // Fallback 2: If draft has no image references but pant has images, fall back to all pant image IDs
   if (targetImageIds.length === 0 && activePant && activePant.images && activePant.images.length > 0) {
-    targetImageIds = [...(activePant.fitpic ? [activePant.fitpic] : []), ...activePant.images].map((img) => img.id);
+    targetImageIds = [...(activePant.fitpicApproved && activePant.fitpic ? [activePant.fitpic] : []), ...activePant.images].map((img) => img.id);
+  }
+
+  // Reject an old draft's fitpic reference if it was never approved.
+  // This also protects previously generated bad fitpics after deployment.
+  if (activePant && !activePant.fitpicApproved) {
+    // Covers stale old draft references even when the fitpic was discarded.
+    targetImageIds = targetImageIds.filter((id) => !id.startsWith("fitpic-"));
   }
 
   // Fetch staged bulk images from IndexedDB if needed
@@ -184,7 +191,7 @@ export async function getVintedDraftPayload(
 
       // Fallback 3: positional matching in final listing photo order.
       const orderedImages = activePant
-        ? [...(activePant.fitpic ? [activePant.fitpic] : []), ...(activePant.images || [])]
+        ? [...(activePant.fitpicApproved && activePant.fitpic ? [activePant.fitpic] : []), ...(activePant.images || [])]
         : [];
       if ((!found || (!found.dataUrl && !found.storagePath)) && orderedImages[idx]) {
         const fallbackImg = orderedImages[idx];
