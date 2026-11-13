@@ -70,8 +70,10 @@
       if(result.ambiguous)return {fit:"",source:source+"-ambiguous"};
       if(result.fit)return {fit:result.fit,source};
       // Unsupported exact cuts must not be overwritten by SEO copy.
-      if(source==="structured"&&/\b(tapered|loose|baggy|mom|relaxed)\b/.test(norm(raw)))
-        return {fit:"",source:"structured-unsupported"};
+      if(source==="structured"){
+        const unsupported=norm(raw).match(/\b(tapered|loose|baggy|mom|relaxed|wide|weit)\b/);
+        if(unsupported)return {fit:"",source:"structured-unsupported",hint:unsupported[1]};
+      }
     }
     return {fit:"",source:"unresolved"};
   }
@@ -94,43 +96,97 @@
     const kind=jacket?"unsupported":denim?(shorts?"denim-shorts":"jeans"):"unsupported";
     const resolved=classifyFit(draft);
     const fit=kind==="denim-shorts"?"":resolved.fit;
-    return {gender,kind,fit,
+    return {gender,kind,fit,hint:resolved.hint||"",
       source:kind==="denim-shorts"?"not-required":resolved.source};
   }
+  // Unsupported fits must use a verified live Vinted option rather than
+  // incorrectly substituting Straight or a guessed category ID.
+  const FIT_LABELS={
+    weit:/\b(weit\w*|baggy|loose|wide|mom|relaxed)\b/,
+    wide:/\b(weit\w*|baggy|loose|wide|mom|relaxed)\b/,
+    loose:/\b(weit\w*|baggy|loose|wide|mom|relaxed)\b/,
+    baggy:/\b(weit\w*|baggy|loose|wide|mom|relaxed)\b/,
+    mom:/\b(weit\w*|baggy|loose|wide|mom|relaxed)\b/,
+    relaxed:/\b(weit\w*|baggy|loose|wide|mom|relaxed)\b/,
+    tapered:/\b(tapered|konisch\w*|karotten\w*)\b/,
+    bootcut:/\b(schlaghosen?|bootcut|flare\w*)\b/,
+    boyfriend:/\bboyfriend\b/,
+    cropped:/\b(cropped|verkurzt\w*|knochel\w*)\b/,
+    "high-waist":/\b(hohe\w* taille|high waist\w*)\b/,
+    slim:/\b(enger passform|slim\w*|schmal\w*)\b/
+  };
+  const FIT_TERMS={wide:"Jeans weit",loose:"Jeans weit",baggy:"Jeans weit",mom:"Jeans weit",
+    relaxed:"Jeans weit",tapered:"Tapered Jeans",bootcut:"Schlaghosen",
+    boyfriend:"Boyfriend Jeans",cropped:"Cropped Jeans","high-waist":"Jeans mit hoher Taille",
+    slim:"Jeans mit enger Passform"};
+  const GENERIC_LABEL=/\b(andere|sonstige|weitere)\s+jeans\b/;
+
   function intentForDraft(draft){
     const intent=classify(draft);
-    if(!["men","women"].includes(intent.gender))return {ok:false,intent,reason:"Herren/Damen nicht eindeutig erkannt"};
-    if(!["jeans","denim-shorts"].includes(intent.kind))return {ok:false,intent,reason:"Artikeltyp wird noch nicht automatisch kategorisiert"};
-    if(intent.kind==="jeans"&&!intent.fit)return {ok:false,intent,reason:"Jeans-Schnitt nicht eindeutig erkannt"};
+    if(!["men","women"].includes(intent.gender))
+      return {ok:false,intent,reason:"Herren/Damen nicht eindeutig erkannt"};
+    if(!["jeans","denim-shorts"].includes(intent.kind))
+      return {ok:false,intent,reason:"Artikeltyp wird noch nicht automatisch kategorisiert"};
     const match=CATEGORIES.find(c=>c.kind===intent.kind&&c.gender===intent.gender&&c.fit===intent.fit);
-    if(!match)return {ok:false,intent,reason:"Für Geschlecht und Schnitt ist noch keine bestätigte Vinted-Kategorie hinterlegt"};
-    return {ok:true,intent,category:match};
+    if(match)return {ok:true,intent,category:match};
+    if(intent.kind!=="jeans")return {ok:false,intent,reason:"Keine bestätigte Kategorie"};
+    const fit=intent.fit||intent.hint||"";
+    return {ok:true,intent,fallback:true,
+      reason:fit?"Schnitt "+fit+" benötigt Live-Suche":"Schnitt unklar – Live-Suche",
+      category:{id:null,generic:true,gender:intent.gender,kind:"jeans",fit,
+        name:"Andere Jeans",term:FIT_TERMS[fit]||"Jeans",
+        terms:[...new Set([FIT_TERMS[fit],"Andere Jeans","Jeans"].filter(Boolean))]}};
   }
   function parseRow(entry){
     const id=Number(entry.id);
     const text=norm([entry.text,entry.name,entry.path].filter(Boolean).join(" "));
     return {id,text};
   }
-  function matchingRows(rows,category) {
+  function adultAudience(text,category){
+    const audience=category.gender==="men"?/\b(herren|men)\b/:/\b(damen|women)\b/;
+    return audience.test(text)&&!/\b(kinder|baby|madchen|jungs|jungen|kids)\b/.test(text);
+  }
+  function matchingRows(rows,category){
     return rows.map(entry=>{
       const {id,text}=parseRow(entry);
-      const known=byId[id];
-      // ID alone is not enough: confirm the label and audience shown by Vinted.
       const correctId=id===category.id;
       const correctName=text.includes(norm(category.name));
-      const audience=category.gender==="men"?/\b(herren|men)\b/:/\b(damen|women)\b/;
-      const pathLooksAdult=audience.test(text)&&!/\b(kinder|baby|madchen|jungs|jungen|kids)\b/.test(text);
+      const pathLooksAdult=adultAudience(text,category);
       const hasJeans=category.kind==="denim-shorts"?/\b(jeansshorts|denim shorts)\b/.test(text):
         /\b(jeans|jean|schlaghosen)\b/.test(text);
-      return {entry,id,eligible:correctId&&correctName&&pathLooksAdult&&hasJeans,
-        reason:!correctId?"other category ID":!correctName?"category label differs":
-          !pathLooksAdult?"gender/path not confirmed":!hasJeans?"wrong item type":"verified"};
+      return {entry,id,correctId,eligible:correctName&&pathLooksAdult&&hasJeans,
+        reason:!correctName?"category label differs":!pathLooksAdult?"gender/path not confirmed":
+          !hasJeans?"wrong item type":correctId?"verified":"verified (ID changed)"};
     });
   }
+  function selectGeneric(rows,category){
+    const base=rows.map(entry=>{
+      const {id,text}=parseRow(entry);
+      return {entry,id,text,eligible:adultAudience(text,category)&&
+        /\b(jeans|jean|schlaghosen)\b/.test(text)&&
+        !/\b(shorts|jacke|jacken|latzhose|overall)\b/.test(text)};
+    });
+    const tiers=[];
+    const fitRe=FIT_LABELS[category.fit];
+    if(fitRe)tiers.push(["fit",x=>fitRe.test(x.text)]);
+    tiers.push(["generic",x=>GENERIC_LABEL.test(x.text)]);
+    for(const [tier,test] of tiers){
+      const hits=base.filter(x=>x.eligible&&test(x));
+      if(hits.length===1)return {ok:true,entry:hits[0].entry,id:hits[0].id,generic:true,tier};
+      if(hits.length>1)return {ok:false,reason:"Kategorie mehrfach vorhanden",diagnostics:hits.map(x=>x.entry)};
+    }
+    return {ok:false,reason:"Passende Kategorie ist nicht in den Vinted-Suchergebnissen",diagnostics:base};
+  }
   function selectLiveCategory(rows,category){
-    const matches=matchingRows(rows,category).filter(x=>x.eligible);
-    if(matches.length!==1)return {ok:false,reason:matches.length?"Kategorie mehrfach vorhanden":"Passende Kategorie ist nicht in den Vinted-Suchergebnissen",diagnostics:matchingRows(rows,category)};
-    return {ok:true,entry:matches[0].entry,id:category.id};
+    if(category.generic)return selectGeneric(rows,category);
+    const all=matchingRows(rows,category);
+    const eligible=all.filter(x=>x.eligible);
+    const exactId=eligible.filter(x=>x.correctId);
+    const pick=exactId.length===1?exactId[0]:(exactId.length===0&&eligible.length===1?eligible[0]:null);
+    if(!pick)return {ok:false,
+      reason:eligible.length?"Kategorie mehrfach vorhanden":"Passende Kategorie ist nicht in den Vinted-Suchergebnissen",
+      diagnostics:all};
+    return {ok:true,entry:pick.entry,id:pick.id,idDrift:!pick.correctId};
   }
   function sizeChoice(original,visible,draft){
     const raw=norm(original).replace(/\s+/g,"");
