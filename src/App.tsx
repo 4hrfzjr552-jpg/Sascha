@@ -44,7 +44,7 @@ import {
   appendKeywordsToDescription,
 } from "./lib/titleUtils";
 import { sortPantsByArticleNumber } from "./lib/articleNumberUtils";
-import { generatePantFitpic } from "./lib/fitpic";
+import { generatePantFitpic, fitpicVariationForPant } from "./lib/fitpic";
 import { isPantMissingMeasurements } from "./lib/measurementUtils";
 import { Auth } from "./components/Auth";
 import { Header } from "./components/Header";
@@ -894,12 +894,14 @@ export default function App() {
           completedPant = {
             ...donePant,
             fitpic: generated.fitpic,
+            fitpicApproved: false,
             fitpicVariation: generated.variation,
             fitpicError: undefined,
           };
         } catch (error: any) {
           completedPant = {
             ...donePant,
+            fitpicVariation: fitpicVariationForPant(donePant),
             fitpicError: error?.message || "Fitpic konnte nicht erstellt werden.",
           };
           console.warn("Fitpic generation failed; listing still completed:", error);
@@ -937,13 +939,14 @@ export default function App() {
       await handleUpdatePant({
         ...pant,
         fitpic: generated.fitpic,
+        fitpicApproved: false,
         fitpicVariation: generated.variation,
         fitpicError: undefined,
       });
       showToast(`Fitpic für Hose #${pant.number} erstellt!`, "success");
     } catch (error: any) {
       const message = error?.message || "Fitpic konnte nicht erstellt werden.";
-      await handleUpdatePant({ ...pant, fitpicError: message });
+      await handleUpdatePant({ ...pant, fitpicVariation: fitpicVariationForPant(pant), fitpicError: message });
       showToast(message, "error");
     } finally {
       setFitpicBusyIds((prev) => prev.filter((id) => id !== pant.id));
