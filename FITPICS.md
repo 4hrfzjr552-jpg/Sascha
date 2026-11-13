@@ -38,3 +38,9 @@ Empfohlen: Eine gut erkennbare **ganze Vorderseite** (Bund bis Säume) und eine 
 - **„Fitpic-Prüfung fehlgeschlagen“** bedeutete früher meist eine technische Ausnahme bei Gemini/JSON, nicht zwingend eine veränderte Jeans. Jetzt wird auf weitere konfigurierte Gemini-Vision-Modelle ausgewichen und das Problem besser benannt. Ein ungeprüftes Bild wird **niemals automatisch freigegeben**.
 - **„Gesamte Jeans-Vorderseite“ fehlt**: Ein Foto hochladen, das Bund, beide Hosenbeine und Säume komplett zeigt. Aus reinen Bund-/Etikett-Details lässt sich ein ehrliches Fitpic nicht zuverlässig ableiten.
 - 5 hochgeladene Fotos einschließlich Tüte werden zu einer kompakten Anfrage komprimiert. Bildsortierung und Qualitätscheck können zusätzliche API-Aufrufe verursachen. Die Qualitätskontrolle garantiert keine pixelgetreue Wiedergabe.
+
+## HTTP 500 statt JSON (Vercel-Funktionsfehler)
+- Wenn der Browser einen **HTTP 500 ohne JSON** erhält, stammt die Fehlerseite möglicherweise direkt von der Vercel-Laufzeit und nicht aus der Fitpic-Prüfung. Die App zeigt jetzt den Vercel-Fehlercode und gegebenenfalls die Request-ID an, statt die eigentliche Ursache zu verdecken.
+- Die Fitpic-API hat eine konfigurierte **maximale Laufzeit von 300 Sekunden** für die mehrstufige Fotoerkennung, Bildgenerierung und Qualitätsprüfung. Dafür muss das Vercel-Projekt **Fluid Compute** verwenden (bei neuen Vercel-Projekten standardmäßig aktiviert).
+- Die Funktion protokolliert im Server-Log Start, Fotosortierung, Generierung und Bildprüfung samt Dauer und kann damit zeitliche Abbrüche besser eingrenzen. Sie protokolliert keine Bilddaten oder Anmeldetokens.
+- Für die exakte Ursache unter **Vercel → Projekt → Logs → /api/generate-fitpic** nach Fehlern wie `FUNCTION_INVOCATION_FAILED`, Speichermangel oder Funktionsfehlern suchen. Erfolgreiche GitHub-Actions-Tests allein beweisen nicht, dass der Endpunkt zur Laufzeit funktioniert.
