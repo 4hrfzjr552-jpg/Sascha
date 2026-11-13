@@ -52,11 +52,11 @@ test("manually confirmed publications remain excluded after plan recalculation",
   const drafts=[jeans(80),jeans(79),jeans(78)];
   const first=buildVintedPublishingPlan(drafts,new Date("2026-11-13T22:15:00Z"));
   const marked=markVintedSlot(first,first.slots[0].id,"published");
-  assert.deepEqual(marked.publishedDraftIds,["jeans-80"]);
+  assert.deepEqual(marked.publishedArticleNumbers,["80"]);
   const refreshed=buildVintedPublishingPlan(drafts,new Date("2026-11-14T08:15:00Z"),marked);
   assert.deepEqual(refreshed.slots.map(x=>x.articleNumber),["79","78"]);
   const restored=readVintedPublishingPlan(JSON.stringify(refreshed));
-  assert.equal(restored?.publishedDraftIds[0],"jeans-80");
+  assert.equal(restored?.publishedArticleNumbers[0],"80");
 });
 
 test("bad saved state never silently creates a scheduled publication",()=>{
