@@ -64,9 +64,16 @@ test("children and unknown gender are NEVER assigned adult categories",()=>{
   assert.equal(intentForDraft({gender:"Kinder",category:"Jeans",fit:"straight"}).ok,false);
   assert.equal(intentForDraft({category:"Jeans",fit:"straight"}).ok,false);
 });
-test("unlisted cuts are handled by user instead of guessing a different fit",()=>{
-  assert.equal(intentForDraft({gender:"Herren",category:"Jeans",fit:"wide"}).ok,false);
-  assert.equal(intentForDraft({gender:"Herren",category:"Jeans"}).ok,false);
+test("unlisted cuts require unique live-verified fallback, never a guessed fixed fit",()=>{
+  const wide=intentForDraft({gender:"Herren",category:"Jeans",fit:"wide"});
+  assert.equal(wide.ok,true);
+  assert.equal(wide.fallback,true);
+  assert.equal(wide.category.id,null);
+  assert.equal(wide.category.generic,true);
+  const unknown=intentForDraft({gender:"Herren",category:"Jeans"});
+  assert.equal(unknown.ok,true);
+  assert.equal(unknown.fallback,true);
+  assert.equal(intentForDraft({category:"Jeans",fit:"wide"}).ok,false);
 });
 test("category is not accepted when gender breadcrumb is missing",()=>{
   const target=intentForDraft({gender:"Herren",category:"Jeans",fit:"straight"}).category;
@@ -74,9 +81,12 @@ test("category is not accepted when gender breadcrumb is missing",()=>{
   assert.equal(selectLiveCategory(wrong,target).ok,false);
   assert.equal(selectLiveCategory([{id:1819,text:"Gerade geschnittene Jeans Kinder"}],target).ok,false);
 });
-test("category is not accepted when ID or subtype label changes",()=>{
+test("only live-verified same label/gender may use a renumbered ID",()=>{
   const target=intentForDraft({gender:"Herren",category:"Jeans",fit:"straight"}).category;
-  assert.equal(selectLiveCategory([{id:1559,text:"Gerade geschnittene Jeans Herren"}],target).ok,false);
+  const drift=selectLiveCategory([{id:1559,text:"Gerade geschnittene Jeans Herren"}],target);
+  assert.equal(drift.ok,true);
+  assert.equal(drift.idDrift,true);
+  assert.equal(selectLiveCategory([{id:1559,text:"Gerade geschnittene Jeans Damen"}],target).ok,false);
   assert.equal(selectLiveCategory([{id:1819,text:"Röhrenjeans Herren"}],target).ok,false);
   assert.equal(selectLiveCategory([{id:1819,text:"Gerade geschnittene Jeans Herren"},{id:1819,text:"Gerade geschnittene Jeans Herren"}],target).ok,false);
 });
@@ -149,20 +159,24 @@ test("unsupported structured Tapered jeans never inherit SEO skinny keyword",()=
   const d={gender:"Herren",category:"Jeans",fit:"tapered",
     title:"Diesel Jeans",description:"SEO skinny slim straight"};
   const result=intentForDraft(d);
-  assert.equal(result.ok,false);
+  assert.equal(result.ok,true);
+  assert.equal(result.fallback,true);
   assert.equal(result.intent.fit,"");
+  assert.equal(result.intent.hint,"tapered");
   assert.equal(result.intent.source,"structured-unsupported");
 });
 test("genuinely ambiguous title and SEO-only cuts remain unresolved, not guessed",()=>{
   const badTitle={gender:"Damen",category:"Jeans",title:"Skinny Slim Damen Jeans",
     description:"Straight Fit Jeans"};
   const first=intentForDraft(badTitle);
-  assert.equal(first.ok,false);
+  assert.equal(first.ok,true);
+  assert.equal(first.fallback,true);
   assert.equal(first.intent.source,"title-ambiguous");
   const ambiguousDescription={gender:"Herren",category:"Jeans",
     title:"Diesel Jeans",description:"skinny slim straight bootcut"};
   const second=intentForDraft(ambiguousDescription);
-  assert.equal(second.ok,false);
+  assert.equal(second.ok,true);
+  assert.equal(second.fallback,true);
   assert.equal(second.intent.source,"description-ambiguous");
 });
 test("regular or straight fit from structured Sascha AI field is recognized",()=>{
@@ -173,4 +187,17 @@ test("regular or straight fit from structured Sascha AI field is recognized",()=
     assert.equal(result.ok,true,fit);
     assert.equal(result.category.id,1819,fit);
   }
+});
+
+test("generic fallback selects only a single live matching gender and actual fit",()=>{
+  const decision=intentForDraft({gender:"Damen",category:"Jeans",fit:"wide"});
+  const valid=selectLiveCategory([{id:9955,text:"Wide Leg Jeans Damen > Kleidung > Jeans"}],decision.category);
+  assert.equal(valid.ok,true);
+  assert.equal(valid.id,9955);
+  const wrong=selectLiveCategory([{id:9955,text:"Wide Leg Jeans Herren > Kleidung > Jeans"}],decision.category);
+  assert.equal(wrong.ok,false);
+  const ambiguous=selectLiveCategory([
+    {id:111,text:"Wide Leg Jeans Damen > Kleidung > Jeans"},
+    {id:112,text:"Wide Jeans Damen > Kleidung > Jeans"}],decision.category);
+  assert.equal(ambiguous.ok,false);
 });
