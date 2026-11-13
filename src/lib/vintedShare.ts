@@ -44,7 +44,8 @@ export function getVintedPhotoFileName(
 export async function shareVintedPhotos(
   pant: PantItem
 ): Promise<ShareVintedPhotosResult> {
-  if (!pant.images || pant.images.length === 0) {
+  const photos = [...(pant.fitpic ? [pant.fitpic] : []), ...(pant.images || [])];
+  if (photos.length === 0) {
     return {
       success: false,
       error: "Keine Fotos für diese Hose vorhanden.",
@@ -54,8 +55,8 @@ export async function shareVintedPhotos(
   try {
     const files: File[] = [];
 
-    for (let i = 0; i < pant.images.length; i++) {
-      const img = pant.images[i];
+    for (let i = 0; i < photos.length; i++) {
+      const img = photos[i];
       const response = await fetch(img.dataUrl);
       if (!response.ok) {
         throw new Error(
