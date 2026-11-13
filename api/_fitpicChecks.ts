@@ -67,7 +67,7 @@ export function validateFitpicReview(raw: any): { approved: boolean; issues: str
     ? raw.issues.filter((s: unknown): s is string => typeof s === "string").slice(0, 3)
     : [];
   return {
-    approved: raw?.approved === true && confidence >= 0.85,
+    approved: raw?.approved === true && confidence >= 0.85 && issues.length === 0,
     confidence,
     issues,
   };
