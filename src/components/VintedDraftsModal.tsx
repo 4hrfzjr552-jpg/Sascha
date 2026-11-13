@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { PantItem, VintedDraftData, VintedDraftStatus } from "../types";
 import { getVintedDraftPayload } from "../lib/vintedDraftUtils";
+import { VintedPublishSchedule } from "./VintedPublishSchedule";
 import {
   X,
   Edit2,
@@ -172,6 +173,7 @@ export const VintedDraftsModal: React.FC<VintedDraftsModalProps> = ({
 
         {/* Modal Body / Draft List */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3">
+          <VintedPublishSchedule drafts={drafts} pants={pants} />
           {drafts.length === 0 ? (
             <div className="text-center py-12 px-4">
               <ShoppingBag className="w-12 h-12 mx-auto text-stone-300 dark:text-stone-700 mb-3" />
