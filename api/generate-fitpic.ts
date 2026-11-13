@@ -1,4 +1,6 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
+import { getCandidateModels } from "./_listingRules";
+import { fitpicCheckErrorMessage, parseFitpicJson, pickJeansReferences, validateFitpicReview } from "./_fitpicChecks";
 import { createClient } from "@supabase/supabase-js";
 
 /**
@@ -60,10 +62,10 @@ export default async function handler(req: any, res: any) {
 
     const { image, images, gender, variation, details } = req.body || {};
     const inputImages = Array.isArray(images) ? images : (typeof image === "string" ? [image] : []);
-    if (inputImages.length < 2 || inputImages.length > 4) {
+    if (inputImages.length < 2 || inputImages.length > 5) {
       return res.status(400).json({
         success:false,
-        error:"Bitte 2 bis 4 Originalfotos der Jeans verwenden (ganze Vorderseite, Rückseite und Details)."
+        error:"Bitte 2 bis 5 Fotos hochladen. Das Tütenbild wird automatisch herausgefiltert."
       });
     }
     const sources: Array<{mimeType:string; data:string}> = [];
@@ -122,19 +124,100 @@ CASUAL PHOTO LOOK: ordinary private bedroom mirror selfie, simple white shirt an
 
 The final image must depict one person wearing the EXACT JEANS from the photos as closely as possible. RETURN ONLY THE IMAGE.`;
 
-    // Give the model every valid garment reference, not just a waistband close-up.
-    // The text between images tells it to infer the full front and back.
-    const sourceContents: any[] = [];
-    sources.forEach((source, i) => {
-      sourceContents.push({text: `Original reference ${i + 1} of ${sources.length}: same real pair of jeans; use full-length front to establish cut and wash, all others to establish exact details.`});
-      sourceContents.push({inlineData:{mimeType:source.mimeType,data:source.data}});
-    });
-
     const ai = new GoogleGenAI({ apiKey: geminiKey });
     const model = process.env.FITPIC_MODEL || "gemini-3.1-flash-image";
+    const candidateModels = Array.from(new Set([
+      ...(process.env.FITPIC_QA_MODEL ? [process.env.FITPIC_QA_MODEL.trim()] : []),
+      ...getCandidateModels(),
+    ].filter(Boolean)));
+
+    // Vinted listing recognition also uses these text/vision Gemini models.
+    // Fall back if one is retired, has no JSON output, or has a temporary error.
+    async function inspectJson(contents: any[], schema: any, stage: string): Promise<any> {
+      let lastError: any;
+      for (const inspectionModel of candidateModels) {
+        try {
+          const answer = await ai.models.generateContent({
+            model: inspectionModel,
+            contents,
+            config: {
+              responseMimeType: "application/json",
+              responseSchema: schema,
+              temperature: 0,
+            },
+          });
+          const raw = (answer.text || "").trim();
+          if (!raw) throw new Error("KI hat keine Prüfdaten zurückgegeben.");
+          return parseFitpicJson(raw);
+        } catch (error: any) {
+          lastError = error;
+          console.warn("[generate-fitpic] " + stage + " with " + inspectionModel + " failed:", String(error?.message || error).slice(0, 250));
+        }
+      }
+      throw lastError || new Error("Kein KI-Prüfmodell verfügbar.");
+    }
+
+    // Content-based inspection: unlike the previous fixed first-four-photo
+    // slice, this reliably supports a stock-number bag at ANY photo position.
+    // Even a handwritten inventory note with jeans underneath is classified
+    // as inventory; we do not send it to the image generation model.
+    const scanContents: any[] = [{
+      text: `You are sorting ${sources.length} user-uploaded photos of ONE actual used pair of jeans.
+For EVERY input photo, assign exactly one kind:
+- "inventory": gray/white shipping or storage BAG, handwritten digits, stock-number note, tag card or packaging as the main subject, including if garment is partially visible.
+- "full_front": complete jeans FRONT visible from waistband to BOTH hems.
+- "full_back": complete jeans BACK visible from waistband to BOTH hems.
+- "detail": real denim photo showing only part of the jeans (pocket, waist, seam, patch, leg, close-up).
+- "other": unrelated photo or too unclear to classify.
+Use ONE-BASED index matching the photo number, every photo exactly once.
+Confidence is 0..1 for the assigned kind. If unsure, express uncertainty instead of guessing.
+Do NOT assume the bag is the last photo. It can be FIRST.
+Return JSON {"photos":[{"index":1,"kind":"inventory","confidence":0.99},...]} with ALL indices.`,
+    }];
+    sources.forEach((source, i) => {
+      scanContents.push({ text: "INPUT PHOTO " + (i + 1) + " OF " + sources.length + ":" });
+      scanContents.push({ inlineData: { mimeType: source.mimeType, data: source.data } });
+    });
+    let selectedIndices: number[];
+    try {
+      const classification = await inspectJson(scanContents, {
+        type: Type.OBJECT,
+        properties: {
+          photos: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                index: { type: Type.INTEGER },
+                kind: { type: Type.STRING, enum: ["inventory", "full_front", "full_back", "detail", "other"] },
+                confidence: { type: Type.NUMBER },
+              },
+              required: ["index", "kind", "confidence"],
+            },
+          },
+        },
+        required: ["photos"],
+      }, "photo sorting");
+      selectedIndices = pickJeansReferences(classification, sources.length);
+    } catch (sortError: any) {
+      console.error("[generate-fitpic] photo selection failed:", sortError);
+      const message = String(sortError?.message || "");
+      const inputProblem = /Foto|Original|Jeans|Vorderseite|uneindeutig/i.test(message);
+      return res.status(inputProblem ? 422 : 503).json({
+        success: false,
+        error: inputProblem ? message : fitpicCheckErrorMessage(sortError, "Jeans-Fotoerkennung"),
+      });
+    }
+
+    const referenceContents: any[] = [];
+    selectedIndices.forEach((sourceIndex, i) => {
+      const source = sources[sourceIndex];
+      referenceContents.push({ text: `GARMENT REFERENCE ${i + 1}: authentic jeans photo ${sourceIndex + 1}, NOT an inventory bag. The first reference should show full front.` });
+      referenceContents.push({ inlineData: { mimeType: source.mimeType, data: source.data } });
+    });
     const response = await ai.models.generateContent({
       model,
-      contents: [...sourceContents, { text: prompt }],
+      contents: [...referenceContents, { text: prompt + "\\nFollow the attached garment reference images ONLY. Inventory bag photos were excluded by an earlier inspection. Metadata (secondary, only if it matches the photos): " + (meta || "none") }],
       config: { responseModalities: ["IMAGE"], imageConfig: { aspectRatio: "3:4" } },
     });
     let generated: { data: string; mimeType: string } | null = null;
@@ -151,48 +234,49 @@ The final image must depict one person wearing the EXACT JEANS from the photos a
       return res.status(502).json({ success: false, error: "Die Bild-KI hat kein Foto geliefert." });
     }
 
-    // Second, independent visual check: reject the exact class of errors
-    // reported by users (invented article numbers on pant legs and modified jeans).
-    // This check is not infallible: the customer must still approve the preview.
-    let review: any;
+    // Independent quality check compares ALL selected real garment references.
+    // A broken reviewer never causes an unverified photo to be accepted.
+    let review: { approved: boolean; confidence: number; issues: string[] };
     try {
-      const qa = await ai.models.generateContent({
-        model: process.env.FITPIC_QA_MODEL || "gemini-2.5-flash",
-        contents: [
-          {text: `You are a STRICT secondhand clothing authenticity inspector. The first ${sources.length} images show the ORIGINAL real jeans from multiple angles. The FINAL IMAGE is an AI-generated try-on. Compare all original photos against the final image.
-Return JSON only: {"approved": boolean, "confidence": number, "issues": string[]}.
-Reject immediately if:
-1. ANY added handwriting, digits, inventory/stock number or fake logo on the legs (especially large numbers like 109).
-2. WRONG jeans: different wash, lightness/darkness, color, fade patches, missing details, back-pocket stitching or visibly changed leg width, bootcut/flare vs straight/slim.
-3. Incorrectly changed rise/hem proportions or dramatically different pockets, branding or distressing.
-4. Face uncovered, unnatural legs, fake-looking skin, professional fashion pose, or missing waistband/hems.
-5. Cannot verify full pair of jeans from reference photos.
-Use evidence from ALL original photos; strong color or fit mismatches are NEVER acceptable. Set approved=true only if faithfully reproduced, with confidence >=0.85; otherwise false. If unsure, reject. Response is JSON, no markdown.`},
-          ...sourceContents,
-          {text:"Final image to verify (generated try-on photo):"},
-          {inlineData:{mimeType:generated.mimeType,data:generated.data}},
-        ],
-        config: { responseMimeType: "application/json" },
-      });
-      review = JSON.parse((qa.text || "").trim());
-    } catch (checkError) {
-      console.error("[generate-fitpic] automated quality check unavailable:", checkError);
+      const rawReview = await inspectJson([
+        { text: `You are a strict quality inspector of a virtual try-on for a second-hand garment.
+The FIRST ${selectedIndices.length} attachments are different views of the SAME REAL JEANS.
+The FINAL attachment is a synthetic mirror selfie. Return JSON with approved:boolean, confidence:number between 0 and 1, issues:string[].
+APPROVE ONLY if the actual trousers are reproduced faithfully: matching wash, color, fit, leg width, flare/bootcut vs straight, rise, pockets, seams, length, hems, branding, tears and visible signs of wear.
+REJECT if any prominent printed/handwritten numbers, inventory marks, fake labels or details have appeared on jeans.
+REJECT if original wash or leg shape changed; the face is visible, anatomy unnatural, garment blurry or cropped.
+Always reject if you cannot verify the item identity or full silhouette from references.
+Do NOT require hidden back pockets to be visible from a frontal mirror selfie. Ignore minor natural lighting differences.
+APPROVE only if confident >=0.85 and there are ZERO meaningful issues; otherwise reject.
+No invented approval. Always return the full structured response.` },
+        ...referenceContents,
+        { text: "FINAL GENERATED PHOTO TO INSPECT AGAINST ABOVE REAL JEANS:" },
+        { inlineData: { mimeType: generated.mimeType, data: generated.data } },
+      ], {
+        type: Type.OBJECT,
+        properties: {
+          approved: { type: Type.BOOLEAN },
+          confidence: { type: Type.NUMBER },
+          issues: { type: Type.ARRAY, items: { type: Type.STRING } },
+        },
+        required: ["approved", "confidence", "issues"],
+      }, "image quality check");
+      review = validateFitpicReview(rawReview);
+    } catch (checkError: any) {
+      console.error("[generate-fitpic] quality inspection failed:", checkError);
       return res.status(503).json({
         success: false,
-        error: "Fitpic-Prüfung fehlgeschlagen. Es wurde kein unkontrolliertes KI-Bild übernommen.",
+        error: fitpicCheckErrorMessage(checkError, "Fitpic-Prüfung"),
       });
     }
 
-    if (review?.approved !== true || typeof review.confidence !== "number" || review.confidence < 0.85) {
-      console.warn("[generate-fitpic] rejected by review:", review?.issues);
-      const detectedIssues = Array.isArray(review?.issues)
-        ? review.issues.filter((item: unknown) => typeof item === "string").slice(0, 2)
-        : [];
+    if (!review.approved) {
+      console.warn("[generate-fitpic] image quality rejected:", review.issues, "confidence", review.confidence);
       return res.status(422).json({
         success: false,
-        error: "KI-Fitpic wegen Qualitätsfehler abgelehnt" +
-          (detectedIssues.length ? ": " + detectedIssues.join("; ").slice(0, 180) : ".") +
-          " Bitte neu erstellen.",
+        error: "KI-Fitpic wegen Abweichung von der echten Jeans abgelehnt" +
+          (review.issues.length ? ": " + review.issues.map(issue => clean(issue, 80)).join("; ").slice(0, 180) : ".") +
+          " Bitte Originalfotos prüfen oder Fitpic erneut erstellen.",
       });
     }
 
