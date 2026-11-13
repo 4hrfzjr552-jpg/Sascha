@@ -21,3 +21,14 @@ Sascha AI erstellt bei der **Einzelgenerierung** einer Anzeige ein zusätzliches
 Der Bildgenerator verwendet feste Beschreibungen für zwei fiktive erwachsene Personen, aber keine fotografischen Identitätsreferenzen. Deshalb ist *identisches* Aussehen in jedem Bild nicht garantiert. Ebenso können Nähte, Waschungen und Passform durch das Modell fehlerhaft dargestellt werden. **Vor Veröffentlichung immer mit den echten Fotos vergleichen.** In vorbereiteten Vinted-Entwürfen wird das Tragebeispiel als KI-generiert deklariert.
 
 Im Fehlerfall wird die Textanzeige weiterhin gespeichert und das Originalmaterial bleibt erhalten.
+
+
+## Genauere Jeans-Fitpics (Mehrfachreferenz)
+- Sascha AI sendet jetzt **2–4 Originalfotos** (Vorderseite in voller Länge, Rückseite und Details), nicht nur die erste, eventuell stark herangezoomte Bundaufnahme.
+- Foto 5 mit der handschriftlichen Artikelnummer auf der grauen Tüte wird weiterhin **nicht** an die Fitpic-KI gesendet.
+- Die Bild-KI soll die vollständige Vorderseite selbst unter den Referenzen erkennen; die anderen Fotos dienen zum Erhalt von Farbe/Waschung, Schnitt, Taschen, Label und Nähte.
+- Ein separater visueller Gemini-Check prüft das erzeugte Foto anhand **aller** Referenzen. Sichtbare Änderungen an Bootcut/Beinweite, Waschung oder erfundene Zahlen sollen zur Ablehnung führen.
+- Kein automatisches Durchprobieren zahlreicher Ergebnisse: Bildgenerierung und Qualitätssicherung können API-Gebühren verbrauchen.
+- **Kein pixelgenauer Transfer garantiert.** Bitte das Fitpic vor der Freigabe immer manuell mit den Originalen vergleichen. Bei falscher Jeans: „Fitpic neu erstellen“ oder verwerfen.
+
+Empfohlen: Foto 1/2 mit ganzer Vorderseite, ein Foto mit ganzer Rückseite, dann detailreiche Aufnahmen; falls vorhanden Foto 5 ausschließlich als Tütennummer.
