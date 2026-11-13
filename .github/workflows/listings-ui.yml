@@ -34,3 +34,7 @@ jobs:
         run: npm run lint
       - name: Vite production build
         run: npm run build
+      - name: Bundle Vercel fitpic function (detect runtime import failures)
+        run: |
+          npx esbuild api/generate-fitpic.ts --bundle --platform=node --target=node22 --format=esm --packages=external --outfile=dist/fitpic-function.mjs
+          node --input-type=module -e "const m = await import('./dist/fitpic-function.mjs'); if (typeof m.default !== 'function') throw Error('Missing Vercel handler export')"
