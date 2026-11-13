@@ -43,10 +43,10 @@ export const VintedPublishSchedule: React.FC<Props> = ({ drafts }) => {
   };
 
   const create = () => {
-    if (plan?.slots?.some(slot => slot.status === "published") &&
-      !window.confirm("Es wurden bereits Artikel als veröffentlicht bestätigt. Einen neuen Zeitplan erstellen? Die alten Plan-Bestätigungen werden überschrieben.")) return;
+    if (plan?.slots?.some(slot => slot.status === "pending") &&
+      !window.confirm("Den noch offenen Zeitplan neu einteilen? Bereits als veröffentlicht bestätigte Artikel bleiben ausgeschlossen.")) return;
     if (!ready.length) return;
-    save(buildVintedPublishingPlan(ready, new Date()));
+    save(buildVintedPublishingPlan(ready, new Date(), plan));
   };
 
   const update = (slot: VintedScheduledSlot, status: "published" | "skipped") => {
@@ -111,7 +111,7 @@ export const VintedPublishSchedule: React.FC<Props> = ({ drafts }) => {
       {plan && (
         <>
           <p className="text-xs text-stone-600 dark:text-stone-400">
-            {plan.enabled ? "Zeitplan aktiv" : "Zeitplan pausiert"} · {activeSlots.length} offen · {publishedCount} bestätigt · {skippedCount} übersprungen.
+            {plan.enabled ? "Zeitplan aktiv" : "Zeitplan pausiert"} · {activeSlots.length} offen · {plan.publishedDraftIds?.length || publishedCount} bestätigt · {skippedCount} übersprungen.
             Die Zuordnung wird nur in diesem Browser gespeichert.
           </p>
 
