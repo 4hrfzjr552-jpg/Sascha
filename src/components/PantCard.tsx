@@ -300,7 +300,7 @@ export const PantCard: React.FC<PantCardProps> = ({
 
   const isCollapsed = Boolean(pant.isCollapsed);
   const isAnalyzing = pant.status === "analyzing";
-  const firstPhoto = pant.fitpic?.dataUrl || (pant.images.length > 0 ? pant.images[0].dataUrl : null);
+  const firstPhoto = (pant.fitpicApproved ? pant.fitpic?.dataUrl : undefined) || (pant.images.length > 0 ? pant.images[0].dataUrl : null);
 
   return (
     <div
@@ -596,16 +596,16 @@ export const PantCard: React.FC<PantCardProps> = ({
                   {pant.fitpic && (
                     <img
                       src={pant.fitpic.dataUrl}
-                      alt="KI-generiertes Tragebeispiel als Titelbild"
-                      className="h-36 w-28 object-cover rounded-lg border border-stone-300 dark:border-stone-600"
+                      alt="KI-generiertes Tragebeispiel zur Prüfung"
+                      className="h-60 w-44 max-w-full object-cover rounded-lg border border-stone-300 dark:border-stone-600"
                     />
                   )}
                   <div className="flex-1 min-w-[160px] space-y-2">
                     <div className="font-bold text-xs text-stone-900 dark:text-stone-100">
-                      {pant.fitpic ? "Titelbild: KI-Fitpic" : "KI-Fitpic als Titelbild"}
+                      {pant.fitpic ? pant.fitpicApproved ? "KI-Fitpic freigegeben" : "KI-Fitpic prüfen (noch nicht veröffentlicht)" : "KI-Fitpic als Titelbild"}
                     </div>
                     <p className="text-xs text-stone-600 dark:text-stone-300">
-                      KI-generiertes Tragebeispiel. Die Originalfotos bleiben unverändert und folgen beim Export.
+                      Erst prüfen, ob Waschung, Schnitt und Details deiner Jeans stimmen. Nur freigegebene KI-Tragebeispiele werden vor den Originalfotos exportiert.
                     </p>
                     {pant.fitpicError && <p className="text-xs text-rose-700 dark:text-rose-300">{pant.fitpicError}</p>}
                     {onGenerateFitpic && pant.status === "done" && (
@@ -619,13 +619,23 @@ export const PantCard: React.FC<PantCardProps> = ({
                         {isGeneratingFitpic ? "Fitpic entsteht…" : pant.fitpic ? "Fitpic neu erstellen" : "Fitpic erstellen"}
                       </button>
                     )}
+                    {pant.fitpic && !pant.fitpicApproved && (
+                      <button
+                        type="button"
+                        onClick={() => onUpdate({ ...pant, fitpicApproved: true, fitpicError: undefined })}
+                        className="block px-3 py-2 rounded-lg bg-emerald-700 text-white text-xs font-semibold"
+                        title="Nur wählen, wenn die KI-Jeans mit den Originalfotos übereinstimmt"
+                      >
+                        Geprüft – als Titelbild verwenden
+                      </button>
+                    )}
                     {pant.fitpic && (
                       <button
                         type="button"
-                        onClick={() => onUpdate({ ...pant, fitpic: undefined, fitpicError: undefined })}
+                        onClick={() => onUpdate({ ...pant, fitpic: undefined, fitpicApproved: false, fitpicError: undefined })}
                         className="block text-xs underline text-stone-600 dark:text-stone-300"
                       >
-                        Fitpic entfernen
+                        Fitpic verwerfen
                       </button>
                     )}
                   </div>
