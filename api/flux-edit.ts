@@ -65,7 +65,7 @@ export function acceptableBflPollUrl(value:string):boolean {
     // on a region-specific cluster, e.g. api.eu2.bfl.ai. Never synthesize
     // the result URL: honour the exact one returned by BFL.
     const validRegion=url.hostname==="api.bfl.ai" ||
-      /^api\\.(?:eu|us)\\d*\\.bfl\\.ai$/.test(url.hostname);
+      /^api\.(?:eu|us)\d*\.bfl\.ai$/.test(url.hostname);
     return url.protocol==="https:" && url.port==="" &&
       !url.username && !url.password && !url.hash &&
       validRegion && url.pathname==="/v1/get_result" &&
