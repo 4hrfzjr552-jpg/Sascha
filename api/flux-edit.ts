@@ -30,7 +30,12 @@ function imageDataUrl(value:unknown,maxBytes:number) {
 function safeText(value:unknown,max=500) {
   return typeof value==="string" ? value.replace(/[\x00-\x1f]/g," ").slice(0,max).trim() : "";
 }
-function makePrompt(body:any): string {
+/** A Request Moderated result is rejected before BFL charges credits. */
+export function isUnchargedBflModeration(status:unknown):boolean {
+  return status==="Request Moderated";
+}
+
+export function makePrompt(body:any): string {
   const operation=body.mode as Operation;
   const details=body.details && typeof body.details==="object" ? body.details : {};
   const identity=`PRODUCT DATA (secondary to real source photo):
@@ -192,7 +197,7 @@ export default async function handler(req:any,res:any) {
           notice:"FLUX ist generative KI. Vor dem Vinted-Export Original und Markenmerkmale genau prüfen.",
         });
       }
-      if(polled.status==="Request Moderated")
+      if(isUnchargedBflModeration(polled.status))
         throw Object.assign(new Error(
           "Black Forest Labs hat das Eingabefoto oder den Prompt durch die Inhaltsprüfung abgelehnt (Request Moderated). Laut BFL wird diese Anfrage nicht berechnet. Du kannst die neutrale Umrissvorlage testweise deaktivieren; eine erneute Generierung erfolgt NICHT automatisch."
         ),{status:422,chargeMayHaveOccurred:false,code:"REQUEST_MODERATED"});
