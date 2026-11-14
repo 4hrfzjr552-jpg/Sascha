@@ -52,8 +52,9 @@ async function classifyImage(ai: GoogleGenAI, source: {mimeType:string;data:stri
         model,
         contents: [
           {text: `Classify this single seller-uploaded clothing photo. Return JSON {"kind":...,"confidence":...}.
-"full_front": entire FRONT of a pair of pants from waistband to both hems.
-"full_back": entire BACK of a pair of pants from waistband to both hems.
+"full_front": entire FRONT of pants waistband to both hems, showing center fly/zip/button, curved hand pocket openings, maybe a coin pocket; NO large rear seat pockets.
+"full_back": entire BACK of pants waistband to both hems, showing the pair of rear seat patch pockets, back yoke, possibly rear brand waistband patch.
+This distinction is critical: if uncertain whether whole jeans are front/back, use "other". Do not let listing metadata override visible evidence.
 "detail": only part of clothing, e.g. waistband, patch, pocket, label, hem, close-up.
 "inventory": packaging, grey bag, handwriting, article or stock number, even if denim partly visible.
 "other": unrelated or too unclear. Do NOT confuse a close-up of a waistband with full pants.
@@ -69,7 +70,7 @@ Be conservative and say "other" when unsure. The bag can be anywhere in the phot
       const result = parseJson(response.text || "");
       const kind = result?.kind as ImageKind, confidence=Number(result?.confidence);
       if (!["full_front","full_back","detail","inventory","other"].includes(kind) ||
-          !Number.isFinite(confidence) || confidence < 0.70) {
+          !Number.isFinite(confidence) || confidence < (kind==="full_front"||kind==="full_back" ? 0.88 : 0.75)) {
         throw new Error("Foto nicht eindeutig als Jeans oder Detailfoto erkannt.");
       }
       return kind;
@@ -86,11 +87,17 @@ export function approvesProductEdit(review: unknown): boolean {
   if (!review || typeof review !== "object") return false;
   const r=review as Record<string,unknown>;
   const confidence=r.confidence;
+  const expected=r.expectedView;
+  const actual=r.generatedView;
+  const viewValid=(expected==="front" || expected==="back")
+    ? actual===expected
+    : expected==="detail" && actual==="detail";
   return r.approved === true &&
     typeof confidence === "number" &&
     Number.isFinite(confidence) && confidence >= 0.85 && confidence <= 1 &&
     r.sameGarment === true &&
     r.sameSide === true &&
+    viewValid &&
     r.correctComposition === true &&
     Array.isArray(r.issues) && r.issues.length === 0;
 }
@@ -147,12 +154,18 @@ These are garment-identity clues, NOT text to print on the picture. Ignore wrong
 
     const operation=mode==="auto" ? (kind==="detail"?"detail":"flatlay") : mode;
     const surface=backgrounds[background];
+    const requiredView=kind==="full_front"?"front":kind==="full_back"?"back":"detail";
+    const viewLock=kind==="full_front"
+      ? "CRITICAL FRONT-ONLY: the ORIGINAL shows FRONT of the jeans. Show the center front fly/button and curved front pocket openings; preserve exact original pockets. NEVER invent rear seat patch pockets, rear yoke or back-of-waistband brand patch. Do not reproduce a rear view even if the separate layout sample shows one."
+      : kind==="full_back"
+      ? "CRITICAL BACK-ONLY: the ORIGINAL shows BACK of the jeans. Keep precisely the rear pockets, yoke and patch of the original. Do NOT add a center fly or front pocket openings."
+      : "CRITICAL DETAIL-ONLY: keep the exact photographed region and crop without converting to a whole pair.";
     const identityRules=`PRIORITY: The FIRST image is the exact physical garment / detail offered for sale. All other photos, if any, are supporting views of the SAME garment or a LAYOUT ONLY guide, never a replacement product. Keep the exact real color, authentic wear/fading/whiskering, stain marks, worn creases, stitching, waistband, hems, holes, fraying, labels, buttons, pocket edges, embroidery and branding. Never repair, whiten, iron out permanent wear marks or invent missing parts. No stock numbers, fake graphics, new labels, mannequins, people or unrelated garments.
 No text overlay. Realistic reselling product photo.
 ${identity}`;
     const fullPrompt=`EDIT THIS PHOTO OF THE EXACT SAME JEANS, NOT A DIFFERENT OR GENERIC PAIR.
 COMPOSITION: Photorealistic overhead 1:1 flatlay of the FULL SAME jeans.
-A) Keep the BACK if source is back (${kind==="full_back"?"YES, THIS IS THE BACK":"the input determines orientation"}); keep FRONT if source is front. Preserve the same actual pocket design and placement.
+A) ${viewLock} SOURCE PHOTO VIEW: "${requiredView}". Keep the SAME visible side for the entire edit. The separate layout does not dictate which side of jeans to show.
 B) Waistband horizontal at image TOP, both legs extend downward. A deliberate lightly folded / bent silhouette: EXACTLY TWO SOFT, NATURAL VISIBLE BENDS / KINKS IN EACH TROUSER LEG, one around upper knee and one at the lower calf. Count TWO PER LEG, not arbitrary wrinkles, but do not alter true leg length, width or flare.
 C) At the BOTTOM, the two trouser leg openings / hems MUST JUST TOUCH at their INNER edges. Zero gap between the two inner bottom cuffs; do not overlap or merge them, and don't lose real frayed threads.
 D) Lay the jeans orderly like a seller carefully arranged them, smooth incidental bunching and deep temporary rumples, not intentional wash marks or permanent wear. Preserve original wear and frayed hems!
@@ -178,11 +191,15 @@ ${identityRules}`;
       contents.push({text:`PRODUCT SUPPORT PHOTO ${i+1}: same real pair for cross-checking wash/brand details, not a new garment or view to render.`});
       contents.push({inlineData:photo!});
     }
-    if(layout && operation==="flatlay") {
+    // The provided composition sample shows the rear of another pair.
+    // Omit it when editing a FRONT shot: image-to-image models were copying
+    // the sample's back pockets rather than preserving the source's front.
+    if(layout && operation==="flatlay" && kind==="full_back") {
       contents.push({text:"COMPOSITION TEMPLATE ONLY: do not reproduce the different jeans from this example; only mimic its layout and carpet."});
       contents.push({inlineData:layout});
     }
     contents.push({text:operation==="flatlay"?fullPrompt:operation==="detail"?detailPrompt:backgroundPrompt});
+    contents.push({text:"MANDATORY PRODUCT VIEW: "+viewLock+" Expected: "+requiredView+". No alternate view is acceptable."});
     console.info("[flatlay] generating",{operation,kind,model,background,support:support.length});
     const generated=await ai.models.generateContent({
       model,contents,config:{responseModalities:["IMAGE"],imageConfig:{aspectRatio: operation==="detail"||operation==="background"?"1:1":"1:1"}},
@@ -205,6 +222,8 @@ ${identityRules}`;
       sameGarment?: boolean;
       sameSide?: boolean;
       correctComposition?: boolean;
+      expectedView?: string;
+      generatedView?: string;
       issues?: unknown;
     } | null=null;
     let reviewError: unknown;
@@ -215,10 +234,11 @@ ${identityRules}`;
           contents:[
             {text:`You are an INDEPENDENT strict visual reviewer for a second-hand jeans listing.
 Picture ONE is the REAL unedited user photo. Picture TWO is an AI edited picture.
-Operation: "${operation}". SOURCE classification: "${kind}".
-Respond only with JSON: {"approved":boolean,"confidence":number,"sameGarment":boolean,"sameSide":boolean,"correctComposition":boolean,"issues":string[]}.
+Operation: "${operation}". SOURCE classification: "${kind}". REQUIRED OUTPUT VIEW: "${requiredView}".
+Respond only with JSON: {"approved":boolean,"confidence":number,"sameGarment":boolean,"sameSide":boolean,"correctComposition":boolean,"expectedView":"front|back|detail|unknown","generatedView":"front|back|detail|unknown","issues":string[]}.
+Independently look at each image. In image ONE, identify FRONT by a front fly/button/front curved pockets and BACK by large rear seat pockets/yoke/patch. Inspect image TWO separately. expectedView = appearance of image ONE; generatedView = appearance of image TWO. For close-ups, use "detail". If uncertain, use "unknown". Never merely repeat the required view without visual evidence.
 Reject if you cannot confidently recognize the SAME exact jeans/details in both, including side/front/back, pockets, seams, wash patterns, fading, patches, real text/embroidery, fraying, scratches and genuine flaws. Do not accept a generic similar-looking pair.
-Reject if photo TWO shows a different visible trouser side than photo ONE.
+Reject if photo TWO shows a different visible trouser side than photo ONE. Specifically, reject front fly/pockets turning into rear patch pockets, or rear pockets turning into front pockets. The source must independently match "${requiredView}" and the result must match the same view.
 In DETAIL mode, reject invented full trousers or substantially changed original close-up crop, logos/labels/text, stitching or damage.
 In BACKGROUND mode, reject ANY substantial modification of the clothing itself, its position/shape/folds or zoom/crop. Only external ground may change. A realistic shadow is okay.
 In FLATLAY mode, require entire pair from waistband to both hems, TWO clearly visible gentle directional bends in EACH leg (knee and calf), and INNER edges of BOTH bottom openings JUST TOUCH with no gap and no overlap or merging. The source garment identity, authentic wear, shape and hem width must remain true. Reject if the model merely copied the trousers/design from a layout reference.
@@ -240,9 +260,11 @@ Set sameGarment, sameSide, correctComposition based on evidence. Approve only wi
                 sameGarment:{type:Type.BOOLEAN},
                 sameSide:{type:Type.BOOLEAN},
                 correctComposition:{type:Type.BOOLEAN},
+                expectedView:{type:Type.STRING,enum:["front","back","detail","unknown"]},
+                generatedView:{type:Type.STRING,enum:["front","back","detail","unknown"]},
                 issues:{type:Type.ARRAY,items:{type:Type.STRING}},
               },
-              required:["approved","confidence","sameGarment","sameSide","correctComposition","issues"],
+              required:["approved","confidence","sameGarment","sameSide","correctComposition","expectedView","generatedView","issues"],
             },
           },
         });
@@ -260,18 +282,20 @@ Set sameGarment, sameSide, correctComposition based on evidence. Approve only wi
     const issues=Array.isArray(review.issues)
       ? review.issues.filter((issue:unknown):issue is string=>typeof issue==="string").slice(0,3)
       : [];
-    const approved=approvesProductEdit(review);
+    const approved=approvesProductEdit(review) && review.expectedView===requiredView;
     if(!approved) {
       console.warn("[flatlay] rejected AI candidate",{
         operation,kind,confidence:review.confidence,
         sameGarment:review.sameGarment,sameSide:review.sameSide,
-        correctComposition:review.correctComposition,issues,
+        correctComposition:review.correctComposition,expectedView:review.expectedView,generatedView:review.generatedView,issues,
       });
       return res.status(422).json({
         success:false,
-        error:"KI-Ergebnis weicht vom echten Foto oder von der gewünschten Anordnung ab und wurde verworfen."+
-          (issues.length ? " Probleme: "+issues.map(v=>clean(v,110)).join("; ").slice(0,230) : "")+
-          " Originalbild bleibt erhalten.",
+        error:review.expectedView!==requiredView || review.generatedView!==requiredView
+          ? "Vorder-/Rückseite nicht zuverlässig erhalten. KI-Foto abgelehnt; das Original bleibt unverändert."
+          : "KI-Ergebnis weicht vom echten Foto oder von der gewünschten Anordnung ab und wurde verworfen."+
+            (issues.length ? " Probleme: "+issues.map(v=>clean(v,110)).join("; ").slice(0,230) : "")+
+            " Originalbild bleibt erhalten.",
       });
     }
     return res.status(200).json({

@@ -4,12 +4,19 @@ import { approvesProductEdit } from "../api/optimize-flatlay.ts";
 
 const correct = {
   approved: true, confidence:0.92, sameGarment:true,
-  sameSide:true, correctComposition:true, issues:[],
+  sameSide:true, correctComposition:true, expectedView:"front", generatedView:"front", issues:[],
 };
 test("image edits pass only when independent reviewer is confident and every requirement is met",()=>{
   assert.equal(approvesProductEdit(correct),true);
   assert.equal(approvesProductEdit({...correct,sameGarment:false}),false);
   assert.equal(approvesProductEdit({...correct,sameSide:false}),false);
+  assert.equal(approvesProductEdit({...correct,generatedView:"back"}),false);
+  assert.equal(approvesProductEdit({...correct,generatedView:"unknown"}),false);
+  assert.equal(approvesProductEdit({...correct,expectedView:"back",generatedView:"front"}),false);
+  assert.equal(approvesProductEdit({...correct,expectedView:"back",generatedView:"back"}),true);
+  assert.equal(approvesProductEdit({...correct,expectedView:"detail",generatedView:"detail"}),true);
+  assert.equal(approvesProductEdit({...correct,expectedView:"unknown",generatedView:"unknown"}),false);
+  assert.equal(approvesProductEdit({...correct,generatedView:undefined}),false);
   assert.equal(approvesProductEdit({...correct,correctComposition:false}),false);
   assert.equal(approvesProductEdit({...correct,confidence:0.83}),false);
   assert.equal(approvesProductEdit({...correct,confidence:Infinity}),false);
