@@ -25,6 +25,7 @@ import {
   Wand2,
 } from "lucide-react";
 import { ImageEditModal } from "./ImageEditModal";
+import { FlatlayEditModal } from "./FlatlayEditModal";
 import { compressImageFile } from "../lib/imageCompressor";
 import { shareVintedPhotos } from "../lib/vintedShare";
 import { formatTitleWithArticleNumber } from "../lib/titleUtils";
@@ -80,6 +81,8 @@ export const PantCard: React.FC<PantCardProps> = ({
     imageId: string;
     dataUrl: string;
   } | null>(null);
+  const [flatlaySourceId, setFlatlaySourceId] = useState<string | null>(null);
+  const flatlaySource = pant.images.find(img => img.id === flatlaySourceId) || null;
 
   // Vinted photo sharing handler
   const handleShareVintedPhotos = async () => {
@@ -185,10 +188,29 @@ export const PantCard: React.FC<PantCardProps> = ({
     onUpdate({
       ...pant,
       images: newImages,
+      // The underlying garment image was changed. A previously generated
+      // flatlay no longer matches it and must be explicitly regenerated.
+      flatlays: (pant.flatlays || []).filter(f => f.sourceImageId !== targetImage.id),
       updatedAt: Date.now(),
     });
 
     setEditingImageState(null);
+  };
+
+  // The seller explicitly approved this edited result in the comparison
+  // modal. Keep the authentic source photo untouched, including its position
+  // and article-number bag. A separate variant is stored in Supabase.
+  const handleAcceptFlatlay = (image: PantImage) => {
+    if (!flatlaySource || !pant.images.some(img => img.id === flatlaySource.id)) return;
+    onUpdate({
+      ...pant,
+      flatlays: [
+        ...(pant.flatlays || []).filter(f => f.sourceImageId !== flatlaySource.id),
+        { sourceImageId: flatlaySource.id, image, approved: true },
+      ],
+      updatedAt: Date.now(),
+    });
+    setFlatlaySourceId(null);
   };
 
   // Delete an image
@@ -196,6 +218,7 @@ export const PantCard: React.FC<PantCardProps> = ({
     onUpdate({
       ...pant,
       images: pant.images.filter((img) => img.id !== imageId),
+      flatlays: (pant.flatlays || []).filter(f => f.sourceImageId !== imageId),
       updatedAt: Date.now(),
     });
   };
@@ -322,6 +345,11 @@ export const PantCard: React.FC<PantCardProps> = ({
         imageName={`Hose #${pant.number} Foto`}
         onClose={() => setEditingImageState(null)}
         onAccept={handleAcceptEditedImage}
+      />
+      <FlatlayEditModal
+        image={flatlaySource}
+        onClose={() => setFlatlaySourceId(null)}
+        onAccept={handleAcceptFlatlay}
       />
       {/* COLLAPSED HEADER / COMPACT SUMMARY ROW */}
       <div
@@ -678,6 +706,17 @@ export const PantCard: React.FC<PantCardProps> = ({
                       <span className="hidden xs:inline">Hintergrund</span>
                     </button>
 
+                    {/* Individual AI re-layout; never modify stock-number bag (#5). */}
+                    {!(pant.images.length === 5 && index === 4) && (
+                      <button type="button" onClick={() => setFlatlaySourceId(img.id)}
+                        disabled={isAnalyzing || isCompressing}
+                        className="flex h-7 px-1.5 items-center justify-center gap-1 rounded-lg bg-stone-900/80 text-teal-300 hover:bg-stone-900 hover:text-teal-200 disabled:opacity-50 transition-colors backdrop-blur-xs min-h-[36px] text-[10px] font-bold"
+                        title="KI-Flatlay: Hose wie im Beispiel hinlegen und glätten">
+                        <Sparkles className="h-3.5 w-3.5" />
+                        <span className="hidden xs:inline">Flatlay</span>
+                      </button>
+                    )}
+
                     <button
                       type="button"
                       onClick={() => handleDeleteImage(img.id)}
@@ -743,6 +782,39 @@ export const PantCard: React.FC<PantCardProps> = ({
                 </button>
               )}
             </div>
+
+            {(pant.flatlays || []).length > 0 && (
+              <div className="mt-3 rounded-xl border border-teal-200 dark:border-teal-800 bg-teal-50/50 dark:bg-teal-950/20 p-3 space-y-2">
+                <p className="text-xs font-bold text-stone-800 dark:text-stone-100">
+                  KI-Flatlays (Originalbilder bleiben erhalten)
+                </p>
+                <p className="text-[11px] text-stone-600 dark:text-stone-400">
+                  Nur freigegebene Varianten werden für Vinted bevorzugt. Vergleiche jeden Mangel mit dem echten Bild.
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {(pant.flatlays || []).filter(entry => pant.images.some(img => img.id === entry.sourceImageId)).map(entry => (
+                    <div key={entry.sourceImageId} className="rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 p-2 space-y-1.5">
+                      <img src={entry.image.dataUrl} alt="KI-Flatlay der Jeans" className="aspect-square w-full object-contain rounded bg-stone-100 dark:bg-stone-800" />
+                      <p className="text-[11px] text-stone-700 dark:text-stone-300 font-semibold">
+                        Foto #{pant.images.findIndex(img => img.id === entry.sourceImageId) + 1}
+                      </p>
+                      <button type="button" onClick={() => onUpdate({
+                        ...pant,
+                        flatlays: (pant.flatlays || []).map(f => f.sourceImageId === entry.sourceImageId
+                          ? {...f, approved: !f.approved} : f),
+                        updatedAt: Date.now(),
+                      })} className="block w-full text-left text-[11px] font-semibold text-teal-700 dark:text-teal-300 min-h-[30px]">
+                        {entry.approved ? "✓ Für Vinted freigegeben" : "Nicht freigegeben · aktivieren"}
+                      </button>
+                      <button type="button" onClick={() => {
+                        if (!window.confirm("Dieses Flatlay entfernen? Das echte Foto bleibt erhalten.")) return;
+                        onUpdate({...pant, flatlays: (pant.flatlays || []).filter(f => f.sourceImageId !== entry.sourceImageId), updatedAt: Date.now()});
+                      }} className="text-[11px] text-rose-700 dark:text-rose-300 underline min-h-[28px]">Flatlay entfernen</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Hidden File Input */}
             <input
