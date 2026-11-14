@@ -12,7 +12,7 @@ export interface PantFlatlay {
   image: PantImage;
   approved: boolean;
   /** AI edits are NOT original photographs and require seller approval. */
-  mode?: "flatlay" | "detail" | "background";
+  mode?: "flatlay" | "detail" | "background" | "natural";
   kind?: "full_front" | "full_back" | "detail";
   background?: "rug" | "white" | "light-gray" | "microcement" | "wood" | "original";
 }
