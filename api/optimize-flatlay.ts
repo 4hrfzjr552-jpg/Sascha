@@ -104,7 +104,7 @@ export default async function handler(req:any,res:any) {
     const layout=body?.layoutReference ? parsePhoto(body.layoutReference,500_000) : null;
     if(!main) return res.status(413).json({success:false,error:"Jeansfoto ungültig oder zu groß (max. 2,5 MB)."});
     if(body?.layoutReference && !layout) return res.status(400).json({success:false,error:"Ungültige Flatlay-Layoutvorlage."});
-    const support=Array.isArray(body?.supportImages) ? body.supportImages.slice(0,2).map((s:unknown)=>parsePhoto(s,750_000)) : [];
+    const support: Array<{mimeType:string;data:string}|null> = Array.isArray(body?.supportImages) ? body.supportImages.slice(0,2).map((s:unknown)=>parsePhoto(s,750_000)) : [];
     if(support.some(x=>!x)) return res.status(413).json({success:false,error:"Zusätzliche Produktfotos ungültig oder zu groß."});
     const mode: EditMode=["auto","flatlay","detail","background"].includes(body?.mode) ? body.mode : "auto";
     const background: Background = Object.hasOwn(backgrounds,body?.background) ? body.background : "rug";
