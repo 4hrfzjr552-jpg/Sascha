@@ -8,6 +8,9 @@
   "functions": {
     "api/generate-fitpic.ts": {
       "maxDuration": 300
+    },
+    "api/optimize-flatlay.ts": {
+      "maxDuration": 300
     }
   }
 }

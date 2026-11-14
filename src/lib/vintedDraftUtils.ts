@@ -10,6 +10,7 @@ import {
 } from "./indexedDb";
 import { getSignedImageUrl } from "./supabase";
 import { freshVintedImageSource, prepareVintedImageDataUrl } from "./vintedImageTransfer";
+import { vintedListingPhotos } from "./listingPhotos";
 
 /**
  * Checks whether a PantItem is eligible for preparing a Vinted draft.
@@ -49,7 +50,7 @@ export function createVintedDraftFromPant(
     material: "",
   };
 
-  const imageRefs = [...(pant.fitpicApproved && pant.fitpic ? [pant.fitpic] : []), ...(pant.images || [])].map((img) => ({
+  const imageRefs = vintedListingPhotos(pant).map((img) => ({
     id: img.id,
     name: img.name,
   }));
@@ -139,7 +140,8 @@ export async function getVintedDraftPayload(
   }
 
   if (activePant && activePant.images) {
-    [...(activePant.fitpicApproved && activePant.fitpic ? [activePant.fitpic] : []), ...activePant.images].forEach((img) => {
+    [...(activePant.fitpicApproved && activePant.fitpic ? [activePant.fitpic] : []),
+      ...activePant.images, ...(activePant.flatlays || []).map(entry => entry.image)].forEach((img) => {
       if (img.id) {
         pantImagesMap.set(img.id, {
           dataUrl: img.dataUrl || "",
@@ -153,6 +155,13 @@ export async function getVintedDraftPayload(
   // Determine list of image IDs to hydrate
   let targetImageIds = draft.imageIds || [];
 
+  // A previously prepared draft can predate a newly approved Flatlay.
+  // Reflect the seller's current explicit approval and never retain
+  // a disabled/stale AI image through old imageIds.
+  if (activePant?.flatlays?.length && draft.status !== "saved") {
+    targetImageIds = vintedListingPhotos(activePant).map(img => img.id);
+  }
+
   // Fallback 1: If draft.imageIds is empty or unmapped, fall back to draft.imageRefs
   if (targetImageIds.length === 0 && draft.imageRefs && draft.imageRefs.length > 0) {
     targetImageIds = draft.imageRefs.map((r) => r.id);
@@ -160,7 +169,7 @@ export async function getVintedDraftPayload(
 
   // Fallback 2: If draft has no image references but pant has images, fall back to all pant image IDs
   if (targetImageIds.length === 0 && activePant && activePant.images && activePant.images.length > 0) {
-    targetImageIds = [...(activePant.fitpicApproved && activePant.fitpic ? [activePant.fitpic] : []), ...activePant.images].map((img) => img.id);
+    targetImageIds = vintedListingPhotos(activePant).map(img => img.id);
   }
 
   // Reject an old draft's fitpic reference if it was never approved.
@@ -190,9 +199,7 @@ export async function getVintedDraftPayload(
       let found = pantImagesMap.get(id);
 
       // Fallback 3: positional matching in final listing photo order.
-      const orderedImages = activePant
-        ? [...(activePant.fitpicApproved && activePant.fitpic ? [activePant.fitpic] : []), ...(activePant.images || [])]
-        : [];
+      const orderedImages = activePant ? vintedListingPhotos(activePant) : [];
       if ((!found || (!found.dataUrl && !found.storagePath)) && orderedImages[idx]) {
         const fallbackImg = orderedImages[idx];
         found = {

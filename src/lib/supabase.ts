@@ -107,7 +107,14 @@ export async function resolvePantSignedUrls(pant: PantItem): Promise<PantItem> {
     if (signedUrl) fitpic = { ...fitpic, dataUrl: signedUrl };
   }
 
-  return { ...pant, images: updatedImages, fitpic };
+  const flatlays = await Promise.all((pant.flatlays || []).map(async (entry) => {
+    if (entry.image?.storagePath) {
+      const url = await getSignedImageUrl(entry.image.storagePath);
+      if (url) return { ...entry, image: { ...entry.image, dataUrl: url } };
+    }
+    return entry;
+  }));
+  return { ...pant, images: updatedImages, fitpic, flatlays };
 }
 
 /**
@@ -205,9 +212,23 @@ export async function savePantToSupabase(userId: string, pant: PantItem): Promis
     };
   }
 
+  const processedFlatlays = await Promise.all((pant.flatlays || [])
+    .filter(entry => processedImages.some(img => img.id === entry.sourceImageId))
+    .map(async (entry) => {
+      const original = entry.image;
+      if (!original?.dataUrl.startsWith('data:')) return entry;
+      const storagePath = await uploadPantImage(userId, pant.id, original);
+      const signedUrl = await getSignedImageUrl(storagePath);
+      return {
+        ...entry,
+        image: { ...original, storagePath, dataUrl: signedUrl || original.dataUrl },
+      };
+    }));
+
   const updatedPant: PantItem = {
     ...pant,
     images: processedImages,
+    flatlays: processedFlatlays,
     fitpic: processedFitpic,
     updatedAt: Date.now(),
   };
@@ -226,6 +247,13 @@ export async function savePantToSupabase(userId: string, pant: PantItem): Promis
       ...updatedPant.fitpic,
       dataUrl: updatedPant.fitpic.storagePath ? '' : updatedPant.fitpic.dataUrl,
     } : undefined,
+    flatlays: updatedPant.flatlays?.map((entry) => ({
+      ...entry,
+      image: {
+        ...entry.image,
+        dataUrl: entry.image.storagePath ? '' : entry.image.dataUrl,
+      },
+    })),
   };
 
   const payload = {
