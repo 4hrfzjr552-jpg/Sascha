@@ -7,6 +7,7 @@ import {
   getFlatlayReference, saveFlatlayReference,
   type BeautifyBackground, type BeautifyMode, type BeautifyResult,
 } from "../lib/flatlay";
+import { FLUX_BASE_COST_USD, FLUX_RESERVED_USD, getLocalFluxCap, getLocalFluxUsage, setLocalFluxCap, type ImageProvider } from "../lib/fluxBudget";
 
 interface Props {
   pant: PantItem;
@@ -27,10 +28,17 @@ export const FlatlayEditModal: React.FC<Props> = ({
   const [savingReference,setSavingReference] = useState(false);
   const [mode,setMode] = useState<BeautifyMode>("auto");
   const [background,setBackground] = useState<BeautifyBackground>("rug");
+  const [provider,setProvider] = useState<ImageProvider>(() => {
+    try { return window.localStorage.getItem("sascha-photo-provider-v1")==="flux-pro" ? "flux-pro" : "flux-klein"; }
+    catch { return "flux-klein"; }
+  });
+  const [sourceView,setSourceView] = useState<"" | "front" | "back">("");
+  const [monthlyCap,setMonthlyCap] = useState(getLocalFluxCap);
+  const [spentEstimate,setSpentEstimate] = useState(getLocalFluxUsage);
 
   useEffect(() => {
     setVariant(null); setError(""); setBusy(false);
-    setMode(initialMode);
+    setMode(initialMode);setSourceView("");setSpentEstimate(getLocalFluxUsage());
     const prior=pant.flatlays?.find(f=>f.sourceImageId===image?.id);
     setBackground(prior?.background || "rug");
     setReference(getFlatlayReference());
@@ -41,9 +49,14 @@ export const FlatlayEditModal: React.FC<Props> = ({
   async function generate() {
     if(!image||busy)return;
     setBusy(true); setError(""); setVariant(null);
-    try { setVariant(await generateJeansFlatlay(image,pant,{mode,background})); }
+    try {
+      setVariant(await generateJeansFlatlay(image,pant,{
+        mode,background,provider,sourceView:sourceView || undefined,
+      }));
+      setSpentEstimate(getLocalFluxUsage());
+    }
     catch(e:any) {setError(e?.message || "Foto-KI fehlgeschlagen.");}
-    finally {setBusy(false);}
+    finally {setSpentEstimate(getLocalFluxUsage());setBusy(false);}
   }
 
   async function onTemplateFile(file?:File) {
@@ -107,6 +120,62 @@ export const FlatlayEditModal: React.FC<Props> = ({
               </select>
             </label>
           </div>
+          {mode!=="auto" && (
+            <div className="rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/70 p-3 space-y-2">
+              <label className="block text-xs font-bold text-stone-700 dark:text-stone-200">
+                Bild-KI auswählen
+                <select value={provider} disabled={busy} onChange={e=>{
+                  const p=e.target.value as ImageProvider;
+                  setProvider(p);setVariant(null);
+                  try{window.localStorage.setItem("sascha-photo-provider-v1",p);}catch{ /* optional */ }
+                }}
+                  className="w-full mt-1 rounded-lg bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-600 px-3 py-2.5 text-sm text-stone-900 dark:text-stone-100">
+                  <option value="flux-klein">FLUX.2 Klein – Sparmodus · ab ca. $0,015/Bild</option>
+                  <option value="flux-pro">FLUX.2 Pro – Qualitätsmodus · ab ca. $0,045/Bild</option>
+                  <option value="gemini">Gemini (bisheriges Modell – aktuell Guthaben leer)</option>
+                </select>
+              </label>
+              {provider!=="gemini" && (
+                <>
+                  <p className="text-xs text-stone-600 dark:text-stone-300">
+                    Reservierter Richtwert je Bearbeitung: <strong>${FLUX_RESERVED_USD[provider].toFixed(3)}</strong> USD.
+                    Offizieller Grundpreis ab ${FLUX_BASE_COST_USD[provider].toFixed(3)} USD.
+                    Ein Versuch, kein bezahlter KI-Prüfer. Originalfoto immer selbst kontrollieren.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="text-xs text-stone-600 dark:text-stone-300 font-semibold">
+                      Lokales Monatsbudget
+                      <select value={monthlyCap} disabled={busy} onChange={e=>{
+                        const next=Number(e.target.value);
+                        try {setLocalFluxCap(next);setMonthlyCap(next);setError("");}
+                        catch(err:any){setError(err?.message || "Budget konnte nicht gespeichert werden.");}
+                      }} className="ml-2 border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-900 rounded-lg px-2 py-2">
+                        {[0.5,1,2,5].map(v=><option key={v} value={v}>${v.toFixed(2)}</option>)}
+                      </select>
+                    </label>
+                    <span className="text-xs text-stone-500 dark:text-stone-400">
+                      Im Browser vorgemerkt: ${spentEstimate.toFixed(2)} / ${monthlyCap.toFixed(2)}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-amber-700 dark:text-amber-300">
+                    Nur Browser-Schätzung, nicht geräteübergreifend und keine harte Konto-Sperre.
+                    In BFL automatische Aufladung deaktiviert lassen und nur gewünschtes Guthaben aufladen.
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+          {mode==="flatlay" && provider!=="gemini" && (
+            <label className="block text-xs font-bold text-stone-700 dark:text-stone-200">
+              Originalfoto zeigt (wichtig gegen verwechselte Gesäßtaschen)
+              <select value={sourceView} disabled={busy} onChange={e=>{setSourceView(e.target.value as any);setVariant(null);}}
+                className="w-full mt-1 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 px-3 py-2.5 text-sm">
+                <option value="">Bitte auswählen</option>
+                <option value="front">Vorderseite (Reißverschluss / Fronttaschen)</option>
+                <option value="back">Rückseite (Gesäßtaschen)</option>
+              </select>
+            </label>
+          )}
           {mode==="auto" && (
             <p className="text-xs text-teal-700 dark:text-teal-300">
               Originalgetreue Bildverbesserung ohne neue Jeans, ohne API-Kosten.
@@ -168,7 +237,7 @@ export const FlatlayEditModal: React.FC<Props> = ({
         <footer className="flex flex-wrap justify-end gap-2 px-3 py-3 border-t border-stone-200 dark:border-stone-800">
           <button type="button" disabled={busy} onClick={onClose}
             className="px-4 py-2.5 rounded-xl border border-stone-300 dark:border-stone-700 text-xs font-bold text-stone-700 dark:text-stone-200 disabled:opacity-50">Abbrechen</button>
-          <button type="button" disabled={busy||savingReference} onClick={()=>void generate()}
+          <button type="button" disabled={busy||savingReference||(mode==="flatlay"&&provider!=="gemini"&&!sourceView)} onClick={()=>void generate()}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 text-xs font-bold disabled:opacity-50">
             {busy?<Loader2 className="h-4 w-4 animate-spin"/>:variant?<RefreshCw className="h-4 w-4"/>:<Sparkles className="h-4 w-4"/>}
             {busy?"Wird erstellt…":variant?"Neu erstellen":"Foto verschönern"}
