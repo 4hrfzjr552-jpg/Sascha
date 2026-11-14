@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Check, ImagePlus, Loader2, RefreshCw, Sparkles, X } from "lucide-react";
 import type { PantImage } from "../types";
+import { DEFAULT_FLATLAY_LAYOUT_REFERENCE } from "../lib/flatlayReference";
 import {
   clearFlatlayReference, generateJeansFlatlay,
   getFlatlayReference, saveFlatlayReference,
@@ -83,20 +84,20 @@ export const FlatlayEditModal: React.FC<Props> = ({ image, onClose, onAccept }) 
           <div className="rounded-xl border border-stone-200 dark:border-stone-700 p-3 space-y-2">
             <div className="text-xs font-bold text-stone-700 dark:text-stone-200">Layout-Vorlage</div>
             <p className="text-xs text-stone-500 dark:text-stone-400">
-              Standard: hellbeiger Teppich, Draufsicht, Bund oben, beide Beine gerade. Du kannst dein
-              Beispielbild hier <strong>einmalig hinterlegen</strong>, um die Anordnung noch genauer zu übernehmen.
-              Die Vorlage bleibt nur im Browser gespeichert und ist niemals ein Produktfoto.
+              Dein Beispielbild ist als Standardvorlage bereits hinterlegt: heller Teppich, Draufsicht,
+              Bund oben und beide Beine ausgelegt. Du kannst die Vorlage hier optional austauschen.
+              Eine eigene Vorlage bleibt nur in deinem Browser gespeichert und wird niemals als Produktfoto verwendet.
             </p>
             <div className="flex flex-wrap items-center gap-2">
-              {reference && <img src={reference} alt="Gespeicherte Flatlay-Vorlage (nur Anordnung)" className="w-16 h-16 object-cover rounded-lg border border-stone-200"/>}
+              <img src={reference || DEFAULT_FLATLAY_LAYOUT_REFERENCE} alt="Beispielbild für die Flatlay-Anordnung" className="w-16 h-16 object-cover rounded-lg border border-stone-200"/>
               <label className="cursor-pointer px-3 py-2 rounded-lg border border-stone-300 dark:border-stone-700 text-xs font-semibold text-stone-800 dark:text-stone-100 inline-flex items-center gap-2">
                 <ImagePlus className="h-4 w-4"/>
-                {savingReference ? "Speichert…" : reference ? "Vorlage ändern" : "Beispielbild als Vorlage"}
+                {savingReference ? "Speichert…" : reference ? "Eigene Vorlage ändern" : "Vorlage austauschen"}
                 <input type="file" accept="image/*" className="hidden" disabled={busy || savingReference}
                   onChange={e => { void onTemplateFile(e.target.files?.[0]); e.target.value = ""; }}/>
               </label>
               {reference && <button type="button" disabled={busy} onClick={() => {clearFlatlayReference(); setReference(null);}}
-                className="px-3 py-2 text-xs text-stone-600 dark:text-stone-400 underline">Vorlage entfernen</button>}
+                className="px-3 py-2 text-xs text-stone-600 dark:text-stone-400 underline">Zur Standardvorlage zurück</button>}
             </div>
           </div>
 
