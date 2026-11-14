@@ -59,3 +59,16 @@ Ein Sprach-/Bildmodell kann **nicht garantieren**, dass jede Tasche, jeder Defek
 - **Unabhängige Nachprüfung**: Eine separate Gemini-Vision-Prüfung vergleicht *das echte Original* mit *der generierten Version*, einschließlich Waschung, Schäden, Marken, Tasche/Label, Vorder-/Rückseite und Bildausschnitt. Für Flatlays kontrolliert sie zusätzlich die zwei Knicke pro Bein sowie innen aneinanderstoßende Säume; bei Hintergrundwechseln verlangt sie, dass die Hose nicht umgeformt wurde.
 - Wenn die Kontrolle unsicher ist, wesentliche Änderungen erkennt oder technisch ausfällt, **wird das KI-Ergebnis abgelehnt und nicht als Variante gespeichert**. Das Original bleibt unverändert. Die unabhängige Prüfung benötigt mindestens einen zusätzlichen Gemini-Aufruf pro bearbeitetem Foto und kann auch gute Ergebnisse streng ablehnen.
 - Die Bild-KI kann die physische Hose beim Neuanordnen weiterhin nicht absolut pixelgenau rekonstruieren. Ein sichtbarer Mangel oder eine falsch erzeugte Naht muss immer zum Verwerfen des bearbeiteten Fotos führen.
+
+
+## Zuverlässiger Sammelmodus nach wiederholten QA-Ablehnungen (14.11.2026)
+
+Die bisherigen KI-Neugenerierungen wurden mehrfach abgelehnt: fehlende zwei Knicke pro Bein, nicht aneinanderliegende Säume sowie veränderte Bund- und Markenetiketten. Ein weiterer Prompt verspricht keine korrekte Identität. Deshalb ist die Bedienung jetzt bewusst geteilt:
+
+- **„Alle Bilder verschönern“**: *nicht-generative*, lokale, zurückhaltende Korrektur von Licht und Kontrast am **echten Originalfoto**. Keine KI-Regenerierung, keine neue Hose, keine Bildtyp-Erkennung, keine veränderten Bundetiketten, keine Änderungen am Schnitt und **keine Gemini-Kosten**. Das betrifft sowohl ganze Jeans als auch Detailfotos. Die leicht korrigierte Version bleibt eine gesonderte, zunächst **nicht freigegebene** Variante. Ein Blick auf den originalen Farbton ist weiterhin nötig.
+- **Einzelbild → „Originaltreu“**: verwendet dieselbe konservative Bildkorrektur.
+- **Einzelbild → „Experimentell: Hose mit 2 Knicken je Bein neu hinlegen (KI)“**: hält die bisherige strenge geometrische Flatlay-Anforderung weiterhin verfügbar. Die unabhängige Qualitätsprüfung kann ein nicht identisches Ergebnis weiterhin verwerfen. Ein physisch tatsächlich mit zwei Knicken gelegtes Originalfoto ist für genau diese Darstellung verlässlicher.
+- **„Alle Hintergründe ändern“ und Einzelbild → „Nur Hintergrund ändern“**: unabhängig vom neuen Sammelmodus. Diese Funktionen verwenden weiterhin Gemini, lassen das Hosenlayout laut Prompt bestehen und überprüfen separat die Originaltreue.
+- Foto #5 mit der handgeschriebenen Nummer auf der Tüte wird bei fünf Bildern weiterhin nie als Produktfoto bearbeitet.
+
+Technik: `src/lib/photoEnhance.ts` benutzt eine schwache Helligkeits-/Kontrastkorrektur pro vorhandenem RGB-Pixel im Browser-Canvas ohne Bildsegmentierung oder Geometrieveränderungen. Die dazugehörigen Grenzen sind in `tests/photo-enhancement.test.mjs` geprüft. Die Originalbilder im `PantItem.images`-Array bleiben unverändert. Die Bildbearbeitung kann nicht die physische Anordnung der Hose korrigieren; für die exakten Knicke muss die Hose beim Fotografieren entsprechend liegen oder der experimentelle KI-Flatlay-Modus gewählt werden.
