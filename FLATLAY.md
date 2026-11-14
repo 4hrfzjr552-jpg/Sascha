@@ -50,3 +50,12 @@ Es wird keine Änderung der Datenbankstruktur benötigt: `flatlays` liegt im bis
 
 ### Grenzen
 Ein Sprach-/Bildmodell kann **nicht garantieren**, dass jede Tasche, jeder Defekt oder die zwei Knicke pixelgenau wiedergegeben werden. Falsche Ergebnisse nicht freigeben. Die automatische Klassifizierung plus Bildgenerierung benötigt mindestens zwei KI-Aufrufe pro Foto, bei Modell-Fallback mehr; vier Bilder können API-Kontingent verbrauchen. Die Sammelbearbeitung läuft nur, solange Sascha AI im Browser geöffnet bleibt, kein unbeaufsichtigter Hintergrundjob.
+
+
+## Korrektur nach dem Bildvergleich: Originaltreue statt neu erfundener Jeans
+
+- **Alle Hintergründe ändern:** Direkt beim Foto-Bereich gibt es nun einen *gemeinsamen Hintergrund-Wähler* und einen eigenen Button **„Alle Hintergründe ändern“**. Einmal z. B. „Hellgrau“ wählen und die vier Produktfotos nacheinander im Modus **nur Hintergrund** bearbeiten. Detailfotos bleiben Detailfotos, Foto #5 (Tüte) wird ausgeschlossen. Jede KI-Version muss vor Vinted noch einzeln freigegeben werden.
+- Bei der Bildgenerierung ist **das ausgewählte Originalfoto jetzt die einzige Jeansbild-Referenz**. Zusätzliche Ansichten konnten die KI versehentlich zur falschen Vorder-/Rückseite oder zu einer gemischten Hose verleiten. Die Angebotsdaten (Titel/Beschreibung/Maße) bleiben unterstützend verfügbar.
+- **Unabhängige Nachprüfung**: Eine separate Gemini-Vision-Prüfung vergleicht *das echte Original* mit *der generierten Version*, einschließlich Waschung, Schäden, Marken, Tasche/Label, Vorder-/Rückseite und Bildausschnitt. Für Flatlays kontrolliert sie zusätzlich die zwei Knicke pro Bein sowie innen aneinanderstoßende Säume; bei Hintergrundwechseln verlangt sie, dass die Hose nicht umgeformt wurde.
+- Wenn die Kontrolle unsicher ist, wesentliche Änderungen erkennt oder technisch ausfällt, **wird das KI-Ergebnis abgelehnt und nicht als Variante gespeichert**. Das Original bleibt unverändert. Die unabhängige Prüfung benötigt mindestens einen zusätzlichen Gemini-Aufruf pro bearbeitetem Foto und kann auch gute Ergebnisse streng ablehnen.
+- Die Bild-KI kann die physische Hose beim Neuanordnen weiterhin nicht absolut pixelgenau rekonstruieren. Ein sichtbarer Mangel oder eine falsch erzeugte Naht muss immer zum Verwerfen des bearbeiteten Fotos führen.
