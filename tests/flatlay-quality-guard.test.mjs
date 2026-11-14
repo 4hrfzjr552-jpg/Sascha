@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { approvesProductEdit } from "../api/optimize-flatlay.ts";
+import { approvesProductEdit, shouldRetryProductEdit } from "../api/optimize-flatlay.ts";
 
 const correct = {
   approved: true, confidence:0.92, sameGarment:true,
@@ -27,4 +27,14 @@ test("image edits pass only when independent reviewer is confident and every req
   assert.equal(approvesProductEdit({...correct,approved:"true"}),false);
   assert.equal(approvesProductEdit({}),false);
   assert.equal(approvesProductEdit(null),false);
+});
+
+test("allow at most one corrective edit when original view is recognized and time is available",()=>{
+  assert.equal(shouldRetryProductEdit("flatlay",0,24_000,true),true);
+  assert.equal(shouldRetryProductEdit("detail",0,11_000,true),true);
+  assert.equal(shouldRetryProductEdit("background",0,10_000,true),false);
+  assert.equal(shouldRetryProductEdit("flatlay",1,10_000,true),false);
+  assert.equal(shouldRetryProductEdit("flatlay",0,70_000,true),false);
+  assert.equal(shouldRetryProductEdit("flatlay",0,10_000,false),false);
+  assert.equal(shouldRetryProductEdit("flatlay",0,Number.NaN,true),false);
 });
