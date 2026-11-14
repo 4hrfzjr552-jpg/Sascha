@@ -179,7 +179,7 @@ export const PantCard: React.FC<PantCardProps> = ({
       flatlays: [
         ...(pant.flatlays || []).filter(f => f.sourceImageId !== flatlaySource.id),
         { sourceImageId: flatlaySource.id, image: result.image, approved: true,
-          mode: result.operation, kind: result.kind, background: result.background },
+          mode: result.operation, kind: result.kind, background: result.background, provider: result.provider },
       ],
       updatedAt: Date.now(),
     });
@@ -231,6 +231,7 @@ export const PantCard: React.FC<PantCardProps> = ({
               mode: result.operation,
               kind: result.kind,
               background: result.background,
+              provider:result.provider,
             },
           ];
         } catch(e: any) {
