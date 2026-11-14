@@ -13,6 +13,7 @@ export interface PantFlatlay {
   approved: boolean;
   /** AI edits are NOT original photographs and require seller approval. */
   mode?: "flatlay" | "detail" | "background" | "natural";
+  provider?: "gemini" | "flux-klein" | "flux-pro" | "local";
   kind?: "full_front" | "full_back" | "detail";
   background?: "rug" | "white" | "light-gray" | "microcement" | "wood" | "original";
 }

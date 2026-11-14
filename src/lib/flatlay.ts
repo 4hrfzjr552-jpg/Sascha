@@ -3,6 +3,7 @@ import { compressDataUrl } from "./imageCompressor";
 import { supabase } from "./supabase";
 import { DEFAULT_FLATLAY_LAYOUT_REFERENCE } from "./flatlayReference";
 import { enhanceOriginalPhoto } from "./photoEnhance";
+import { FLUX_RESERVED_USD, getLocalFluxCap, reserveLocalFluxEstimate, releaseLocalFluxEstimate, type ImageProvider } from "./fluxBudget";
 
 const REFERENCE_KEY = "sascha-flatlay-layout-reference-v1";
 
@@ -41,6 +42,9 @@ export const BACKGROUND_OPTIONS: { value: BeautifyBackground; label: string }[] 
 export interface BeautifyOptions {
   mode?: BeautifyMode;
   background?: BeautifyBackground;
+  provider?: ImageProvider;
+  /** Select explicit source side, to avoid BACK reference turning FRONT. */
+  sourceView?: "front" | "back";
 }
 
 export interface BeautifyResult {
@@ -48,6 +52,7 @@ export interface BeautifyResult {
   operation: Exclude<BeautifyMode,"auto"> | "natural";
   kind: "full_front" | "full_back" | "detail";
   background: BeautifyBackground;
+  provider?: ImageProvider | "local";
 }
 
 /** The target photo is always sent FIRST and is the only garment authority.
@@ -68,12 +73,14 @@ export async function generateJeansFlatlay(
       kind: "detail", // not used for local natural correction
       operation: "natural",
       background: "original",
+      provider: "local",
     };
   }
   const { data: auth } = await supabase.auth.getSession();
   const token = auth.session?.access_token;
   if (!token) throw new Error("Bitte anmelden, um Jeansfotos zu verschönern.");
-  const compressed = await compressDataUrl(original.dataUrl, 1200, 0.74);
+  const provider: ImageProvider = options.provider || "flux-klein";
+  const compressed = await compressDataUrl(original.dataUrl, provider === "gemini" ? 1200 : 960, 0.74);
   if (!/^data:image\/(?:jpeg|png|webp);base64,/.test(compressed)) {
     throw new Error("Originalfoto konnte nicht geladen werden.");
   }
@@ -82,6 +89,9 @@ export async function generateJeansFlatlay(
   // The exact selected source image plus listing data are the only identity
   // inputs by default. Never mix another photo's pose into this edit.
   const mode = options.mode || "auto";
+  if(mode === "flatlay" && provider !== "gemini" && !options.sourceView) {
+    throw new Error("Bitte für FLUX zuerst Vorderseite oder Rückseite des echten Jeansfotos auswählen.");
+  }
   const background = options.background || "rug";
   const layoutReference = mode === "flatlay"
     ? getFlatlayReference() || DEFAULT_FLATLAY_LAYOUT_REFERENCE : undefined;
@@ -92,7 +102,12 @@ export async function generateJeansFlatlay(
   const payload = {
     image: compressed,
     mode, background,
-    ...(layoutReference ? {layoutReference} : {}),
+    provider,
+    ...(provider !== "gemini" ? {
+      sourceView: options.sourceView,
+      maxCostUsd: FLUX_RESERVED_USD[provider],
+    } : {}),
+    ...(provider === "gemini" && layoutReference ? {layoutReference} : {}),
     details: {
       title: pant?.result?.title,
       description: pant?.result?.description,
@@ -109,18 +124,27 @@ export async function generateJeansFlatlay(
     throw new Error("Bilddaten sind zu groß. Bitte kleinere Bilder verwenden.");
   }
 
+  // Budget is a browser-only advisory meter. It cannot replace BFL credits
+  // and is not synced across devices. Reserve before contacting paid API.
+  let reservedLocal = false;
+  if(provider !== "gemini") {
+    reserveLocalFluxEstimate(provider,getLocalFluxCap());
+    reservedLocal = true;
+  }
   let response: Response;
   try {
-    response = await fetch("/api/optimize-flatlay", {
+    response = await fetch(provider === "gemini" ? "/api/optimize-flatlay" : "/api/flux-edit", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify(payload),
     });
   } catch (e:any) {
+    // On network uncertainty, keep the reservation: BFL might have accepted
+    // and charged the job before the response was lost.
     throw new Error("Verbindung zur Foto-KI fehlgeschlagen: " + (e?.message || "Netzwerkfehler"));
   }
   const raw = await response.text();
-  let data: {success?:boolean;image?:string;error?:string;kind?:string;operation?:string};
+  let data: {success?:boolean;image?:string;error?:string;kind?:string;operation?:string;chargeMayHaveOccurred?:boolean};
   try { data=JSON.parse(raw); }
   catch {
     const id=response.headers.get("x-vercel-id");
@@ -128,6 +152,13 @@ export async function generateJeansFlatlay(
     throw new Error(`Foto-KI-Server (HTTP ${response.status}${code?" – "+code:""})${id?" · Request-ID: "+id:""}`);
   }
   if (!response.ok || !data.success || !data.image?.startsWith("data:image/")) {
+    // Rejects before the provider accepted the job cannot consume BFL credits.
+    if (reservedLocal && provider !== "gemini" &&
+       (response.status === 401 || response.status === 400 || response.status === 503 ||
+        (response.status === 402 && data.chargeMayHaveOccurred !== true) ||
+        data.chargeMayHaveOccurred === false)) {
+      releaseLocalFluxEstimate(provider);
+    }
     throw new Error(data.error || `Foto-KI fehlgeschlagen (HTTP ${response.status}).`);
   }
   const jpeg = await compressDataUrl(data.image, 1650, 0.84);
@@ -145,5 +176,6 @@ export async function generateJeansFlatlay(
     operation: ["flatlay","detail","background"].includes(data.operation || "")
       ? data.operation as BeautifyResult["operation"] : "detail",
     background,
+    provider,
   };
 }

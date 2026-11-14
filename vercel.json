@@ -11,6 +11,9 @@
     },
     "api/optimize-flatlay.ts": {
       "maxDuration": 300
+    },
+    "api/flux-edit.ts": {
+      "maxDuration": 300
     }
   }
 }
