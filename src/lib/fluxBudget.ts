@@ -66,3 +66,25 @@ export function reserveLocalFluxEstimate(provider:FluxProvider,cap:number,when:D
     throw new Error("Budgetschutz kann in diesem Browser nicht gespeichert werden. Bitte Browser-Speicher aktivieren.");
   }
 }
+
+/** Release a reservation only for a confirmed no-charge failure (e.g. no API key). */
+export function releaseLocalFluxEstimate(provider:FluxProvider,when:Date=new Date()) {
+  const amount=FLUX_RESERVED_USD[provider];
+  const used=getLocalFluxUsage(when);
+  try {
+    window.localStorage.setItem(LOCAL_BUDGET_KEY_PREFIX+utcMonthKey(when),
+      String(Number(Math.max(0,used-amount).toFixed(4))));
+  }catch { /* Never issue extra generations in response to storage errors. */ }
+}
+export const LOCAL_CAP_KEY="sascha-flux-monthly-cap-usd-v1";
+export function getLocalFluxCap():number {
+  try{
+    const cap=Number(window.localStorage.getItem(LOCAL_CAP_KEY)||DEFAULT_LOCAL_MONTHLY_CAP_USD);
+    return Number.isFinite(cap)&&cap>=0.10&&cap<=10 ? cap : DEFAULT_LOCAL_MONTHLY_CAP_USD;
+  }catch{return DEFAULT_LOCAL_MONTHLY_CAP_USD;}
+}
+export function setLocalFluxCap(next:number) {
+  if(!Number.isFinite(next)||next<0.1||next>10)throw Error("Budget muss zwischen $0,10 und $10 liegen.");
+  try { window.localStorage.setItem(LOCAL_CAP_KEY,String(next)); }
+  catch { throw new Error("Dein Browser kann das lokale Budget nicht speichern."); }
+}
