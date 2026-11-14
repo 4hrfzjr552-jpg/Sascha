@@ -270,9 +270,12 @@ export const PantCard: React.FC<PantCardProps> = ({
         }catch(e:any){
           const message=e?.message||"Bildbearbeitung fehlgeschlagen";
           errors.push(`Foto #${pant.images.findIndex(img=>img.id===image.id)+1}: ${message}`);
-          // Stop instead of wasting remaining requests when credentials or
-          // account/browser balance clearly prevent further image generation.
-          if(/Monatsbudget|nicht eingerichtet|Guthaben|Credits|API-Schlüssel|Kontingent|prepayment/.test(message)){
+          // Any unexpected paid-photo failure is enough to halt the batch.
+          // The provider may already have charged the first request, even if
+          // our app did not receive its image. Never bill the next 3 photos
+          // after a transport/polling/processing failure.
+          if(isPaid) {
+            errors.push("Bezahlten Durchlauf nach diesem Fehler gestoppt, um weitere FLUX-Kosten zu vermeiden. Bitte zuerst den einzelnen Fehler prüfen.");
             finished++;
             setBulkProgress({done:finished,total:eligible.length,errors:[...errors]});
             break;

@@ -58,9 +58,20 @@ Use layout description only; do not substitute the garment with another pair. ${
 function validHost(value:string,allowed:string[]) {
   try{const url=new URL(value);return url.protocol==="https:"&&allowed.includes(url.hostname)&&!url.username&&!url.password;}catch{return false;}
 }
-export function acceptableBflPollUrl(url:string):boolean {
-  return validHost(url,["api.bfl.ai","api.eu.bfl.ai","api.us.bfl.ai"]) &&
-    new URL(url).pathname==="/v1/get_result";
+export function acceptableBflPollUrl(value:string):boolean {
+  try {
+    const url=new URL(value);
+    // BFL submits to api.bfl.ai but may return a task-polling endpoint
+    // on a region-specific cluster, e.g. api.eu2.bfl.ai. Never synthesize
+    // the result URL: honour the exact one returned by BFL.
+    const validRegion=url.hostname==="api.bfl.ai" ||
+      /^api\.(?:eu|us)\d*\.bfl\.ai$/.test(url.hostname);
+    return url.protocol==="https:" && url.port==="" &&
+      !url.username && !url.password && !url.hash &&
+      validRegion && url.pathname==="/v1/get_result" &&
+      Boolean(url.searchParams.get("id")) &&
+      [...url.searchParams.keys()].every(key=>key==="id");
+  }catch {return false;}
 }
 export function acceptableBflDownloadUrl(url:string):boolean {
   try{
@@ -142,8 +153,13 @@ export default async function handler(req:any,res:any) {
     });
     submitted=true;
     const pollingUrl=String(created?.polling_url||"");
-    if(!acceptableBflPollUrl(pollingUrl))
+    if(!acceptableBflPollUrl(pollingUrl)) {
+      // Log only a safe hostname, never the URL, generation ID or API key.
+      let host="invalid";
+      try{host=new URL(pollingUrl).hostname.slice(0,100);}catch{/* malformed */}
+      console.warn("[flux-edit] rejected polling origin",{provider,host});
       throw new Error("Ungültige FLUX-Polling-Adresse. Bild wurde nicht übernommen.");
+    }
     const start=Date.now();
     while(Date.now()-start<95_000){
       const polled=await bflJson(pollingUrl,{method:"GET",headers:{"accept":"application/json","x-key":key}});
