@@ -46,6 +46,8 @@ export interface BeautifyOptions {
   provider?: ImageProvider;
   /** Select explicit source side, to avoid BACK reference turning FRONT. */
   sourceView?: "front" | "back";
+  /** Experimental composition image. Disable for a one-reference test. */
+  usePoseGuide?: boolean;
 }
 
 export interface BeautifyResult {
@@ -100,7 +102,7 @@ export async function generateJeansFlatlay(
   const measurements = pant?.measurements ? Object.entries(pant.measurements)
     .filter(([,v])=>Boolean(v)).map(([k,v])=>k+"="+v+" cm").join("; ") : "";
 
-  const poseGuide = mode === "flatlay" && provider !== "gemini"
+  const poseGuide = mode === "flatlay" && provider !== "gemini" && options.usePoseGuide !== false
     ? await createFlatlayPoseGuide() : undefined;
   const payload = {
     image: compressed,

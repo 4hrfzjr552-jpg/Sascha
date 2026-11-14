@@ -30,7 +30,12 @@ function imageDataUrl(value:unknown,maxBytes:number) {
 function safeText(value:unknown,max=500) {
   return typeof value==="string" ? value.replace(/[\x00-\x1f]/g," ").slice(0,max).trim() : "";
 }
-function makePrompt(body:any): string {
+/** A Request Moderated result is rejected before BFL charges credits. */
+export function isUnchargedBflModeration(status:unknown):boolean {
+  return status==="Request Moderated";
+}
+
+export function makePrompt(body:any): string {
   const operation=body.mode as Operation;
   const details=body.details && typeof body.details==="object" ? body.details : {};
   const identity=`PRODUCT DATA (secondary to real source photo):
@@ -44,16 +49,17 @@ Treat ALL textual details as fallible clues, not facts to invent into a picture.
   const surface=surfaces[body.background]||surfaces.rug;
   if(operation==="background")return `BACKGROUND ONLY: Replace ONLY the visible surface surrounding this ORIGINAL clothing close-up or jeans picture with ${surface}. Keep the exact source garment pixels/shape, FRONT/BACK, crop, alignment, folds, colours, markings and size as far as possible. Preserve precise camera angle and material imperfections. Don't redraw or rearrange the jeans. ${immutable}`;
   if(operation==="detail")return `CLOSE-UP JEANS DETAIL: The ORIGINAL is a close-up of real denim (waistband, patch, stitching, pocket or hem). Keep EXACT same close-up framing and subject; do NOT produce complete trousers. Improve subtle light and background (${surface}) without modifying printed text, labels, wash, wear, tears or embroidery. ${immutable}`;
-  const view=body.sourceView==="front"?"FRONT":"BACK";
-  const pockets=body.sourceView==="front"
-    ? "Show only the authentic FRONT, including existing front fly and curved pockets. NEVER add rear seat pockets, yoke, rear labels or copy the BACK from a layout example."
-    : "Show only the authentic BACK with its existing rear pockets and yoke. NEVER invent a front fly, front pockets or copied layout garments.";
-  return `IMAGE 1 is the REAL EXACT garment and the ONLY reference for textile, pockets, logos, labels, color, wear, flaws, stitching, leg width and front/back. IMAGE 2 is a WHITE TECHNICAL OUTLINE with no garment details. It conveys ONLY the spatial silhouette and two distinct bends per leg. Produce a PHOTO of the genuine jeans from IMAGE 1 arranged into the spatial outline of IMAGE 2. Never copy the white drawing's visual style, brightness, neutral color, technical outlines, or absence of labels.
-EXPERIMENTAL FULL TROUSERS FLATLAY of the SAME EXACT real denim in reference photo one. It is a ${view} view and MUST remain ${view}. ${pockets}
-Lay the jeans on ${surface} from overhead, full waistband at top, two complete legs down to full hems.
-Arrange with exactly TWO visible soft directional BENDS in EACH leg, one near the knee and one near lower calf. At bottom, the inner edges of BOTH leg openings MUST JUST TOUCH without overlap/merger.
-Preserve exact garment details and condition: if repositioning requires inventing seams, wear, cuffs, pockets or waistband labels, prioritize authenticity over the bends.
-Use layout description only; do not substitute the garment with another pair. ${immutable}`;
+  const view=body.sourceView==="front"?"front":"back";
+  const guidePresent=Boolean(body.poseGuide);
+  const orientation=body.sourceView==="front"
+    ? "Keep the original front facing up, with the same zipper/fly and front pockets."
+    : "Keep the original back facing up, with the same rear pockets and seams.";
+  return `Edit this overhead photograph of a second-hand pair of jeans for a resale product listing.
+The first input photograph shows the actual item. Keep the original dark/light denim color, worn fabric pattern, real label position and markings, cut, seams, pockets and condition. ${orientation}
+${guidePresent?"The second image is a simplified shape guide, not a second garment. Use it only to plan the bends.":""}
+Arrange this same pair flat on ${surface}, with the waistband at the top, two visible gentle direction changes in EACH leg, and the two lower leg openings touching at their inner corners.
+Show the whole pair from waistband to hems in a realistic top-down product photo. Keep the same ${view} view and actual denim details from the first input image.`;
+
 }
 
 function validHost(value:string,allowed:string[]) {
@@ -128,9 +134,9 @@ export default async function handler(req:any,res:any) {
   const mode:Operation=body.mode;
   const source=imageDataUrl(body.image,2_000_000);
   if(!source)return res.status(413).json({success:false,error:"Originalfoto ungültig oder zu groß."});
-  const guide=mode==="flatlay" ? imageDataUrl(body.poseGuide,350_000) : null;
-  if(mode==="flatlay" && !guide)
-    return res.status(400).json({success:false,error:"Neutrale Flatlay-Formvorlage fehlt. Bitte Sascha AI neu öffnen."});
+  const guide=mode==="flatlay" && body.poseGuide ? imageDataUrl(body.poseGuide,350_000) : null;
+  if(mode==="flatlay" && body.poseGuide && !guide)
+    return res.status(400).json({success:false,error:"Neutrale Flatlay-Formvorlage ist ungültig. Bitte Sascha AI neu öffnen."});
   if(!["flatlay","detail","background"].includes(mode))return res.status(400).json({success:false,error:"Ungültiger Bearbeitungsmodus."});
   if(mode==="flatlay" && !["front","back"].includes(body.sourceView))
     return res.status(400).json({success:false,error:"Bitte vor dem Flatlay Vorderseite oder Rückseite des Originalfotos auswählen."});
@@ -154,7 +160,7 @@ export default async function handler(req:any,res:any) {
       body:JSON.stringify({
         prompt:makePrompt(body),
         input_image:source,
-        ...(mode==="flatlay"?{input_image_2:guide}:{}),
+        ...(mode==="flatlay" && guide ? {input_image_2:guide} : {}),
         ...(provider==="flux-pro"?{disable_pup:true}:{}),
         width:992,height:992,output_format:"jpeg",
         safety_tolerance:2,
@@ -191,7 +197,15 @@ export default async function handler(req:any,res:any) {
           notice:"FLUX ist generative KI. Vor dem Vinted-Export Original und Markenmerkmale genau prüfen.",
         });
       }
-      if(["Error","Failed","Request Moderated","Content Moderated"].includes(polled.status))
+      if(isUnchargedBflModeration(polled.status))
+        throw Object.assign(new Error(
+          "Black Forest Labs hat das Eingabefoto oder den Prompt durch die Inhaltsprüfung abgelehnt (Request Moderated). Laut BFL wird diese Anfrage nicht berechnet. Du kannst die neutrale Umrissvorlage testweise deaktivieren; eine erneute Generierung erfolgt NICHT automatisch."
+        ),{status:422,chargeMayHaveOccurred:false,code:"REQUEST_MODERATED"});
+      if(polled.status==="Content Moderated")
+        throw Object.assign(new Error(
+          "Black Forest Labs hat das erzeugte Bild durch die Inhaltsprüfung abgelehnt (Content Moderated). Das Ergebnis wurde nicht übernommen."
+        ),{status:422,code:"CONTENT_MODERATED"});
+      if(["Error","Failed"].includes(polled.status))
         throw new Error("FLUX konnte das Foto nicht erzeugen ("+polled.status+").");
       await delay(1300);
     }
@@ -199,10 +213,13 @@ export default async function handler(req:any,res:any) {
   }catch(e:any){
     const status=Number(e?.status||0);
     console.error("[flux-edit] request error",{provider,mode,submitted,status,message:String(e?.message||e).slice(0,210)});
-    return res.status(status===402?402:status===429?429:status===401?502:502).json({
+    return res.status(status===402?402:status===429?429:status===422?422:status===401?502:502).json({
       success:false,
-      error:String(e?.message||"FLUX-Bildgenerierung fehlgeschlagen.").slice(0,300),
-      chargeMayHaveOccurred:submitted,
+      error:String(e?.message||"FLUX-Bildgenerierung fehlgeschlagen.").slice(0,400),
+      code:typeof e?.code==="string" ? e.code : undefined,
+      // BFL states that Request Moderated is not billed. Other failures
+      // after job submission may already have consumed provider credits.
+      chargeMayHaveOccurred:e?.chargeMayHaveOccurred===false ? false : submitted,
     });
   }
 }

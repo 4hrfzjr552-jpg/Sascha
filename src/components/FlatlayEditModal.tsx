@@ -34,6 +34,7 @@ export const FlatlayEditModal: React.FC<Props> = ({
     catch { return "flux-klein"; }
   });
   const [sourceView,setSourceView] = useState<"" | "front" | "back">("");
+  const [usePoseGuide,setUsePoseGuide] = useState(true);
   const [monthlyCap,setMonthlyCap] = useState(getLocalFluxCap);
   const [spentEstimate,setSpentEstimate] = useState(getLocalFluxUsage);
   const [sellerChecks,setSellerChecks]=useState({side:false,identity:false,bends:false,hems:false});
@@ -56,6 +57,7 @@ export const FlatlayEditModal: React.FC<Props> = ({
     try {
       setVariant(await generateJeansFlatlay(image,pant,{
         mode,background,provider,sourceView:sourceView || undefined,
+        usePoseGuide,
       }));
       setSpentEstimate(getLocalFluxUsage());
     }
@@ -203,10 +205,24 @@ export const FlatlayEditModal: React.FC<Props> = ({
                   className="w-16 h-16 object-cover rounded-lg border border-stone-200 dark:border-stone-700"/>
                 <p className="text-xs text-stone-600 dark:text-stone-300">
                   Bund oben, zwei echte Knicke pro Bein, unten berühren sich die Beinöffnungen.
-                  FLUX erhält eine separate neutrale Umrissvorlage ohne fremde Taschen, Etiketten oder Waschungen.
-                  Bei Gemini bleibt die vorhandene Foto-Vorlage verfügbar. Kein Modell garantiert perfekte Übereinstimmung.
+                  FLUX kann eine zusätzliche neutrale Umrissvorlage ohne fremde Jeansmerkmale verwenden.
+                  Du kannst sie unten abschalten. Kein Modell garantiert perfekte Übereinstimmung.
                 </p>
               </div>
+              {provider!=="gemini" && (
+                <label className="flex gap-2 items-start text-xs text-stone-700 dark:text-stone-300">
+                  <input type="checkbox" checked={usePoseGuide}
+                    disabled={busy}
+                    onChange={e=>{setUsePoseGuide(e.target.checked);setVariant(null);}}
+                    className="mt-0.5 h-4 w-4 accent-teal-700"/>
+                  <span>
+                    Zusätzliche neutrale Umrissvorlage verwenden (experimentell).
+                    Wenn FLUX die Anfrage als „Request Moderated“ ablehnt, kannst du
+                    die Vorlage testweise ausschalten. Jeder erneute Versuch wird
+                    manuell gestartet und kann bei erfolgreicher Generierung Credits kosten.
+                  </span>
+                </label>
+              )}
               {provider==="gemini" && <div className="flex flex-wrap gap-2 items-center">
                 <label className="inline-flex items-center gap-1.5 cursor-pointer text-xs rounded-lg border border-stone-300 dark:border-stone-700 px-3 py-2 font-semibold text-stone-800 dark:text-stone-200">
                   <ImagePlus className="h-4 w-4"/> {savingReference?"Speichert…":"Gemini-Vorlage auswählen"}
