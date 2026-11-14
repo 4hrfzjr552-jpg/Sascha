@@ -48,7 +48,8 @@ Treat ALL textual details as fallible clues, not facts to invent into a picture.
   const pockets=body.sourceView==="front"
     ? "Show only the authentic FRONT, including existing front fly and curved pockets. NEVER add rear seat pockets, yoke, rear labels or copy the BACK from a layout example."
     : "Show only the authentic BACK with its existing rear pockets and yoke. NEVER invent a front fly, front pockets or copied layout garments.";
-  return `EXPERIMENTAL FULL TROUSERS FLATLAY of the SAME EXACT real denim in reference photo one. It is a ${view} view and MUST remain ${view}. ${pockets}
+  return `IMAGE 1 is the REAL EXACT garment and the ONLY reference for textile, pockets, logos, labels, color, wear, flaws, stitching, leg width and front/back. IMAGE 2 is a WHITE TECHNICAL OUTLINE with no garment details. It conveys ONLY the spatial silhouette and two distinct bends per leg. Produce a PHOTO of the genuine jeans from IMAGE 1 arranged into the spatial outline of IMAGE 2. Never copy the white drawing's visual style, brightness, neutral color, technical outlines, or absence of labels.
+EXPERIMENTAL FULL TROUSERS FLATLAY of the SAME EXACT real denim in reference photo one. It is a ${view} view and MUST remain ${view}. ${pockets}
 Lay the jeans on ${surface} from overhead, full waistband at top, two complete legs down to full hems.
 Arrange with exactly TWO visible soft directional BENDS in EACH leg, one near the knee and one near lower calf. At bottom, the inner edges of BOTH leg openings MUST JUST TOUCH without overlap/merger.
 Preserve exact garment details and condition: if repositioning requires inventing seams, wear, cuffs, pockets or waistband labels, prioritize authenticity over the bends.
@@ -127,6 +128,9 @@ export default async function handler(req:any,res:any) {
   const mode:Operation=body.mode;
   const source=imageDataUrl(body.image,2_000_000);
   if(!source)return res.status(413).json({success:false,error:"Originalfoto ungültig oder zu groß."});
+  const guide=mode==="flatlay" ? imageDataUrl(body.poseGuide,350_000) : null;
+  if(mode==="flatlay" && !guide)
+    return res.status(400).json({success:false,error:"Neutrale Flatlay-Formvorlage fehlt. Bitte Sascha AI neu öffnen."});
   if(!["flatlay","detail","background"].includes(mode))return res.status(400).json({success:false,error:"Ungültiger Bearbeitungsmodus."});
   if(mode==="flatlay" && !["front","back"].includes(body.sourceView))
     return res.status(400).json({success:false,error:"Bitte vor dem Flatlay Vorderseite oder Rückseite des Originalfotos auswählen."});
@@ -135,9 +139,12 @@ export default async function handler(req:any,res:any) {
   if(!priceAllowed(provider,body.maxCostUsd,serverMax))
     return res.status(402).json({success:false,error:"Der gewählte FLUX-Modus überschreitet das Preislimit pro Foto."});
 
-  // For <=1MP original, ~1MP output; optional layout reference deliberately
-  // omitted so a reference BACK image cannot turn FRONT jeans into BACK.
-  // There are NO expensive retries or Gemini QA in this provider.
+  // FLUX image 1: actual real item. FLUX image 2: black-and-white abstract
+  // two-kink shape (NOT another jeans photo). This may improve layout, but
+  // cannot guarantee texture, brand marks, physical bends or condition.
+  // Both inputs are <=1MP; 2 refs + 1MP output fit BFL's advertised
+  // Klein 4B ~$0.016 / Pro ~$0.060 per edited image (2026-11 pricing).
+  // No expensive retries or other provider QA. User must inspect images.
   const url="https://api.bfl.ai/v1/"+paths[provider];
   let submitted=false;
   try {
@@ -147,6 +154,8 @@ export default async function handler(req:any,res:any) {
       body:JSON.stringify({
         prompt:makePrompt(body),
         input_image:source,
+        ...(mode==="flatlay"?{input_image_2:guide}:{}),
+        ...(provider==="flux-pro"?{disable_pup:true}:{}),
         width:992,height:992,output_format:"jpeg",
         safety_tolerance:2,
       }),
