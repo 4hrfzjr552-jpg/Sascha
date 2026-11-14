@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Check, ImagePlus, Loader2, RefreshCw, Sparkles, X } from "lucide-react";
 import type { PantImage, PantItem } from "../types";
 import { DEFAULT_FLATLAY_LAYOUT_REFERENCE } from "../lib/flatlayReference";
+import { flatlayPoseGuideSvg } from "../lib/flatlayPoseGuide";
 import {
   BACKGROUND_OPTIONS, clearFlatlayReference, generateJeansFlatlay,
   getFlatlayReference, saveFlatlayReference,
@@ -84,6 +85,8 @@ export const FlatlayEditModal: React.FC<Props> = ({
   const checksComplete = !isGenerated ||
     (sellerChecks.side && sellerChecks.identity &&
      (!requiresFlatlayChecks || (sellerChecks.bends && sellerChecks.hems)));
+  const flatlayPreview = provider==="gemini" ? (reference||DEFAULT_FLATLAY_LAYOUT_REFERENCE)
+    : "data:image/svg+xml;charset=utf-8,"+encodeURIComponent(flatlayPoseGuideSvg());
   const operationLabel = variant?.operation === "flatlay" ? "Ganzes Hosen-Flatlay"
     : variant?.operation === "natural" ? "Originalfoto sanft optimiert"
     : variant?.operation === "detail" ? "Detailfoto verschönert" : "Hintergrund gewechselt";
@@ -194,9 +197,9 @@ export const FlatlayEditModal: React.FC<Props> = ({
 
           {mode==="flatlay" && (
             <div className="rounded-xl border border-stone-200 dark:border-stone-700 p-3 space-y-2">
-              <div className="font-bold text-xs text-stone-800 dark:text-stone-100">Deine Flatlay-Vorlage</div>
+              <div className="font-bold text-xs text-stone-800 dark:text-stone-100">{provider==="gemini"?"Deine Gemini-Flatlay-Vorlage":"Neutrale FLUX-Umrissvorlage (ohne fremde Jeans)"}</div>
               <div className="flex items-center gap-3">
-                <img src={reference||DEFAULT_FLATLAY_LAYOUT_REFERENCE} alt="Deine Vorlage: Jeans auf Teppich"
+                <img src={flatlayPreview} alt={provider==="gemini"?"Jeans-Layoutvorlage für Gemini":"Neutrale geometrische Zwei-Knick-Silhouette für FLUX"}
                   className="w-16 h-16 object-cover rounded-lg border border-stone-200 dark:border-stone-700"/>
                 <p className="text-xs text-stone-600 dark:text-stone-300">
                   Bund oben, zwei echte Knicke pro Bein, unten berühren sich die Beinöffnungen.
@@ -204,7 +207,7 @@ export const FlatlayEditModal: React.FC<Props> = ({
                   Bei Gemini bleibt die vorhandene Foto-Vorlage verfügbar. Kein Modell garantiert perfekte Übereinstimmung.
                 </p>
               </div>
-              <div className="flex flex-wrap gap-2 items-center">
+              {provider==="gemini" && <div className="flex flex-wrap gap-2 items-center">
                 <label className="inline-flex items-center gap-1.5 cursor-pointer text-xs rounded-lg border border-stone-300 dark:border-stone-700 px-3 py-2 font-semibold text-stone-800 dark:text-stone-200">
                   <ImagePlus className="h-4 w-4"/> {savingReference?"Speichert…":"Gemini-Vorlage auswählen"}
                   <input type="file" accept="image/*" className="hidden" disabled={busy||savingReference}
@@ -212,7 +215,7 @@ export const FlatlayEditModal: React.FC<Props> = ({
                 </label>
                 {reference && <button type="button" disabled={busy} onClick={()=>{clearFlatlayReference();setReference(null);}}
                   className="text-xs text-stone-600 dark:text-stone-300 underline">Zur Originalvorlage</button>}
-              </div>
+              </div>}
             </div>
           )}
 
