@@ -64,6 +64,7 @@ export const FlatlayEditModal: React.FC<Props> = ({
   }
 
   const operationLabel = variant?.operation === "flatlay" ? "Ganzes Hosen-Flatlay"
+    : variant?.operation === "natural" ? "Originalfoto sanft optimiert"
     : variant?.operation === "detail" ? "Detailfoto verschönert" : "Hintergrund gewechselt";
 
   return (
@@ -92,8 +93,8 @@ export const FlatlayEditModal: React.FC<Props> = ({
               Bearbeitungsart
               <select value={mode} disabled={busy} onChange={e=>{setMode(e.target.value as BeautifyMode);setVariant(null);}}
                 className="block w-full rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-900 dark:text-stone-100 p-3 text-sm">
-                <option value="auto">Automatisch: Ganze Hose oder Detail erkennen</option>
-                <option value="flatlay">Ganzes Hosenfoto: Flatlay mit 2 Knicken je Bein</option>
+                <option value="auto">Originaltreu: Licht/Kontrast verbessern (ohne KI-Neuzeichnung)</option>
+                <option value="flatlay">Experimentell: Hose mit 2 Knicken je Bein neu hinlegen (KI)</option>
                 <option value="detail">Nur Bund / Tasche / Detail verschönern</option>
                 <option value="background">Nur Hintergrund ändern (Hose bleibt gleich)</option>
               </select>
@@ -106,16 +107,23 @@ export const FlatlayEditModal: React.FC<Props> = ({
               </select>
             </label>
           </div>
+          {mode==="auto" && (
+            <p className="text-xs text-teal-700 dark:text-teal-300">
+              Originalgetreue Bildverbesserung ohne neue Jeans, ohne API-Kosten.
+              Nur Licht und Kontrast werden vorsichtig angepasst. Die ausgewählte Hintergrundfarbe
+              wird in diesem Modus nicht verändert. Wähle „Nur Hintergrund ändern“, um die Oberfläche auszutauschen.
+            </p>
+          )}
 
-          {(mode==="auto"||mode==="flatlay") && (
+          {mode==="flatlay" && (
             <div className="rounded-xl border border-stone-200 dark:border-stone-700 p-3 space-y-2">
               <div className="font-bold text-xs text-stone-800 dark:text-stone-100">Deine Flatlay-Vorlage</div>
               <div className="flex items-center gap-3">
                 <img src={reference||DEFAULT_FLATLAY_LAYOUT_REFERENCE} alt="Deine Vorlage: Jeans auf Teppich"
                   className="w-16 h-16 object-cover rounded-lg border border-stone-200 dark:border-stone-700"/>
                 <p className="text-xs text-stone-600 dark:text-stone-300">
-                  Bund oben, zwei natürliche Knicke pro Bein und unten berühren sich die Beinöffnungen.
-                  Das Layout ist automatisch hinterlegt – nicht die abgebildete Jeans.
+                  Nur für experimentelle Flatlays: Bund oben, zwei natürliche Knicke pro Bein und
+                  unten berühren sich die Beinöffnungen. Ein falsches Ergebnis wird abgelehnt.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2 items-center">
