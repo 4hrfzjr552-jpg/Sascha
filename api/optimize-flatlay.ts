@@ -81,6 +81,20 @@ Be conservative and say "other" when unsure. The bag can be anywhere in the phot
   throw error || new Error("Bildtyp konnte nicht erkannt werden.");
 }
 
+/** Pure fail-closed decision. Bad/partial/untrusted model JSON is never approved. */
+export function approvesProductEdit(review: unknown): boolean {
+  if (!review || typeof review !== "object") return false;
+  const r=review as Record<string,unknown>;
+  const confidence=r.confidence;
+  return r.approved === true &&
+    typeof confidence === "number" &&
+    Number.isFinite(confidence) && confidence >= 0.85 && confidence <= 1 &&
+    r.sameGarment === true &&
+    r.sameSide === true &&
+    r.correctComposition === true &&
+    Array.isArray(r.issues) && r.issues.length === 0;
+}
+
 export default async function handler(req:any,res:any) {
   if (req.method!=="POST") return res.status(405).json({success:false,error:"Methode nicht erlaubt."});
   const supabaseUrl=process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -180,6 +194,86 @@ ${identityRules}`;
       }
     }
     if(!imageData)return res.status(502).json({success:false,error:"Die Bild-KI hat kein Foto geliefert."});
+
+    // A generation is NOT automatically accepted as faithful. Compare the real
+    // source with the synthetic result independently. A vague rejection or a
+    // crashed inspector must fail closed, not publish a different pair of jeans.
+    stage="Unabhängige Originaltreue-Prüfung";
+    let review: {
+      approved?: boolean;
+      confidence?: number;
+      sameGarment?: boolean;
+      sameSide?: boolean;
+      correctComposition?: boolean;
+      issues?: unknown;
+    } | null=null;
+    let reviewError: unknown;
+    for(const checkModel of candidateModels()) {
+      try {
+        const checked=await ai.models.generateContent({
+          model:checkModel,
+          contents:[
+            {text:`You are an INDEPENDENT strict visual reviewer for a second-hand jeans listing.
+Picture ONE is the REAL unedited user photo. Picture TWO is an AI edited picture.
+Operation: "${operation}". SOURCE classification: "${kind}".
+Respond only with JSON: {"approved":boolean,"confidence":number,"sameGarment":boolean,"sameSide":boolean,"correctComposition":boolean,"issues":string[]}.
+Reject if you cannot confidently recognize the SAME exact jeans/details in both, including side/front/back, pockets, seams, wash patterns, fading, patches, real text/embroidery, fraying, scratches and genuine flaws. Do not accept a generic similar-looking pair.
+Reject if photo TWO shows a different visible trouser side than photo ONE.
+In DETAIL mode, reject invented full trousers or substantially changed original close-up crop, logos/labels/text, stitching or damage.
+In BACKGROUND mode, reject ANY substantial modification of the clothing itself, its position/shape/folds or zoom/crop. Only external ground may change. A realistic shadow is okay.
+In FLATLAY mode, require entire pair from waistband to both hems, TWO clearly visible gentle directional bends in EACH leg (knee and calf), and INNER edges of BOTH bottom openings JUST TOUCH with no gap and no overlap or merging. The source garment identity, authentic wear, shape and hem width must remain true. Reject if the model merely copied the trousers/design from a layout reference.
+If anything important is unclear, reject. Ignore minor harmless changes in natural illumination and loose temporary fabric ripples.
+Set sameGarment, sameSide, correctComposition based on evidence. Approve only with confidence >= 0.85 and all three true with zero meaningful issues.`},
+            {text:"REAL, ORIGINAL PRODUCT PHOTO:"},
+            {inlineData:main},
+            {text:"AI-EDITED CANDIDATE TO VERIFY:"},
+            {inlineData:imageData},
+          ],
+          config:{
+            responseMimeType:"application/json",
+            temperature:0,
+            responseSchema:{
+              type:Type.OBJECT,
+              properties:{
+                approved:{type:Type.BOOLEAN},
+                confidence:{type:Type.NUMBER},
+                sameGarment:{type:Type.BOOLEAN},
+                sameSide:{type:Type.BOOLEAN},
+                correctComposition:{type:Type.BOOLEAN},
+                issues:{type:Type.ARRAY,items:{type:Type.STRING}},
+              },
+              required:["approved","confidence","sameGarment","sameSide","correctComposition","issues"],
+            },
+          },
+        });
+        review=parseJson(checked.text||"");
+        break;
+      } catch(e) {
+        reviewError=e;
+        console.warn("[flatlay] independent QA fallback",checkModel,String((e as any)?.message||e).slice(0,140));
+      }
+    }
+    if(!review) {
+      console.error("[flatlay] independent QA unavailable",reviewError);
+      return res.status(503).json({success:false,error:"KI-Originaltreue-Prüfung nicht erreichbar. Das bearbeitete Bild wurde sicherheitshalber verworfen. Original bleibt erhalten."});
+    }
+    const issues=Array.isArray(review.issues)
+      ? review.issues.filter((issue:unknown):issue is string=>typeof issue==="string").slice(0,3)
+      : [];
+    const approved=approvesProductEdit(review);
+    if(!approved) {
+      console.warn("[flatlay] rejected AI candidate",{
+        operation,kind,confidence:review.confidence,
+        sameGarment:review.sameGarment,sameSide:review.sameSide,
+        correctComposition:review.correctComposition,issues,
+      });
+      return res.status(422).json({
+        success:false,
+        error:"KI-Ergebnis weicht vom echten Foto oder von der gewünschten Anordnung ab und wurde verworfen."+
+          (issues.length ? " Probleme: "+issues.map(v=>clean(v,110)).join("; ").slice(0,230) : "")+
+          " Originalbild bleibt erhalten.",
+      });
+    }
     return res.status(200).json({
       success:true,
       image:`data:${imageData.mimeType};base64,${imageData.data}`,

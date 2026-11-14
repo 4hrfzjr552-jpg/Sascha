@@ -25,7 +25,7 @@ import {
   Wand2,
 } from "lucide-react";
 import { FlatlayEditModal } from "./FlatlayEditModal";
-import { generateJeansFlatlay, type BeautifyMode, type BeautifyResult } from "../lib/flatlay";
+import { BACKGROUND_OPTIONS, generateJeansFlatlay, type BeautifyBackground, type BeautifyMode, type BeautifyResult } from "../lib/flatlay";
 import { compressImageFile } from "../lib/imageCompressor";
 import { shareVintedPhotos } from "../lib/vintedShare";
 import { formatTitleWithArticleNumber } from "../lib/titleUtils";
@@ -80,6 +80,8 @@ export const PantCard: React.FC<PantCardProps> = ({
   const [flatlayEditor, setFlatlayEditor] = useState<{ imageId: string; mode: BeautifyMode } | null>(null);
   const flatlaySource = pant.images.find(img => img.id === flatlayEditor?.imageId) || null;
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkBackground, setBulkBackground] = useState<BeautifyBackground>("rug");
+  const [bulkMode, setBulkMode] = useState<"auto" | "background">("auto");
   const [bulkProgress, setBulkProgress] = useState<{done:number;total:number;errors:string[]}|null>(null);
   const bulkStop = useRef(false);
 
@@ -182,20 +184,27 @@ export const PantCard: React.FC<PantCardProps> = ({
     setFlatlayEditor(null);
   };
 
-  // Up to four real photos at once. Full-body and detail classification is
-  // performed independently for every image by the authenticated API.
-  // Batch results require human approval and are never published automatically.
-  const handleBeautifyAllPhotos = async () => {
-    if (bulkBusy || isAnalyzing) return;
+  // Two explicit batch actions share the same safe pipeline. "background"
+  // changes the surface of every full-photo or close-up without re-laying the
+  // garment. "auto" is the existing full/close-up beautifier.
+  // The seller approves EVERY generated variant separately.
+  const handleBatchPhotos = async (
+    mode: "auto" | "background",
+    selectedBackground?: BeautifyBackground,
+  ) => {
+    if (bulkBusy || isAnalyzing || isCompressing) return;
     const eligible = pant.images.slice(0, pant.images.length === 5 ? 4 : 5);
     if (!eligible.length) return;
-    if (!window.confirm(
-      `Alle ${eligible.length} Produktfotos nacheinander per KI verschönern? Bund-/Detailfotos bleiben Detailfotos. Ergebnisse müssen einzeln geprüft werden. Dafür können Gemini-Kosten anfallen.`
-    )) return;
+    const choice = selectedBackground || bulkBackground;
+    const confirmation = mode === "background"
+      ? `Den Hintergrund von ${eligible.length} Produktfotos auf „${BACKGROUND_OPTIONS.find(option => option.value === choice)?.label || choice}“ ändern? Auch Bund- und Detailbilder werden bearbeitet, ohne den Bildausschnitt zu verändern. Bestehende KI-Varianten dieser Fotos werden ersetzt (noch nicht für Vinted freigegeben). Originale und Tütenfoto bleiben unverändert. Gemini-Aufrufe können Kosten verursachen.`
+      : `Alle ${eligible.length} Produktfotos nacheinander per KI verschönern? Ganze Hosen und Detailfotos werden unterschiedlich behandelt. Bestehende KI-Varianten dieser Fotos werden ersetzt (noch nicht für Vinted freigegeben). Originale bleiben erhalten. Gemini-Aufrufe können Kosten verursachen.`;
+    if (!window.confirm(confirmation)) return;
 
     bulkStop.current = false;
+    setBulkMode(mode);
     setBulkBusy(true);
-    const errors:string[] = [];
+    const errors: string[] = [];
     let finished = 0;
     let updated = [...(pant.flatlays || [])];
     setBulkProgress({done:0,total:eligible.length,errors:[]});
@@ -203,24 +212,30 @@ export const PantCard: React.FC<PantCardProps> = ({
       for (const original of eligible) {
         if (bulkStop.current) break;
         try {
-          const saved = updated.find(f => f.sourceImageId === original.id);
-          const result = await generateJeansFlatlay(original, pant, {
-            mode:"auto",
-            background:saved?.background || "rug",
+          const existing = updated.find(f => f.sourceImageId === original.id);
+          const result = await generateJeansFlatlay(original,pant,{
+            mode,
+            background:mode === "background" ? choice : existing?.background || "rug",
           });
-          updated = [
+          updated=[
             ...updated.filter(f => f.sourceImageId !== original.id),
-            { sourceImageId:original.id, image:result.image, approved:false,
-              mode:result.operation, kind:result.kind, background:result.background },
+            {
+              sourceImageId: original.id,
+              image: result.image,
+              approved: false,
+              mode: result.operation,
+              kind: result.kind,
+              background: result.background,
+            },
           ];
-        } catch(e:any) {
-          errors.push(`Foto #${pant.images.findIndex(img=>img.id===original.id)+1}: ${e?.message || "KI fehlgeschlagen"}`);
+        } catch(e: any) {
+          errors.push(`Foto #${pant.images.findIndex(img => img.id === original.id)+1}: ${e?.message || "KI fehlgeschlagen"}`);
         }
         finished++;
         setBulkProgress({done:finished,total:eligible.length,errors:[...errors]});
       }
-      // Persist all completed variants even if one photo failed or the batch
-      // was canceled. Existing variants for failed photos are preserved.
+      // A failure never destroys an existing successful variant. The original
+      // photos and article-number bag remain completely untouched.
       await Promise.resolve(onUpdate({...pant,flatlays:updated,updatedAt:Date.now()}));
     } finally {
       setBulkBusy(false);
@@ -682,25 +697,45 @@ export const PantCard: React.FC<PantCardProps> = ({
             {pant.images.length > 0 && (
               <div className="mb-3 space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <button type="button" onClick={()=>void handleBeautifyAllPhotos()}
+                  <button type="button" onClick={()=>void handleBatchPhotos("auto")}
                     disabled={bulkBusy || isAnalyzing || isCompressing}
                     className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 text-xs font-bold disabled:opacity-50 min-h-[40px]">
-                    {bulkBusy ? <Loader2 className="h-4 w-4 animate-spin"/> : <Sparkles className="h-4 w-4"/>}
-                    {bulkBusy ? "Alle Bilder werden verschönert…" : "Alle Bilder verschönern"}
+                    {bulkBusy && bulkMode === "auto" ? <Loader2 className="h-4 w-4 animate-spin"/> : <Sparkles className="h-4 w-4"/>}
+                    {bulkBusy && bulkMode === "auto" ? "Alle Bilder werden verschönert…" : "Alle Bilder verschönern"}
                   </button>
-                  {bulkBusy && <button type="button" onClick={()=>{bulkStop.current=true;}}
-                    className="px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 text-xs font-bold text-stone-700 dark:text-stone-200">
-                    Nach diesem Foto stoppen
-                  </button>}
                 </div>
+                <div className="flex flex-wrap items-end gap-2 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/70 p-2.5">
+                  <label className="flex flex-col gap-1 text-xs font-semibold text-stone-700 dark:text-stone-200 flex-1 min-w-[150px]">
+                    Hintergrund für alle Produktfotos
+                    <select value={bulkBackground}
+                      onChange={(e)=>setBulkBackground(e.target.value as BeautifyBackground)}
+                      disabled={bulkBusy || isAnalyzing}
+                      aria-label="Gemeinsamen Hintergrund auswählen"
+                      className="w-full rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-900 px-2.5 py-2.5 text-sm text-stone-900 dark:text-stone-100 min-h-[40px]">
+                      {BACKGROUND_OPTIONS.map(option =>
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      )}
+                    </select>
+                  </label>
+                  <button type="button" onClick={()=>void handleBatchPhotos("background",bulkBackground)}
+                    disabled={bulkBusy || isAnalyzing || isCompressing}
+                    className="inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold min-h-[40px] disabled:opacity-50">
+                    {bulkBusy && bulkMode==="background" ? <Loader2 className="h-4 w-4 animate-spin"/> : <Wand2 className="h-4 w-4"/>}
+                    {bulkBusy && bulkMode==="background" ? "Hintergründe werden geändert…" : "Alle Hintergründe ändern"}
+                  </button>
+                </div>
+                {bulkBusy && <button type="button" onClick={()=>{bulkStop.current=true;}}
+                  className="px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 text-xs font-bold text-stone-700 dark:text-stone-200">
+                  Nach diesem Foto stoppen
+                </button>}
                 <p className="text-[11px] text-stone-600 dark:text-stone-400">
                   Ganze Hosen → Flatlay mit 2 Knicken pro Bein und aneinanderliegenden Beinöffnungen.
-                  Bund, Tasche oder Label → nur Detail optimieren. Für jedes Foto kannst du den Hintergrund separat wählen.
-                  Artikelnummer-Tüte bleibt original.
+                  Bund, Tasche oder Label → nur Detail optimieren. Mit „Alle Hintergründe ändern“ erhält jedes Produktfoto die ausgewählte Oberfläche, ohne die Hose neu anzuordnen.
+                  Foto #5 mit der Artikelnummer-Tüte bleibt original; Einzelbilder können weiterhin ihren eigenen Hintergrund bekommen.
                 </p>
                 {bulkProgress && (
                   <div role="status" className="rounded-xl border border-stone-200 dark:border-stone-700 p-2.5 text-xs text-stone-700 dark:text-stone-300 space-y-1">
-                    <span>{bulkBusy ? "KI bearbeitet" : "KI-Durchlauf beendet"}: {bulkProgress.done}/{bulkProgress.total} Fotos.</span>
+                    <span>{bulkBusy ? (bulkMode === "background" ? "Hintergründe ändern" : "KI bearbeitet") : (bulkMode === "background" ? "Hintergrund-Durchlauf beendet" : "KI-Durchlauf beendet")}: {bulkProgress.done}/{bulkProgress.total} Fotos.</span>
                     {!bulkBusy && <span> Ergebnisse unten einzeln vergleichen und freigeben.</span>}
                     {bulkProgress.errors.map((err,i)=><p key={i} className="text-rose-700 dark:text-rose-300 break-words">{err}</p>)}
                   </div>
