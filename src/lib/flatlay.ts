@@ -3,6 +3,7 @@ import { compressDataUrl } from "./imageCompressor";
 import { supabase } from "./supabase";
 import { DEFAULT_FLATLAY_LAYOUT_REFERENCE } from "./flatlayReference";
 import { enhanceOriginalPhoto } from "./photoEnhance";
+import { createFlatlayPoseGuide } from "./flatlayPoseGuide";
 import { FLUX_RESERVED_USD, getLocalFluxCap, reserveLocalFluxEstimate, releaseLocalFluxEstimate, type ImageProvider } from "./fluxBudget";
 
 const REFERENCE_KEY = "sascha-flatlay-layout-reference-v1";
@@ -99,10 +100,13 @@ export async function generateJeansFlatlay(
   const measurements = pant?.measurements ? Object.entries(pant.measurements)
     .filter(([,v])=>Boolean(v)).map(([k,v])=>k+"="+v+" cm").join("; ") : "";
 
+  const poseGuide = mode === "flatlay" && provider !== "gemini"
+    ? await createFlatlayPoseGuide() : undefined;
   const payload = {
     image: compressed,
     mode, background,
     provider,
+    ...(poseGuide ? {poseGuide} : {}),
     ...(provider !== "gemini" ? {
       sourceView: options.sourceView,
       maxCostUsd: FLUX_RESERVED_USD[provider],
