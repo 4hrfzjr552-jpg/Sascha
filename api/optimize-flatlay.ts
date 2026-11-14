@@ -81,6 +81,20 @@ Be conservative and say "other" when unsure. The bag can be anywhere in the phot
   throw error || new Error("Bildtyp konnte nicht erkannt werden.");
 }
 
+/** Pure fail-closed decision. Bad/partial/untrusted model JSON is never approved. */
+export function approvesProductEdit(review: unknown): boolean {
+  if (!review || typeof review !== "object") return false;
+  const r=review as Record<string,unknown>;
+  const confidence=r.confidence;
+  return r.approved === true &&
+    typeof confidence === "number" &&
+    Number.isFinite(confidence) && confidence >= 0.85 && confidence <= 1 &&
+    r.sameGarment === true &&
+    r.sameSide === true &&
+    r.correctComposition === true &&
+    Array.isArray(r.issues) && r.issues.length === 0;
+}
+
 export default async function handler(req:any,res:any) {
   if (req.method!=="POST") return res.status(405).json({success:false,error:"Methode nicht erlaubt."});
   const supabaseUrl=process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -246,10 +260,7 @@ Set sameGarment, sameSide, correctComposition based on evidence. Approve only wi
     const issues=Array.isArray(review.issues)
       ? review.issues.filter((issue:unknown):issue is string=>typeof issue==="string").slice(0,3)
       : [];
-    const approved=review.approved===true &&
-      Number(review.confidence)>=0.85 && review.sameGarment===true &&
-      review.sameSide===true && review.correctComposition===true &&
-      Array.isArray(review.issues) && issues.length===0;
+    const approved=approvesProductEdit(review);
     if(!approved) {
       console.warn("[flatlay] rejected AI candidate",{
         operation,kind,confidence:review.confidence,
