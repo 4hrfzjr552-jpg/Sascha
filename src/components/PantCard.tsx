@@ -112,9 +112,10 @@ export const PantCard: React.FC<PantCardProps> = ({
       (entry.mode!=="flatlay" || (c?.bends && c?.hems)));
   };
   const setBatchCheck=(id:string,key:"side"|"identity"|"bends"|"hems",checked:boolean)=>{
-    setBatchChecks(old=>({...old,[id]:{
-      side:false,identity:false,bends:false,hems:false,...old[id],[key]:checked,
-    }}));
+    setBatchChecks(old=>{
+      const current=old[id] ?? {side:false,identity:false,bends:false,hems:false};
+      return {...old,[id]:{...current,[key]:checked}};
+    });
   };
   const bulkStop = useRef(false);
 
