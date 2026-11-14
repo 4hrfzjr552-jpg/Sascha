@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { neutralPhotoCorrection, adjustPhotoChannel } from "../src/lib/photoEnhance.ts";
+import { neutralPhotoCorrection, adjustPhotoChannel } from "../src/lib/photoTone.ts";
 
 test("photo adjustment remains gentle over realistic photo luminance", () => {
   for (const mean of [0,20,80,100,120,150,190,220,255]) {
