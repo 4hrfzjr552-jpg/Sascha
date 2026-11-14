@@ -36,3 +36,17 @@ Die eingebaute Layout-Vorlage ist eine kleine (160×160) komprimierte Version de
 - `src/lib/vintedDraftUtils.ts`, `src/lib/vintedShare.ts`: übernommene Varianten für Vinted bereitstellen
 
 Es wird keine Änderung der Datenbankstruktur benötigt: `flatlays` liegt im bisherigen `pants.data`-JSON. Der GitHub-Test prüft, dass die Vinted-Fotoauswahl Originale und Foto #5 korrekt behandelt. Der Node-ESM-Smoketest prüft den Serverstart. Echte Gemini-Bildtreue lässt sich nicht ohne Testfoto/Livebildgenerierung garantieren.
+
+
+## Erweiterung: echte Produktdaten, alle Bilder und eigene Hintergründe (14.11.2026)
+
+- Die KI bekommt als ergänzende Identitätshinweise die **bereits generierte Vinted-Beschreibung**, Titel, Marke, Modell, Schnitt, Farbe, Größe, Maße und eigenen Hinweise sowie bis zu zwei weitere Originalansichten derselben Jeans. Im Konflikt hat immer das echte Produktfoto Vorrang.
+- Bei vollständig abgebildeten Hosen gilt jetzt eine explizite Anordnung: **zwei erkennbare weiche Knicke pro Hosenbein** (Knie-/Wadenbereich) und **die inneren Beinöffnungen berühren sich unten**, ohne zu verschmelzen oder zu überlappen. Der reale Schnitt, Schäden und die Waschung bleiben entscheidend.
+- Die Klassifizierung unterscheidet **komplette Vorderseite**, **komplette Rückseite**, **Detailfoto** und **Lager-/Artikelnummer-Tüte**. Bei Detailfotos (Bund, Tasche, Label, Saum) bleibt der ursprüngliche Bildausschnitt erhalten, statt eine erfundene ganze Hose zu generieren.
+- Jede Bildkachel hat zwei Aktionen: **KI** öffnet die automatische Verschönerung, **BG** öffnet die Hintergrundbearbeitung. Der individuelle Hintergrund pro Foto kann aus Teppich, Weiß, Hellgrau, Mikrozement, hellem Holz oder Originaloberfläche gewählt werden. Ein Hintergrundwechsel verändert laut Bildanweisung keine Falten/Teile der Hose.
+- Der neue Button **„Alle Bilder verschönern“** verarbeitet die bis zu vier Produktfotos einer Hose nacheinander, protokolliert einzelne Erfolge/Fehler und kann nach dem laufenden Foto gestoppt werden. Bei fünf Bildern bleibt Foto #5 als Tütenfoto unberührt. Der Server prüft jeden Bildtyp nochmals, damit eine falsch sortierte Tüte nicht als Jeans optimiert wird.
+- **Sammelergebnisse sind zunächst nicht für Vinted freigegeben**. Jede Variante erscheint separat unter „KI-optimierte Fotos“ und muss einzeln mit dem echten Foto verglichen und manuell freigegeben werden. Fehlgeschlagene Bilder behalten ihre vorherigen Varianten. Originalbilder bleiben unverändert; bei einem Vinted-Export wird weiterhin mindestens ein echtes Foto als Zustandsnachweis gezeigt.
+- Einzelbearbeitungen bleiben manuell bestätigt. Wenn ein Foto bereits eine andere Hintergrundwahl besitzt, benutzt die Sammelbearbeitung beim nächsten Durchlauf diese gespeicherte Einstellung für genau dieses Foto.
+
+### Grenzen
+Ein Sprach-/Bildmodell kann **nicht garantieren**, dass jede Tasche, jeder Defekt oder die zwei Knicke pixelgenau wiedergegeben werden. Falsche Ergebnisse nicht freigeben. Die automatische Klassifizierung plus Bildgenerierung benötigt mindestens zwei KI-Aufrufe pro Foto, bei Modell-Fallback mehr; vier Bilder können API-Kontingent verbrauchen. Die Sammelbearbeitung läuft nur, solange Sascha AI im Browser geöffnet bleibt, kein unbeaufsichtigter Hintergrundjob.

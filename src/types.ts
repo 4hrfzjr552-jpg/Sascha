@@ -11,6 +11,10 @@ export interface PantFlatlay {
   sourceImageId: string;
   image: PantImage;
   approved: boolean;
+  /** AI edits are NOT original photographs and require seller approval. */
+  mode?: "flatlay" | "detail" | "background";
+  kind?: "full_front" | "full_back" | "detail";
+  background?: "rug" | "white" | "light-gray" | "microcement" | "wood" | "original";
 }
 
 export interface PantMeasurements {
