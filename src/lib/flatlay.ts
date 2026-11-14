@@ -2,6 +2,7 @@ import type { PantImage, PantItem } from "../types";
 import { compressDataUrl } from "./imageCompressor";
 import { supabase } from "./supabase";
 import { DEFAULT_FLATLAY_LAYOUT_REFERENCE } from "./flatlayReference";
+import { enhanceOriginalPhoto } from "./photoEnhance";
 
 const REFERENCE_KEY = "sascha-flatlay-layout-reference-v1";
 
@@ -44,7 +45,7 @@ export interface BeautifyOptions {
 
 export interface BeautifyResult {
   image: PantImage;
-  operation: Exclude<BeautifyMode,"auto">;
+  operation: Exclude<BeautifyMode,"auto"> | "natural";
   kind: "full_front" | "full_back" | "detail";
   background: BeautifyBackground;
 }
@@ -58,6 +59,17 @@ export async function generateJeansFlatlay(
   pant?: PantItem,
   options: BeautifyOptions = {},
 ): Promise<BeautifyResult> {
+  // For routine batch beautification, use deterministic pixels instead of
+  // regenerating a different pair of jeans through a generative model.
+  // Deliberate two-bend restyling remains available in explicit Flatlay mode.
+  if (!options.mode || options.mode === "auto") {
+    return {
+      image: await enhanceOriginalPhoto(original),
+      kind: "detail", // not used for local natural correction
+      operation: "natural",
+      background: "original",
+    };
+  }
   const { data: auth } = await supabase.auth.getSession();
   const token = auth.session?.access_token;
   if (!token) throw new Error("Bitte anmelden, um Jeansfotos zu verschönern.");
@@ -71,7 +83,7 @@ export async function generateJeansFlatlay(
   // inputs by default. Never mix another photo's pose into this edit.
   const mode = options.mode || "auto";
   const background = options.background || "rug";
-  const layoutReference = mode === "auto" || mode === "flatlay"
+  const layoutReference = mode === "flatlay"
     ? getFlatlayReference() || DEFAULT_FLATLAY_LAYOUT_REFERENCE : undefined;
   const descriptions = pant?.result?.detected;
   const measurements = pant?.measurements ? Object.entries(pant.measurements)
