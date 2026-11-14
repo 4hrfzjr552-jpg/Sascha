@@ -72,9 +72,9 @@ export const FlatlayEditModal: React.FC<Props> = ({
       <div className="w-full max-w-4xl max-h-[96vh] flex flex-col rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-2xl">
         <header className="flex items-start justify-between gap-2 px-4 py-3 border-b border-stone-200 dark:border-stone-800">
           <div>
-            <h2 className="text-base font-bold text-stone-900 dark:text-stone-100">KI-Foto verschönern</h2>
+            <h2 className="text-base font-bold text-stone-900 dark:text-stone-100">Foto bearbeiten</h2>
             <p className="text-xs text-stone-500 dark:text-stone-400">
-              Mit den echten Fotos, Titel, Beschreibung und Maßen deiner Jeans
+              Originalgetreu optimieren oder optional mit KI neu anordnen
             </p>
           </div>
           <button aria-label="Schließen" type="button" disabled={busy} onClick={onClose}
