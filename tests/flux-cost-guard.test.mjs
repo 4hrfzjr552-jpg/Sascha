@@ -6,6 +6,7 @@ import {
 } from "../src/lib/fluxBudget.ts";
 import {
   acceptableBflPollUrl, acceptableBflDownloadUrl, priceAllowed,
+  makePrompt, isUnchargedBflModeration,
 } from "../api/flux-edit.ts";
 
 test("FLUX models use exact officially documented endpoints",()=>{
@@ -62,4 +63,27 @@ test("result image URLs are restricted to documented BFL delivery origins",()=>{
   assert.equal(acceptableBflDownloadUrl("https://api.bfl.ai.evil.example/"),false);
   assert.equal(acceptableBflDownloadUrl("http://localhost:3000"),false);
   assert.equal(acceptableBflDownloadUrl("https://127.0.0.1/x"),false);
+});
+
+test("request moderation is no-charge while content moderation may already have incurred costs",()=>{
+  assert.equal(isUnchargedBflModeration("Request Moderated"),true);
+  assert.equal(isUnchargedBflModeration("Content Moderated"),false);
+  assert.equal(isUnchargedBflModeration("Ready"),false);
+  assert.equal(isUnchargedBflModeration(undefined),false);
+});
+test("resale flatlay prompt works with and without second guide image",()=>{
+  const core={mode:"flatlay",sourceView:"front",background:"rug",details:{
+    title:"Dark Blue Levi's 501 jeans",description:"Original vintage jeans",brand:"Levi's"
+  }};
+  const withGuide=makePrompt({...core,poseGuide:"image"});
+  const withoutGuide=makePrompt(core);
+  assert.match(withGuide,/second image is a simplified shape guide/i);
+  assert.doesNotMatch(withoutGuide,/second image is a simplified shape guide/i);
+  for (const prompt of [withGuide,withoutGuide]) {
+    assert.match(prompt,/same zipper\/fly and front pockets/i);
+    assert.match(prompt,/two visible gentle direction changes in EACH leg/i);
+    assert.match(prompt,/two lower leg openings touching/i);
+    assert.doesNotMatch(prompt,/Original vintage jeans/); // listing text must not corrupt real image
+    assert.ok(prompt.length<1800,"Use a concise, factual edit instruction");
+  }
 });
