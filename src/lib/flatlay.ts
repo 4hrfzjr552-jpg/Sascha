@@ -1,6 +1,7 @@
 import type { PantImage } from "../types";
 import { compressDataUrl } from "./imageCompressor";
 import { supabase } from "./supabase";
+import { DEFAULT_FLATLAY_LAYOUT_REFERENCE } from "./flatlayReference";
 
 const REFERENCE_KEY = "sascha-flatlay-layout-reference-v1";
 
@@ -34,7 +35,9 @@ export async function generateJeansFlatlay(original: PantImage): Promise<PantIma
   if (!/^data:image\/(?:jpeg|png|webp);base64,/.test(originalCompressed)) {
     throw new Error("Originalbild konnte nicht geladen werden. Bitte neu öffnen.");
   }
-  const layoutReference = getFlatlayReference() || undefined;
+  // Includes a compressed version of the exact layout photo supplied by the seller.
+  // A custom browser-local template overrides the built-in example.
+  const layoutReference = getFlatlayReference() || DEFAULT_FLATLAY_LAYOUT_REFERENCE;
   let response: Response;
   try {
     response = await fetch("/api/optimize-flatlay", {
