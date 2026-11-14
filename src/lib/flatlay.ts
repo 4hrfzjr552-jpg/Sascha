@@ -1,4 +1,4 @@
-import type { PantImage } from "../types";
+import type { PantImage, PantItem } from "../types";
 import { compressDataUrl } from "./imageCompressor";
 import { supabase } from "./supabase";
 import { DEFAULT_FLATLAY_LAYOUT_REFERENCE } from "./flatlayReference";
@@ -26,49 +26,117 @@ export function clearFlatlayReference() {
   try { window.localStorage.removeItem(REFERENCE_KEY); } catch { /* private mode */ }
 }
 
-export async function generateJeansFlatlay(original: PantImage): Promise<PantImage> {
+export type BeautifyMode = "auto" | "flatlay" | "detail" | "background";
+export type BeautifyBackground = "rug" | "white" | "light-gray" | "microcement" | "wood" | "original";
+export const BACKGROUND_OPTIONS: { value: BeautifyBackground; label: string }[] = [
+  {value:"rug",label:"Teppich wie Vorlage"},
+  {value:"white",label:"Weiß"},
+  {value:"light-gray",label:"Hellgrau"},
+  {value:"microcement",label:"Mikrozement"},
+  {value:"wood",label:"Helles Holz"},
+  {value:"original",label:"Originalhintergrund"},
+];
+
+export interface BeautifyOptions {
+  mode?: BeautifyMode;
+  background?: BeautifyBackground;
+}
+
+export interface BeautifyResult {
+  image: PantImage;
+  operation: Exclude<BeautifyMode,"auto">;
+  kind: "full_front" | "full_back" | "detail";
+  background: BeautifyBackground;
+}
+
+/** The target photo is always sent FIRST and is the only garment authority.
+ * Two extra original photos can reinforce garment identity, but never a photo
+ * containing the handwritten inventory bag (#5 when there are five).
+ */
+export async function generateJeansFlatlay(
+  original: PantImage,
+  pant?: PantItem,
+  options: BeautifyOptions = {},
+): Promise<BeautifyResult> {
   const { data: auth } = await supabase.auth.getSession();
   const token = auth.session?.access_token;
-  if (!token) throw new Error("Bitte anmelden, um Flatlays zu generieren.");
-
-  const originalCompressed = await compressDataUrl(original.dataUrl, 1200, 0.76);
-  if (!/^data:image\/(?:jpeg|png|webp);base64,/.test(originalCompressed)) {
-    throw new Error("Originalbild konnte nicht geladen werden. Bitte neu öffnen.");
+  if (!token) throw new Error("Bitte anmelden, um Jeansfotos zu verschönern.");
+  const compressed = await compressDataUrl(original.dataUrl, 1200, 0.74);
+  if (!/^data:image\/(?:jpeg|png|webp);base64,/.test(compressed)) {
+    throw new Error("Originalfoto konnte nicht geladen werden.");
   }
-  // Includes a compressed version of the exact layout photo supplied by the seller.
-  // A custom browser-local template overrides the built-in example.
-  const layoutReference = getFlatlayReference() || DEFAULT_FLATLAY_LAYOUT_REFERENCE;
+  const support: string[] = [];
+  if (pant && options.mode !== "background") {
+    for (const other of pant.images.slice(0, pant.images.length === 5 ? 4 : 5)) {
+      if (other.id === original.id || support.length >= 2) continue;
+      const next = await compressDataUrl(other.dataUrl, 720, 0.58);
+      if (/^data:image\/jpeg;base64,/.test(next)) support.push(next);
+    }
+  }
+  const mode = options.mode || "auto";
+  const background = options.background || "rug";
+  const layoutReference = mode === "auto" || mode === "flatlay"
+    ? getFlatlayReference() || DEFAULT_FLATLAY_LAYOUT_REFERENCE : undefined;
+  const descriptions = pant?.result?.detected;
+  const measurements = pant?.measurements ? Object.entries(pant.measurements)
+    .filter(([,v])=>Boolean(v)).map(([k,v])=>k+"="+v+" cm").join("; ") : "";
+
+  const payload = {
+    image: compressed,
+    mode, background,
+    ...(support.length ? {supportImages:support} : {}),
+    ...(layoutReference ? {layoutReference} : {}),
+    details: {
+      title: pant?.result?.title,
+      description: pant?.result?.description,
+      brand: descriptions?.brand,
+      model: descriptions?.model,
+      fit: descriptions?.fit,
+      size: descriptions?.size,
+      color: descriptions?.color,
+      measurements,
+      notes: pant?.customNotes,
+    },
+  };
+  if (JSON.stringify(payload).length > 3_650_000) {
+    throw new Error("Bilddaten sind zu groß. Bitte kleinere Bilder verwenden.");
+  }
+
   let response: Response;
   try {
     response = await fetch("/api/optimize-flatlay", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ image: originalCompressed, ...(layoutReference ? { layoutReference } : {}) }),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
     });
-  } catch (error: any) {
-    throw new Error("Verbindung zur Flatlay-KI fehlgeschlagen: " + (error?.message || "Netzwerkfehler"));
+  } catch (e:any) {
+    throw new Error("Verbindung zur Foto-KI fehlgeschlagen: " + (e?.message || "Netzwerkfehler"));
   }
-  const text = await response.text();
-  let data: { success?: boolean; image?: string; error?: string };
-  try { data = JSON.parse(text); }
+  const raw = await response.text();
+  let data: {success?:boolean;image?:string;error?:string;kind?:string;operation?:string};
+  try { data=JSON.parse(raw); }
   catch {
-    const code = response.headers.get("x-vercel-error") || "";
-    const reqId = response.headers.get("x-vercel-id") || "";
-    throw new Error(`Flatlay-Serverfehler (HTTP ${response.status}${code ? " – " + code : ""})${reqId ? " · Request-ID: " + reqId : ""}.`);
+    const id=response.headers.get("x-vercel-id");
+    const code=response.headers.get("x-vercel-error");
+    throw new Error(`Foto-KI-Server (HTTP ${response.status}${code?" – "+code:""})${id?" · Request-ID: "+id:""}`);
   }
   if (!response.ok || !data.success || !data.image?.startsWith("data:image/")) {
-    throw new Error(data.error || `Flatlay-KI fehlgeschlagen (HTTP ${response.status}).`);
+    throw new Error(data.error || `Foto-KI fehlgeschlagen (HTTP ${response.status}).`);
   }
-  // Generate a portable JPEG for Supabase storage and the Vinted export.
-  const jpeg = await compressDataUrl(data.image, 1650, 0.86);
-  if (!/^data:image\/jpeg;base64,/.test(jpeg)) throw new Error("Flatlay-Ergebnis konnte nicht gespeichert werden.");
+  const jpeg = await compressDataUrl(data.image, 1650, 0.84);
+  if (!/^data:image\/jpeg;base64,/.test(jpeg))
+    throw new Error("KI-Foto konnte nicht gespeichert werden.");
   return {
-    id: `flatlay-${original.id}`,
-    dataUrl: jpeg,
-    name: "flatlay.jpg",
-    size: Math.floor((jpeg.length - jpeg.indexOf(",") - 1) * 3 / 4),
+    image: {
+      id:`flatlay-${original.id}`,
+      dataUrl:jpeg,
+      name:"optimiert.jpg",
+      size:Math.floor((jpeg.length-jpeg.indexOf(",")-1)*3/4),
+    },
+    kind: ["full_front","full_back","detail"].includes(data.kind || "")
+      ? data.kind as BeautifyResult["kind"] : "detail",
+    operation: ["flatlay","detail","background"].includes(data.operation || "")
+      ? data.operation as BeautifyResult["operation"] : "detail",
+    background,
   };
 }
