@@ -735,7 +735,7 @@ export const PantCard: React.FC<PantCardProps> = ({
                 </p>
                 {bulkProgress && (
                   <div role="status" className="rounded-xl border border-stone-200 dark:border-stone-700 p-2.5 text-xs text-stone-700 dark:text-stone-300 space-y-1">
-                    <span>{bulkBusy ? (bulkMode === "background" ? "Hintergründe ändern" : "KI bearbeitet") : (bulkMode === "background" ? "Hintergrund-Durchlauf beendet" : "KI-Durchlauf beendet")}: {bulkProgress.done}/{bulkProgress.total} Fotos.</span>
+                    <span>{bulkBusy ? (bulkMode === "background" ? "Hintergründe ändern" : "Fotos originalgetreu optimieren") : (bulkMode === "background" ? "Hintergrund-Durchlauf beendet" : "Fotokorrektur abgeschlossen") }: {bulkProgress.done}/{bulkProgress.total} Fotos.</span>
                     {!bulkBusy && <span> Ergebnisse unten einzeln vergleichen und freigeben.</span>}
                     {bulkProgress.errors.map((err,i)=><p key={i} className="text-rose-700 dark:text-rose-300 break-words">{err}</p>)}
                   </div>
