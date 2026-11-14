@@ -37,6 +37,20 @@ test("browser-local budget reserves conservative estimate and rolls monthly",()=
 test("poll URLs never allow arbitrary hosts, credentials, http or other paths",()=>{
   assert.equal(acceptableBflPollUrl("https://api.bfl.ai/v1/get_result?id=abc"),true);
   assert.equal(acceptableBflPollUrl("https://api.us.bfl.ai/v1/get_result?id=abc"),true);
+  assert.equal(acceptableBflPollUrl("https://api.eu.bfl.ai/v1/get_result?id=abc"),true);
+  assert.equal(acceptableBflPollUrl("https://api.eu2.bfl.ai/v1/get_result?id=abc"),true);
+  assert.equal(acceptableBflPollUrl("https://api.eu10.bfl.ai/v1/get_result?id=abc"),true);
+  assert.equal(acceptableBflPollUrl("https://api.us2.bfl.ai/v1/get_result?id=abc"),true);
+  assert.equal(acceptableBflPollUrl("https://api.eu2.bfl.ai/v1/get_result?request_id=abc"),false);
+  assert.equal(acceptableBflPollUrl("https://api.eu2.bfl.ai/v1/get_result"),false);
+  assert.equal(acceptableBflPollUrl("https://api.eu2.bfl.ai/v1/get_result?id="),false);
+  assert.equal(acceptableBflPollUrl("https://api.eu2.bfl.ai/v1/get_result?id=abc&redirect=https://evil.example"),false);
+  assert.equal(acceptableBflPollUrl("https://api.eu2.bfl.ai.evil.example/v1/get_result?id=abc"),false);
+  assert.equal(acceptableBflPollUrl("https://api.evil.bfl.ai/v1/get_result?id=abc"),false);
+  assert.equal(acceptableBflPollUrl("https://api.eu2.bfl.ai@evil.example/v1/get_result?id=abc"),false);
+  assert.equal(acceptableBflPollUrl("https://api.eu2.bfl.ai:8443/v1/get_result?id=abc"),false);
+  assert.equal(acceptableBflPollUrl("http://api.eu2.bfl.ai/v1/get_result?id=abc"),false);
+  assert.equal(acceptableBflPollUrl("https://api.eu2.bfl.ai/v1/get_result?id=abc#frag"),false);
   assert.equal(acceptableBflPollUrl("https://evil.example/v1/get_result?id=abc"),false);
   assert.equal(acceptableBflPollUrl("https://api.bfl.ai.evil.example/v1/get_result?id=x"),false);
   assert.equal(acceptableBflPollUrl("http://api.bfl.ai/v1/get_result?id=x"),false);
