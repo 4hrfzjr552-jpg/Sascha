@@ -65,14 +65,10 @@ export async function generateJeansFlatlay(
   if (!/^data:image\/(?:jpeg|png|webp);base64,/.test(compressed)) {
     throw new Error("Originalfoto konnte nicht geladen werden.");
   }
-  const support: string[] = [];
-  if (pant && options.mode !== "background") {
-    for (const other of pant.images.slice(0, pant.images.length === 5 ? 4 : 5)) {
-      if (other.id === original.id || support.length >= 2) continue;
-      const next = await compressDataUrl(other.dataUrl, 720, 0.58);
-      if (/^data:image\/jpeg;base64,/.test(next)) support.push(next);
-    }
-  }
+  // An unrelated view can unintentionally become the garment the image model
+  // reproduces (e.g. a back-pocket view copied into a front-side photo).
+  // The exact selected source image plus listing data are the only identity
+  // inputs by default. Never mix another photo's pose into this edit.
   const mode = options.mode || "auto";
   const background = options.background || "rug";
   const layoutReference = mode === "auto" || mode === "flatlay"
@@ -84,7 +80,6 @@ export async function generateJeansFlatlay(
   const payload = {
     image: compressed,
     mode, background,
-    ...(support.length ? {supportImages:support} : {}),
     ...(layoutReference ? {layoutReference} : {}),
     details: {
       title: pant?.result?.title,
