@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 
 // Load real Vercel entrypoints using the same native Node ESM resolution
 // that failed in production. Bundling alone masks missing ESM local imports.
-const roots = ["analyze-pant.ts", "generate-fitpic.ts", "replace-background.ts", "health.ts"];
+const roots = ["analyze-pant.ts", "generate-fitpic.ts", "replace-background.ts", "optimize-flatlay.ts", "health.ts"];
 
 function response() {
   return {
