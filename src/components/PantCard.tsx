@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { FlatlayEditModal } from "./FlatlayEditModal";
 import { BACKGROUND_OPTIONS, generateJeansFlatlay, type BeautifyBackground, type BeautifyMode, type BeautifyResult } from "../lib/flatlay";
+import { FLUX_BASE_COST_USD, FLUX_RESERVED_USD, getLocalFluxCap, getLocalFluxUsage, type ImageProvider } from "../lib/fluxBudget";
 import { compressImageFile } from "../lib/imageCompressor";
 import { shareVintedPhotos } from "../lib/vintedShare";
 import { formatTitleWithArticleNumber } from "../lib/titleUtils";
@@ -81,6 +82,7 @@ export const PantCard: React.FC<PantCardProps> = ({
   const flatlaySource = pant.images.find(img => img.id === flatlayEditor?.imageId) || null;
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkBackground, setBulkBackground] = useState<BeautifyBackground>("rug");
+  const [bulkProvider,setBulkProvider] = useState<ImageProvider>("flux-klein");
   const [bulkMode, setBulkMode] = useState<"auto" | "background">("auto");
   const [bulkProgress, setBulkProgress] = useState<{done:number;total:number;errors:string[]}|null>(null);
   const bulkStop = useRef(false);
@@ -196,8 +198,10 @@ export const PantCard: React.FC<PantCardProps> = ({
     const eligible = pant.images.slice(0, pant.images.length === 5 ? 4 : 5);
     if (!eligible.length) return;
     const choice = selectedBackground || bulkBackground;
+    const budgetEstimated=bulkProvider==="gemini"?"nicht berechenbar":
+      "$"+(FLUX_RESERVED_USD[bulkProvider]*eligible.length).toFixed(2);
     const confirmation = mode === "background"
-      ? `Den Hintergrund von ${eligible.length} Produktfotos auf „${BACKGROUND_OPTIONS.find(option => option.value === choice)?.label || choice}“ ändern? Auch Bund- und Detailbilder werden bearbeitet, ohne den Bildausschnitt zu verändern. Bestehende KI-Varianten dieser Fotos werden ersetzt (noch nicht für Vinted freigegeben). Originale und Tütenfoto bleiben unverändert. Gemini-Aufrufe können Kosten verursachen.`
+      ? `Den Hintergrund von ${eligible.length} Produktfotos auf „${BACKGROUND_OPTIONS.find(option => option.value === choice)?.label || choice}“ ändern? Anbieter: ${bulkProvider}. Vorgemerkter FLUX-Kostenrahmen für alle Bilder: ${budgetEstimated}. Pro Bild nur ein kostenpflichtiger Versuch, keine automatische KI-Qualitätsprüfung. Die Originale und das Tütenfoto bleiben erhalten; bestehende Varianten werden ersetzt und müssen neu freigegeben werden.`
       : `Alle ${eligible.length} Produktfotos originalgetreu verbessern? Licht und Kontrast werden dezent optimiert, ohne die Jeans neu zu zeichnen oder ihre Falten/Marken zu verändern. Bestehende Varianten werden ersetzt (noch nicht für Vinted freigegeben). Originale bleiben erhalten. Keine Gemini-Aufrufe erforderlich.`;
     if (!window.confirm(confirmation)) return;
 
@@ -216,6 +220,7 @@ export const PantCard: React.FC<PantCardProps> = ({
           const result = await generateJeansFlatlay(original,pant,{
             mode,
             background:mode === "background" ? choice : "original",
+            provider:mode==="background" ? bulkProvider : undefined,
           });
           updated=[
             ...updated.filter(f => f.sourceImageId !== original.id),
@@ -229,7 +234,13 @@ export const PantCard: React.FC<PantCardProps> = ({
             },
           ];
         } catch(e: any) {
-          errors.push(`Foto #${pant.images.findIndex(img => img.id === original.id)+1}: ${e?.message || "KI fehlgeschlagen"}`);
+          const message=e?.message || "Bildbearbeitung fehlgeschlagen";
+          errors.push(`Foto #${pant.images.findIndex(img => img.id === original.id)+1}: ${message}`);
+          if(/Monatsbudget|nicht eingerichtet|Guthaben|Credits|API-Schlüssel/.test(message)) {
+            finished++;
+            setBulkProgress({done:finished,total:eligible.length,errors:[...errors]});
+            break;
+          }
         }
         finished++;
         setBulkProgress({done:finished,total:eligible.length,errors:[...errors]});
@@ -705,6 +716,15 @@ export const PantCard: React.FC<PantCardProps> = ({
                   </button>
                 </div>
                 <div className="flex flex-wrap items-end gap-2 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/70 p-2.5">
+                  <label className="flex flex-col gap-1 text-xs font-semibold text-stone-700 dark:text-stone-200 min-w-[140px]">
+                    Bild-KI für Hintergründe
+                    <select value={bulkProvider} disabled={bulkBusy} onChange={e=>setBulkProvider(e.target.value as ImageProvider)}
+                      className="rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-900 px-2 py-2.5 text-sm min-h-[40px]">
+                      <option value="flux-klein">FLUX Klein · günstig</option>
+                      <option value="flux-pro">FLUX Pro · Qualität</option>
+                      <option value="gemini">Gemini · bisherig</option>
+                    </select>
+                  </label>
                   <label className="flex flex-col gap-1 text-xs font-semibold text-stone-700 dark:text-stone-200 flex-1 min-w-[150px]">
                     Hintergrund für alle Produktfotos
                     <select value={bulkBackground}
@@ -724,6 +744,15 @@ export const PantCard: React.FC<PantCardProps> = ({
                     {bulkBusy && bulkMode==="background" ? "Hintergründe werden geändert…" : "Alle Hintergründe ändern"}
                   </button>
                 </div>
+                {bulkProvider!=="gemini" && (
+                  <p className="text-[11px] text-stone-600 dark:text-stone-400">
+                    FLUX: ab ${FLUX_BASE_COST_USD[bulkProvider].toFixed(3)} je Bild ·
+                    für ${pant.images.length === 5 ? 4 : Math.min(5,pant.images.length)} Bilder
+                    maximal ca. ${(FLUX_RESERVED_USD[bulkProvider]*(pant.images.length === 5 ? 4 : Math.min(5,pant.images.length))).toFixed(2)} im Browser vorgemerkt.
+                    Bereits vorgemerkt: ${getLocalFluxUsage().toFixed(2)} von ${getLocalFluxCap().toFixed(2)}.
+                    Die Browser-Anzeige ist kein kontoweites Ausgabenlimit.
+                  </p>
+                )}
                 {bulkBusy && <button type="button" onClick={()=>{bulkStop.current=true;}}
                   className="px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 text-xs font-bold text-stone-700 dark:text-stone-200">
                   Nach diesem Foto stoppen
