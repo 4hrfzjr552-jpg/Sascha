@@ -104,6 +104,18 @@ export const PantCard: React.FC<PantCardProps> = ({
     catch{/* No persistence, selection works during this session */}
   };
   const [bulkProgress, setBulkProgress] = useState<{done:number;total:number;errors:string[]}|null>(null);
+  const [batchChecks,setBatchChecks]=useState<Record<string,{side:boolean;identity:boolean;bends:boolean;hems:boolean}>>({});
+  const canApproveBatch=(entry:{sourceImageId:string;mode?:string;provider?:string;approved:boolean}):boolean=>{
+    if(entry.approved || entry.provider==="local" || entry.mode==="natural")return true;
+    const c=batchChecks[entry.sourceImageId];
+    return Boolean(c?.side && c?.identity &&
+      (entry.mode!=="flatlay" || (c?.bends && c?.hems)));
+  };
+  const setBatchCheck=(id:string,key:"side"|"identity"|"bends"|"hems",checked:boolean)=>{
+    setBatchChecks(old=>({...old,[id]:{
+      side:false,identity:false,bends:false,hems:false,...old[id],[key]:checked,
+    }}));
+  };
   const bulkStop = useRef(false);
 
   // Vinted photo sharing handler
@@ -243,6 +255,7 @@ export const PantCard: React.FC<PantCardProps> = ({
     if(!window.confirm(confirmation))return;
 
     bulkStop.current=false;
+    setBatchChecks({});
     setBulkMode(mode);
     setBulkBusy(true);
     const errors:string[]=[];
@@ -969,13 +982,39 @@ export const PantCard: React.FC<PantCardProps> = ({
                         className="block text-left text-[11px] underline text-amber-700 dark:text-amber-300 min-h-[28px]">
                         Hintergrund ändern
                       </button>
-                      <button type="button" onClick={() => onUpdate({
-                        ...pant,
-                        flatlays: (pant.flatlays || []).map(f => f.sourceImageId === entry.sourceImageId
-                          ? {...f, approved: !f.approved} : f),
-                        updatedAt: Date.now(),
-                      })} className="block w-full text-left text-[11px] font-semibold text-teal-700 dark:text-teal-300 min-h-[30px]">
-                        {entry.approved ? "✓ Für Vinted freigegeben" : "Nicht freigegeben · aktivieren"}
+                      {!entry.approved && entry.mode!=="natural" && (
+                        <div className="text-[10px] space-y-1 rounded-lg border border-amber-200 dark:border-amber-800 p-2 text-stone-700 dark:text-stone-200">
+                          <p className="font-bold text-amber-800 dark:text-amber-300">Mit Original vergleichen – nur zutreffende Punkte abhaken:</p>
+                          {([
+                            ["side","Vorne/hinten oder Detail gleich"],
+                            ["identity","Dieselbe Jeans: Waschung, Label, Nähte und Schäden"],
+                            ...(entry.mode==="flatlay" ? [
+                              ["bends","Je zwei echte Knicke pro Bein"],
+                              ["hems","Beinöffnungen berühren sich"]
+                            ] : []),
+                          ] as Array<["side"|"identity"|"bends"|"hems",string]>).map(([key,label])=>(
+                            <label key={key} className="flex items-start gap-1.5">
+                              <input type="checkbox" checked={batchChecks[entry.sourceImageId]?.[key]??false}
+                                onChange={e=>setBatchCheck(entry.sourceImageId,key,e.target.checked)} className="mt-0.5"/>
+                              <span>{label}</span>
+                            </label>
+                          ))}
+                          {!canApproveBatch(entry)&&<p className="font-bold text-rose-700 dark:text-rose-300">Freigabe bis zur Prüfung gesperrt.</p>}
+                        </div>
+                      )}
+                      <button type="button"
+                        disabled={!canApproveBatch(entry)}
+                        onClick={() => {
+                          if(!canApproveBatch(entry))return;
+                          onUpdate({
+                            ...pant,
+                            flatlays: (pant.flatlays || []).map(f => f.sourceImageId === entry.sourceImageId
+                              ? {...f, approved: !f.approved} : f),
+                            updatedAt: Date.now(),
+                          });
+                        }}
+                        className="block w-full text-left text-[11px] font-semibold text-teal-700 dark:text-teal-300 min-h-[30px] disabled:opacity-40">
+                        {entry.approved ? "✓ Für Vinted freigegeben" : "Nicht freigegeben · nach Prüfung aktivieren"}
                       </button>
                       <button type="button" onClick={() => {
                         if (!window.confirm("Diese Fotoversion entfernen? Das echte Original bleibt erhalten.")) return;
