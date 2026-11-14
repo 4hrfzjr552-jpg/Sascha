@@ -102,6 +102,16 @@ export function approvesProductEdit(review: unknown): boolean {
     Array.isArray(r.issues) && r.issues.length === 0;
 }
 
+/** A strict, one-off correction only when there is enough time for both
+ * generation and independent quality review before Vercel's 300s deadline.
+ * Background-only edits do NOT repeatedly regenerate an unchanged product.
+ */
+export function shouldRetryProductEdit(operation: string, attempt: number, elapsedMs: number, recognizedSourceView: boolean): boolean {
+  return (operation === "flatlay" || operation === "detail") &&
+    attempt === 0 && recognizedSourceView === true &&
+    Number.isFinite(elapsedMs) && elapsedMs >= 0 && elapsedMs < 70_000;
+}
+
 export default async function handler(req:any,res:any) {
   if (req.method!=="POST") return res.status(405).json({success:false,error:"Methode nicht erlaubt."});
   const supabaseUrl=process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -182,7 +192,10 @@ Keep all garment pixels/shape, original subject placement/crop, perspective, act
 This can be a partial close-up or a full jeans image: do NOT zoom out, expand or straighten the actual garment.
 ${identityRules}`;
 
-    stage="Bildgenerierung";
+    const generationStarted = Date.now();
+    let correctionIssues:string[] = [];
+    for(let attempt=0;attempt<(operation==="background"?1:2);attempt++) {
+    stage=attempt===0?"Bildgenerierung":"Gezielte KI-Nachbesserung";
     const contents:any[]=[
       {text:"PRIMARY PRODUCT PHOTO: the actual jeans/pocket/waistband being sold, highest authority:"},
       {inlineData:main},
@@ -200,7 +213,18 @@ ${identityRules}`;
     }
     contents.push({text:operation==="flatlay"?fullPrompt:operation==="detail"?detailPrompt:backgroundPrompt});
     contents.push({text:"MANDATORY PRODUCT VIEW: "+viewLock+" Expected: "+requiredView+". No alternate view is acceptable."});
-    console.info("[flatlay] generating",{operation,kind,model,background,support:support.length});
+    if(attempt>0) {
+      contents.push({text:`RE-DO THIS EDIT FROM THE ORIGINAL INPUT PHOTO, NOT FROM ANY PREVIOUSLY GENERATED IMAGE.
+The previous candidate failed an independent product-image review because of:
+${correctionIssues.map(issue=>clean(issue,160)).join("; ")}
+CORRECT THESE SPECIFIC FAILURES while preserving the exact product:
+- The source waistband, sewn label/brand patch and its relative position, size and text are IMMUTABLE. Do not relocate, redraw, add or modify tags and logos.
+- If editing the full trousers, make precisely TWO actual gentle directional bends in EACH LEG (near knee and lower calf). They must be visibly bent in the leg outlines, not merely painted crease lines. The INNER EDGES of BOTH leg openings at the bottom MUST TOUCH without merging or crossing.
+- Do not invent a new trouser design, change leg widths, wash, frayed hems, front/back pockets, or authentic damage.
+- If a physical product feature conflicts with the ideal shape, preserve the REAL feature. This edit will be rejected if garment identity is lost.
+Return one NEW corrected image only.`});
+    }
+    console.info("[flatlay] generating",{operation,kind,model,background,attempt:attempt+1,support:support.length});
     const generated=await ai.models.generateContent({
       model,contents,config:{responseModalities:["IMAGE"],imageConfig:{aspectRatio: operation==="detail"||operation==="background"?"1:1":"1:1"}},
     });
@@ -284,6 +308,17 @@ Set sameGarment, sameSide, correctComposition based on evidence. Approve only wi
       : [];
     const approved=approvesProductEdit(review) && review.expectedView===requiredView;
     if(!approved) {
+      // Never retry when the classification of the original photo itself
+      // conflicts with independent QA. Resolve ambiguity instead of fabricating.
+      if(shouldRetryProductEdit(operation,attempt,Date.now()-generationStarted,review.expectedView===requiredView)) {
+        correctionIssues=issues.length?issues:[
+          "Independent review rejected the first try-on; preserve all product markings and requested pose.",
+        ];
+        console.warn("[flatlay] correction requested",{
+          operation,kind,issues:correctionIssues,elapsedMs:Date.now()-generationStarted,
+        });
+        continue;
+      }
       console.warn("[flatlay] rejected AI candidate",{
         operation,kind,confidence:review.confidence,
         sameGarment:review.sameGarment,sameSide:review.sameSide,
@@ -293,8 +328,9 @@ Set sameGarment, sameSide, correctComposition based on evidence. Approve only wi
         success:false,
         error:review.expectedView!==requiredView || review.generatedView!==requiredView
           ? "Vorder-/Rückseite nicht zuverlässig erhalten. KI-Foto abgelehnt; das Original bleibt unverändert."
-          : "KI-Ergebnis weicht vom echten Foto oder von der gewünschten Anordnung ab und wurde verworfen."+
-            (issues.length ? " Probleme: "+issues.map(v=>clean(v,110)).join("; ").slice(0,230) : "")+
+          : (attempt>0 ? "Auch nach einer gezielten KI-Nachbesserung wurden Abweichungen erkannt. " :
+             "KI-Ergebnis weicht vom echten Foto oder von der gewünschten Anordnung ab und wurde verworfen. ")+
+            (issues.length ? "Probleme: "+issues.map(v=>clean(v,110)).join("; ").slice(0,230) : "")+
             " Originalbild bleibt erhalten.",
       });
     }
@@ -303,6 +339,12 @@ Set sameGarment, sameSide, correctComposition based on evidence. Approve only wi
       image:`data:${imageData.mimeType};base64,${imageData.data}`,
       kind,operation,background,
       notice:"KI-Bild unbedingt mit den Originalfotos vergleichen. Originale bleiben erhalten.",
+      attempts:attempt+1,
+    });
+    } // end bounded generation/review attempts
+    return res.status(422).json({
+      success:false,
+      error:"Die Bild-KI konnte keine ausreichend originalgetreue Version erstellen. Originalfoto bleibt erhalten.",
     });
   } catch(e:any) {
     const msg=String(e?.message||"").toLowerCase(),status=Number(e?.status||e?.statusCode||e?.error?.code||0);
