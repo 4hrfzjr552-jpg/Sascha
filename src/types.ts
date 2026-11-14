@@ -6,6 +6,13 @@ export interface PantImage {
   storagePath?: string;
 }
 
+/** User-approved AI re-layout, stored separately from the authentic photo. */
+export interface PantFlatlay {
+  sourceImageId: string;
+  image: PantImage;
+  approved: boolean;
+}
+
 export interface PantMeasurements {
   waist: string; // Bundweite in cm
   totalLength: string; // Gesamtlänge in cm
@@ -48,6 +55,8 @@ export interface PantItem {
   number: number;
   artikelnummer?: string;
   images: PantImage[];
+  /** Optional separate AI-straightened flatlays keyed to unmodified source images. */
+  flatlays?: PantFlatlay[];
   /** Synthetic try-on illustration; kept separate from the five source photos. */
   fitpic?: PantImage;
   /** Explicit approval required before inclusion in customer-facing photos. */
