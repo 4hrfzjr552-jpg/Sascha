@@ -26,7 +26,8 @@ import {
 } from "lucide-react";
 import { FlatlayEditModal } from "./FlatlayEditModal";
 import { BACKGROUND_OPTIONS, generateJeansFlatlay, type BeautifyBackground, type BeautifyMode, type BeautifyResult } from "../lib/flatlay";
-import { FLUX_BASE_COST_USD, FLUX_RESERVED_USD, getLocalFluxCap, getLocalFluxUsage, type ImageProvider } from "../lib/fluxBudget";
+import { FLUX_BASE_COST_USD, FLUX_RESERVED_USD, capCanReserve, getLocalFluxCap, getLocalFluxUsage, type ImageProvider } from "../lib/fluxBudget";
+import { defaultListingPhotoRole, modeForListingRole, summarizeListingRoles, type ListingPhotoRole } from "../lib/flatlayBatchRoles";
 import { compressImageFile } from "../lib/imageCompressor";
 import { shareVintedPhotos } from "../lib/vintedShare";
 import { formatTitleWithArticleNumber } from "../lib/titleUtils";
@@ -83,7 +84,25 @@ export const PantCard: React.FC<PantCardProps> = ({
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkBackground, setBulkBackground] = useState<BeautifyBackground>("rug");
   const [bulkProvider,setBulkProvider] = useState<ImageProvider>("flux-klein");
-  const [bulkMode, setBulkMode] = useState<"auto" | "background">("auto");
+  const [bulkMode, setBulkMode] = useState<"flatlay" | "auto" | "background">("flatlay");
+  const [photoRoles,setPhotoRoles] = useState<Record<string,ListingPhotoRole>>(()=>{
+    try {
+      const stored=JSON.parse(window.localStorage.getItem("sascha-flatlay-photo-roles-"+pant.id)||"{}");
+      return stored && typeof stored==="object" && !Array.isArray(stored) ? stored : {};
+    } catch {return {};}
+  });
+  const getPhotoRole=(img:PantImage,index:number):ListingPhotoRole=>{
+    if(pant.images.length===5 && index===4)return "skip";
+    const saved=photoRoles[img.id];
+    return saved==="front"||saved==="back"||saved==="detail"||saved==="skip"
+      ? saved : defaultListingPhotoRole(index,pant.images.length);
+  };
+  const changePhotoRole=(img:PantImage,role:ListingPhotoRole)=>{
+    const next={...photoRoles,[img.id]:role};
+    setPhotoRoles(next);
+    try {window.localStorage.setItem("sascha-flatlay-photo-roles-"+pant.id,JSON.stringify(next));}
+    catch{/* No persistence, selection works during this session */}
+  };
   const [bulkProgress, setBulkProgress] = useState<{done:number;total:number;errors:string[]}|null>(null);
   const bulkStop = useRef(false);
 
@@ -186,58 +205,74 @@ export const PantCard: React.FC<PantCardProps> = ({
     setFlatlayEditor(null);
   };
 
-  // Two explicit batch actions share the same safe pipeline. "background"
-  // changes the surface of every full-photo or close-up without re-laying the
-  // garment. "auto" is the existing full/close-up beautifier.
-  // The seller approves EVERY generated variant separately.
+  // Main button creates full-jeans flatlays; detail photos stay close-ups.
+  // Seller explicitly verifies front/back/detail/skip BEFORE any paid request.
+  // Separate free local tone correction and background-only remain available.
   const handleBatchPhotos = async (
-    mode: "auto" | "background",
+    mode: "flatlay" | "auto" | "background",
     selectedBackground?: BeautifyBackground,
   ) => {
     if (bulkBusy || isAnalyzing || isCompressing) return;
-    const eligible = pant.images.slice(0, pant.images.length === 5 ? 4 : 5);
-    if (!eligible.length) return;
-    const choice = selectedBackground || bulkBackground;
-    const budgetEstimated=bulkProvider==="gemini"?"nicht berechenbar":
-      "$"+(FLUX_RESERVED_USD[bulkProvider]*eligible.length).toFixed(2);
-    const confirmation = mode === "background"
-      ? `Den Hintergrund von ${eligible.length} Produktfotos auf „${BACKGROUND_OPTIONS.find(option => option.value === choice)?.label || choice}“ ändern? Anbieter: ${bulkProvider}. Vorgemerkter FLUX-Kostenrahmen für alle Bilder: ${budgetEstimated}. Pro Bild nur ein kostenpflichtiger Versuch, keine automatische KI-Qualitätsprüfung. Die Originale und das Tütenfoto bleiben erhalten; bestehende Varianten werden ersetzt und müssen neu freigegeben werden.`
-      : `Alle ${eligible.length} Produktfotos originalgetreu verbessern? Licht und Kontrast werden dezent optimiert, ohne die Jeans neu zu zeichnen oder ihre Falten/Marken zu verändern. Bestehende Varianten werden ersetzt (noch nicht für Vinted freigegeben). Originale bleiben erhalten. Keine Gemini-Aufrufe erforderlich.`;
-    if (!window.confirm(confirmation)) return;
+    const plan=pant.images
+      .slice(0,pant.images.length===5?4:5)
+      .map((image,index)=>({image,role:getPhotoRole(image,index)}))
+      .filter(item=>item.role!=="skip");
+    if(!plan.length){
+      setBulkProgress({done:0,total:0,errors:["Bitte mindestens ein echtes Produktfoto auswählen."]});
+      return;
+    }
+    const eligible=plan.map(x=>x.image);
+    const choice=selectedBackground||bulkBackground;
+    const roles=summarizeListingRoles(plan.map(x=>x.role));
+    const isPaid=mode!=="auto";
+    const estimate=bulkProvider==="gemini" ? "unbekannt (Gemini)" :
+      "$"+(FLUX_RESERVED_USD[bulkProvider]*eligible.length).toFixed(2)+" (konservativ geschätzt)";
+    if(isPaid && bulkProvider!=="gemini" &&
+       !capCanReserve(getLocalFluxUsage(),getLocalFluxCap(),FLUX_RESERVED_USD[bulkProvider]*eligible.length)){
+      setBulkMode(mode);
+      setBulkProgress({done:0,total:eligible.length,errors:[
+        "Dein lokales FLUX-Monatsbudget reicht für diesen gesamten Durchlauf nicht. Im Fotoeditor kannst du das Budget anpassen. Beim Anbieter gilt dein Prepaid-Guthaben als Ausgabengrenze."
+      ]});
+      return;
+    }
+    const confirmation=mode==="flatlay"
+      ? `FLATLAY-BEARBEITUNG: ${roles.front}× Vorderseite, ${roles.back}× Rückseite, ${roles.detail}× Detailfoto. ${eligible.length} Fotos insgesamt, Anbieter: ${bulkProvider}. Hintergrund: ${BACKGROUND_OPTIONS.find(x=>x.value===choice)?.label||choice}. Geschätzter Kostenrahmen: ${estimate}. Ganze Jeans erhalten die Vorgabe „2 Knicke pro Bein, Säume berühren sich“, Detailfotos bleiben Nahaufnahmen. FLUX zeichnet neu: exakte Markierungen sind NICHT garantiert. Je Foto ein kostenpflichtiger Versuch, danach manuelle Freigabe. Fortfahren?`
+      : mode==="background"
+      ? `Den Hintergrund von ${eligible.length} Produktfotos auf „${BACKGROUND_OPTIONS.find(x=>x.value===choice)?.label||choice}“ ändern? Anbieter: ${bulkProvider}. Kostenschätzung: ${estimate}. Pro Bild ein kostenpflichtiger Versuch, anschließend manuelle Freigabe. Originale und Tütenfoto bleiben erhalten.`
+      : `${eligible.length} echte Produktfotos sanft bei Licht/Kontrast optimieren? Keine neuen Hosen, keine KI-Kosten. Ergebnisse müssen anschließend freigegeben werden.`;
+    if(!window.confirm(confirmation))return;
 
-    bulkStop.current = false;
+    bulkStop.current=false;
     setBulkMode(mode);
     setBulkBusy(true);
-    const errors: string[] = [];
-    let finished = 0;
-    let updated = [...(pant.flatlays || [])];
+    const errors:string[]=[];
+    let finished=0;
+    let updated=[...(pant.flatlays||[])];
     setBulkProgress({done:0,total:eligible.length,errors:[]});
-    try {
-      for (const original of eligible) {
-        if (bulkStop.current) break;
+    try{
+      for(const {image,role} of plan) {
+        if(bulkStop.current)break;
         try {
-          const existing = updated.find(f => f.sourceImageId === original.id);
-          const result = await generateJeansFlatlay(original,pant,{
-            mode,
-            background:mode === "background" ? choice : "original",
-            provider:mode==="background" ? bulkProvider : undefined,
+          const requestedMode=mode==="flatlay"?modeForListingRole(role):mode;
+          if(!requestedMode)continue;
+          const result=await generateJeansFlatlay(image,pant,{
+            mode:requestedMode,
+            background:mode==="auto"?"original":choice,
+            provider:isPaid?bulkProvider:undefined,
+            sourceView:role==="front"||role==="back"?role:undefined,
           });
           updated=[
-            ...updated.filter(f => f.sourceImageId !== original.id),
-            {
-              sourceImageId: original.id,
-              image: result.image,
-              approved: false,
-              mode: result.operation,
-              kind: result.kind,
-              background: result.background,
-              provider:result.provider,
-            },
+            ...updated.filter(f=>f.sourceImageId!==image.id),
+            {sourceImageId:image.id,image:result.image,approved:false,
+              mode:result.operation,kind:result.kind,background:result.background,
+              provider:result.provider},
           ];
-        } catch(e: any) {
-          const message=e?.message || "Bildbearbeitung fehlgeschlagen";
-          errors.push(`Foto #${pant.images.findIndex(img => img.id === original.id)+1}: ${message}`);
-          if(/Monatsbudget|nicht eingerichtet|Guthaben|Credits|API-Schlüssel/.test(message)) {
+        }catch(e:any){
+          const message=e?.message||"Bildbearbeitung fehlgeschlagen";
+          errors.push(`Foto #${pant.images.findIndex(img=>img.id===image.id)+1}: ${message}`);
+          // Stop instead of wasting remaining requests when credentials or
+          // account/browser balance clearly prevent further image generation.
+          if(/Monatsbudget|nicht eingerichtet|Guthaben|Credits|API-Schlüssel|Kontingent|prepayment/.test(message)){
             finished++;
             setBulkProgress({done:finished,total:eligible.length,errors:[...errors]});
             break;
@@ -246,12 +281,9 @@ export const PantCard: React.FC<PantCardProps> = ({
         finished++;
         setBulkProgress({done:finished,total:eligible.length,errors:[...errors]});
       }
-      // A failure never destroys an existing successful variant. The original
-      // photos and article-number bag remain completely untouched.
+      // Original photos unaffected; pending AI variants are never published.
       await Promise.resolve(onUpdate({...pant,flatlays:updated,updatedAt:Date.now()}));
-    } finally {
-      setBulkBusy(false);
-    }
+    }finally{setBulkBusy(false);}
   };
 
   // Delete an image
@@ -707,18 +739,54 @@ export const PantCard: React.FC<PantCardProps> = ({
             )}
 
             {pant.images.length > 0 && (
-              <div className="mb-3 space-y-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <button type="button" onClick={()=>void handleBatchPhotos("auto")}
-                    disabled={bulkBusy || isAnalyzing || isCompressing}
-                    className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 text-xs font-bold disabled:opacity-50 min-h-[40px]">
-                    {bulkBusy && bulkMode === "auto" ? <Loader2 className="h-4 w-4 animate-spin"/> : <Sparkles className="h-4 w-4"/>}
-                    {bulkBusy && bulkMode === "auto" ? "Originalfotos werden optimiert…" : "Alle Bilder verschönern"}
-                  </button>
+              <div className="mb-3 space-y-3">
+                <div className="rounded-xl border border-amber-300 dark:border-amber-800 p-3 space-y-2">
+                  <div className="text-xs font-bold text-stone-800 dark:text-stone-100">
+                    Flatlay: Welche Aufnahme zeigt was?
+                  </div>
+                  <p className="text-[11px] text-stone-600 dark:text-stone-300">
+                    Vor der kostenpflichtigen KI-Bearbeitung bitte prüfen. Standard bei 4 Produktbildern:
+                    #1 vorne, #2–3 Detail, #4 hinten. Bei anderen Foto-Reihenfolgen unbedingt ändern.
+                    Die graue Artikelnummer-Tüte auf Platz 5 wird nie bearbeitet.
+                  </p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {pant.images.slice(0,pant.images.length===5?4:5).map((img,index)=>(
+                      <label key={img.id} className="rounded-lg bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 p-2 space-y-1 text-[11px] font-semibold text-stone-700 dark:text-stone-200">
+                        <div className="flex items-center gap-2">
+                          <img src={img.dataUrl} alt={`Originalfoto ${index+1} wählen`}
+                            className="w-10 h-10 rounded object-cover bg-stone-100 dark:bg-stone-900"/>
+                          Foto #{index+1}
+                        </div>
+                        <select value={getPhotoRole(img,index)} disabled={bulkBusy}
+                          aria-label={`Foto ${index+1}: Vorderseite, Rückseite oder Detail`}
+                          onChange={e=>changePhotoRole(img,e.target.value as ListingPhotoRole)}
+                          className="w-full rounded border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-900 px-1 py-2 text-[12px] text-stone-900 dark:text-stone-100">
+                          <option value="front">Vorderseite</option>
+                          <option value="back">Rückseite</option>
+                          <option value="detail">Bund / Tasche / Detail</option>
+                          <option value="skip">Nicht bearbeiten / Tüte</option>
+                        </select>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button type="button" onClick={()=>void handleBatchPhotos("flatlay",bulkBackground)}
+                      disabled={bulkBusy||isAnalyzing||isCompressing}
+                      className="inline-flex items-center gap-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-bold text-xs px-4 py-2.5 min-h-[42px] disabled:opacity-50">
+                      {bulkBusy&&bulkMode==="flatlay"?<Loader2 className="h-4 w-4 animate-spin"/>:<Sparkles className="h-4 w-4"/>}
+                      {bulkBusy&&bulkMode==="flatlay"?"Flatlay-Fotos werden erstellt…":"Alle Bilder verschönern (Flatlay)"}
+                    </button>
+                    <button type="button" onClick={()=>void handleBatchPhotos("auto")}
+                      disabled={bulkBusy||isAnalyzing||isCompressing}
+                      className="inline-flex items-center gap-1 rounded-xl border border-stone-300 dark:border-stone-600 text-stone-700 dark:text-stone-200 font-semibold text-xs px-3 py-2.5 min-h-[42px] disabled:opacity-50">
+                      {bulkBusy&&bulkMode==="auto"?<Loader2 className="h-4 w-4 animate-spin"/>:<ImageIcon className="h-4 w-4"/>}
+                      Nur Licht / Kontrast (gratis)
+                    </button>
+                  </div>
                 </div>
                 <div className="flex flex-wrap items-end gap-2 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/70 p-2.5">
                   <label className="flex flex-col gap-1 text-xs font-semibold text-stone-700 dark:text-stone-200 min-w-[140px]">
-                    Bild-KI für Hintergründe
+                    Bild-KI für Flatlays und Hintergründe
                     <select value={bulkProvider} disabled={bulkBusy} onChange={e=>setBulkProvider(e.target.value as ImageProvider)}
                       className="rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-900 px-2 py-2.5 text-sm min-h-[40px]">
                       <option value="flux-klein">FLUX Klein · günstig</option>
@@ -727,31 +795,29 @@ export const PantCard: React.FC<PantCardProps> = ({
                     </select>
                   </label>
                   <label className="flex flex-col gap-1 text-xs font-semibold text-stone-700 dark:text-stone-200 flex-1 min-w-[150px]">
-                    Hintergrund für alle Produktfotos
+                    Hintergrund für Flatlays und Produktfotos
                     <select value={bulkBackground}
-                      onChange={(e)=>setBulkBackground(e.target.value as BeautifyBackground)}
-                      disabled={bulkBusy || isAnalyzing}
+                      onChange={e=>setBulkBackground(e.target.value as BeautifyBackground)}
+                      disabled={bulkBusy||isAnalyzing}
                       aria-label="Gemeinsamen Hintergrund auswählen"
                       className="w-full rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-900 px-2.5 py-2.5 text-sm text-stone-900 dark:text-stone-100 min-h-[40px]">
-                      {BACKGROUND_OPTIONS.map(option =>
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      )}
+                      {BACKGROUND_OPTIONS.map(opt=><option key={opt.value} value={opt.value}>{opt.label}</option>)}
                     </select>
                   </label>
                   <button type="button" onClick={()=>void handleBatchPhotos("background",bulkBackground)}
-                    disabled={bulkBusy || isAnalyzing || isCompressing}
+                    disabled={bulkBusy||isAnalyzing||isCompressing}
                     className="inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold min-h-[40px] disabled:opacity-50">
-                    {bulkBusy && bulkMode==="background" ? <Loader2 className="h-4 w-4 animate-spin"/> : <Wand2 className="h-4 w-4"/>}
-                    {bulkBusy && bulkMode==="background" ? "Hintergründe werden geändert…" : "Alle Hintergründe ändern"}
+                    {bulkBusy&&bulkMode==="background"?<Loader2 className="h-4 w-4 animate-spin"/>:<Wand2 className="h-4 w-4"/>}
+                    {bulkBusy&&bulkMode==="background"?"Hintergründe werden geändert…":"Alle Hintergründe ändern"}
                   </button>
                 </div>
                 {bulkProvider!=="gemini" && (
                   <p className="text-[11px] text-stone-600 dark:text-stone-400">
-                    FLUX: ab ${FLUX_BASE_COST_USD[bulkProvider].toFixed(3)} je Bild ·
-                    für ${pant.images.length === 5 ? 4 : Math.min(5,pant.images.length)} Bilder
-                    maximal ca. ${(FLUX_RESERVED_USD[bulkProvider]*(pant.images.length === 5 ? 4 : Math.min(5,pant.images.length))).toFixed(2)} im Browser vorgemerkt.
-                    Bereits vorgemerkt: ${getLocalFluxUsage().toFixed(2)} von ${getLocalFluxCap().toFixed(2)}.
-                    Die Browser-Anzeige ist kein kontoweites Ausgabenlimit.
+                    FLUX: Klein ab $0.015 bzw. Pro ab $0.045 je Bearbeitung.
+                    Bei aktuell {pant.images.slice(0,pant.images.length===5?4:5).filter((img,i)=>getPhotoRole(img,i)!=="skip").length} ausgewählten Fotos
+                    reserviert der Browser ca. $${(FLUX_RESERVED_USD[bulkProvider]*pant.images.slice(0,pant.images.length===5?4:5).filter((img,i)=>getPhotoRole(img,i)!=="skip").length).toFixed(2)}.
+                    Diesen Monat lokal vorgemerkt: $${getLocalFluxUsage().toFixed(2)} von $${getLocalFluxCap().toFixed(2)}.
+                    Dies ist keine kontoweite Ausgabensperre; Prepaid ohne Auto-Aufladung verwenden.
                   </p>
                 )}
                 {bulkBusy && <button type="button" onClick={()=>{bulkStop.current=true;}}
@@ -759,14 +825,15 @@ export const PantCard: React.FC<PantCardProps> = ({
                   Nach diesem Foto stoppen
                 </button>}
                 <p className="text-[11px] text-stone-600 dark:text-stone-400">
-                  „Alle Bilder verschönern“ korrigiert Licht/Kontrast originalgetreu – ohne die Jeans neu zu erzeugen.
-                  Für zwei Knicke pro Hosenbein wähle beim einzelnen Foto ausdrücklich den experimentellen KI-Flatlay-Modus.
-                  Mit „Alle Hintergründe ändern“ änderst du die Oberfläche separat. Foto #5 (Tüte) bleibt original.
+                  „Alle Bilder verschönern“ erstellt für Vorder- und Rückseiten Flatlays mit zwei
+                  Knicken pro Bein und unten aneinanderliegenden Beinöffnungen. Detailfotos werden
+                  als Nahaufnahme verbessert. Es handelt sich um neue KI-Bilder: echte Markenmerkmale
+                  und Schäden vor Freigabe immer prüfen. „Nur Licht / Kontrast“ bearbeitet Originalpixel gratis.
                 </p>
-                {bulkProgress && (
+                {bulkProgress&&(
                   <div role="status" className="rounded-xl border border-stone-200 dark:border-stone-700 p-2.5 text-xs text-stone-700 dark:text-stone-300 space-y-1">
-                    <span>{bulkBusy ? (bulkMode === "background" ? "Hintergründe ändern" : "Fotos originalgetreu optimieren") : (bulkMode === "background" ? "Hintergrund-Durchlauf beendet" : "Fotokorrektur abgeschlossen") }: {bulkProgress.done}/{bulkProgress.total} Fotos.</span>
-                    {!bulkBusy && <span> Ergebnisse unten einzeln vergleichen und freigeben.</span>}
+                    <span>{bulkBusy?(bulkMode==="flatlay"?"Flatlays werden erstellt":bulkMode==="background"?"Hintergründe ändern":"Originalfotos optimieren"):(bulkMode==="flatlay"?"Flatlay-Durchlauf beendet":bulkMode==="background"?"Hintergrund-Durchlauf beendet":"Fotokorrektur abgeschlossen")}: {bulkProgress.done}/{bulkProgress.total} Fotos.</span>
+                    {!bulkBusy&&<span> Ergebnisse unten einzeln vergleichen und freigeben.</span>}
                     {bulkProgress.errors.map((err,i)=><p key={i} className="text-rose-700 dark:text-rose-300 break-words">{err}</p>)}
                   </div>
                 )}

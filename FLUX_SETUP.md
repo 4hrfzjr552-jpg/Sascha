@@ -34,3 +34,17 @@
 - BFL API Schnellstart: https://help.bfl.ai/articles/8446125349-quickstart-guide
 - BFL Preise: https://bfl.ai/pricing
 - BFL Prepaid / Auto Top-up: https://help.bfl.ai/articles/5259400552-what-happens-when-i-run-out-of-credits
+
+
+## Korrektur des zentralen Buttons (14.11.2026)
+
+Der zentrale Button **„Alle Bilder verschönern (Flatlay)“** ist wieder die ursprüngliche gewünschte **Flatlay-Generierung** mit einer Bild-KI, standardmäßig FLUX.2 Klein. Der alte Wechsel auf reine Licht-/Kontrastkorrektur unter diesem Button entsprach nicht dem gewünschten Verhalten.
+
+- Bei einer normalen 4-Bilder-Jeansanzeige gilt als **bearbeitbare Voreinstellung**: Foto #1 Vorderseite → ganzes Front-Flatlay, Foto #2 und #3 → Detailfoto als Nahaufnahme erhalten, Foto #4 Rückseite → ganzes Rückseiten-Flatlay.
+- Jeder Bildkachel lässt sich **vor der Bezahlung** explizit die Rolle **Vorderseite, Rückseite, Bund/Tasche/Detail oder Nicht bearbeiten/Tüte** zuordnen. Diese Rollen sind eine Voreinstellung gemäß Foto-Reihenfolge, **KEINE automatische Bilderkennung**; unbedingt korrekt auswählen. Falsch angeordnete Produktfotos müssen vor der kostenpflichtigen Bearbeitung umgestellt werden.
+- Ganzes Front-/Rückseitenfoto: Anweisung zwei sichtbare weiche Knicke pro Bein und sich berührende Beinöffnungen unten; die echte Seite muss gleich bleiben. Detailfoto: Ausschnitt bleibt ein Detail und keine frei erfundene komplette Hose.
+- Gemeinsame FLUX/Gemini-Modellauswahl und Hintergrundwahl gelten für die Flatlay-Sammelbearbeitung **und** den separaten Hintergrund-Button. Der gesamte geschätzte Kostenrahmen sowie die gewählten Foto-Rollen werden vor dem Start angezeigt.
+- **„Nur Licht / Kontrast (gratis)“** ist jetzt ein **eigener Zweitbutton**; er ist nicht die Flatlay-Funktion.
+- Bei FLUX wird vor dem Batch geprüft, ob das lokale Schätzbudget für alle gewählten Fotos ausreicht. Die App macht einen bezahlten Versuch pro Foto und bewahrt Originalbilder, die fünfte Inventartüte sowie die manuelle Freigabe vor Vinted.
+
+Ein KI-Bild kann trotz dieser Prompts die Jeans und Schäden falsch wiedergeben. Ohne tatsächlichen bezahlten FLUX-Live-Durchlauf ist seine Bildqualität nicht bestätigt.
