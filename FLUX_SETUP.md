@@ -48,3 +48,14 @@ Der zentrale Button **„Alle Bilder verschönern (Flatlay)“** ist wieder die 
 - Bei FLUX wird vor dem Batch geprüft, ob das lokale Schätzbudget für alle gewählten Fotos ausreicht. Die App macht einen bezahlten Versuch pro Foto und bewahrt Originalbilder, die fünfte Inventartüte sowie die manuelle Freigabe vor Vinted.
 
 Ein KI-Bild kann trotz dieser Prompts die Jeans und Schäden falsch wiedergeben. Ohne tatsächlichen bezahlten FLUX-Live-Durchlauf ist seine Bildqualität nicht bestätigt.
+
+
+## 14.11.2026: Bildtreue und das Zwei-Knick-Flatlay
+
+Ein echter Test mit FLUX.2 Klein erzeugte aus einer dunkelblauen Jeans ein deutlich helleres, generischer wirkendes Paar mit veränderten echten Merkmalen, geraden Beinen und NICHT aneinanderliegenden Beinöffnungen. Der API-Aufruf wurde technisch korrekt durchgeführt; **dieser Generierungsfehler ist kein API-Transportfehler**. Für den Wiederverkauf sind solche Ergebnisse nicht als authentische Darstellung geeignet.
+
+- Zusätzlich zum echten Jeansfoto als **IMAGE 1** bekommt FLUX bei Flatlays eine neue, komplett neutrale **schwarz-weiße Umrissvorlage als IMAGE 2** über `input_image_2`. Sie enthält **keine Taschen, Jeans-Waschung, Markenlabels oder zweite Hose**. Der FLUX-Prompt sagt ausdrücklich, dass allein IMAGE 1 die Textil-/Markenidentität vorgibt und IMAGE 2 ausschließlich die Form mit zwei Knicken je Bein sowie die zusammenlaufenden unteren Beinöffnungen.
+- Für FLUX Pro wird `disable_pup:true` gesetzt, um unaufgefordertes Prompt-Umschreiben zu unterdrücken.
+- **Kostenhinweis:** Die zusätzliche Referenz zählt bei BFL als zweites Referenzbild, auch wenn das Schema nur 512×512 groß ist. Ein Flatlay mit 1 MP Ausgabe und zwei Eingabebildern kostet nach der offiziellen Preisstaffel ungefähr **$0.016 (Klein 4B)** oder **$0.060 (Pro)**. Die bereits konservativ reservierten Budgetwerte Klein $0.025 und Pro $0.060 bleiben deshalb unverändert. Der tatsächliche API-Betrag ist im BFL-Dashboard zu prüfen.
+- **Sowohl im Einzelbildeditor als auch bei den Sammelvarianten** ist die Freigabe für *KI-generierte* Fotos jetzt standardmäßig gesperrt, bis die Verkäuferin/der Verkäufer ausdrücklich bestätigt, dass Hosenseite/Ausschnitt und echte Jeansmerkmale übereinstimmen. Bei Flatlays müssen zusätzlich **zwei echte Knicke pro Bein** und **sich berührende untere Säume** bestätigt werden. Die Checkboxen sind nur eine manuelle Sicherheitsprüfung, **keine KI-basierte oder automatische Bildanalyse**.
+- Originalbilder, Tütenfoto und bisherige nicht freigegebene Varianten bleiben erhalten. Die neue Umrissvorlage ist ein **experimenteller Qualitätsversuch**; sie garantiert keine identische Ware. Falls weiterhin abweichende Jeans generiert werden, **keine weiteren kostenpflichtigen Versuche wiederholen**. Wirklich genaue Jeansfotos entstehen, indem die originale Hose physisch in der gewünschten Knickform fotografiert wird.

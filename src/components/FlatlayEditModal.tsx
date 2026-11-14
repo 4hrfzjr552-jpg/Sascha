@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Check, ImagePlus, Loader2, RefreshCw, Sparkles, X } from "lucide-react";
 import type { PantImage, PantItem } from "../types";
 import { DEFAULT_FLATLAY_LAYOUT_REFERENCE } from "../lib/flatlayReference";
+import { flatlayPoseGuideSvg } from "../lib/flatlayPoseGuide";
 import {
   BACKGROUND_OPTIONS, clearFlatlayReference, generateJeansFlatlay,
   getFlatlayReference, saveFlatlayReference,
@@ -35,9 +36,11 @@ export const FlatlayEditModal: React.FC<Props> = ({
   const [sourceView,setSourceView] = useState<"" | "front" | "back">("");
   const [monthlyCap,setMonthlyCap] = useState(getLocalFluxCap);
   const [spentEstimate,setSpentEstimate] = useState(getLocalFluxUsage);
+  const [sellerChecks,setSellerChecks]=useState({side:false,identity:false,bends:false,hems:false});
 
   useEffect(() => {
     setVariant(null); setError(""); setBusy(false);
+    setSellerChecks({side:false,identity:false,bends:false,hems:false});
     setMode(initialMode);setSourceView("");setSpentEstimate(getLocalFluxUsage());
     const prior=pant.flatlays?.find(f=>f.sourceImageId===image?.id);
     setBackground(prior?.background || "rug");
@@ -49,6 +52,7 @@ export const FlatlayEditModal: React.FC<Props> = ({
   async function generate() {
     if(!image||busy)return;
     setBusy(true); setError(""); setVariant(null);
+    setSellerChecks({side:false,identity:false,bends:false,hems:false});
     try {
       setVariant(await generateJeansFlatlay(image,pant,{
         mode,background,provider,sourceView:sourceView || undefined,
@@ -76,6 +80,13 @@ export const FlatlayEditModal: React.FC<Props> = ({
     finally{setSavingReference(false);}
   }
 
+  const isGenerated = Boolean(variant && variant.provider!=="local");
+  const requiresFlatlayChecks = variant?.operation==="flatlay";
+  const checksComplete = !isGenerated ||
+    (sellerChecks.side && sellerChecks.identity &&
+     (!requiresFlatlayChecks || (sellerChecks.bends && sellerChecks.hems)));
+  const flatlayPreview = provider==="gemini" ? (reference||DEFAULT_FLATLAY_LAYOUT_REFERENCE)
+    : "data:image/svg+xml;charset=utf-8,"+encodeURIComponent(flatlayPoseGuideSvg());
   const operationLabel = variant?.operation === "flatlay" ? "Ganzes Hosen-Flatlay"
     : variant?.operation === "natural" ? "Originalfoto sanft optimiert"
     : variant?.operation === "detail" ? "Detailfoto verschönert" : "Hintergrund gewechselt";
@@ -186,24 +197,25 @@ export const FlatlayEditModal: React.FC<Props> = ({
 
           {mode==="flatlay" && (
             <div className="rounded-xl border border-stone-200 dark:border-stone-700 p-3 space-y-2">
-              <div className="font-bold text-xs text-stone-800 dark:text-stone-100">Deine Flatlay-Vorlage</div>
+              <div className="font-bold text-xs text-stone-800 dark:text-stone-100">{provider==="gemini"?"Deine Gemini-Flatlay-Vorlage":"Neutrale FLUX-Umrissvorlage (ohne fremde Jeans)"}</div>
               <div className="flex items-center gap-3">
-                <img src={reference||DEFAULT_FLATLAY_LAYOUT_REFERENCE} alt="Deine Vorlage: Jeans auf Teppich"
+                <img src={flatlayPreview} alt={provider==="gemini"?"Jeans-Layoutvorlage für Gemini":"Neutrale geometrische Zwei-Knick-Silhouette für FLUX"}
                   className="w-16 h-16 object-cover rounded-lg border border-stone-200 dark:border-stone-700"/>
                 <p className="text-xs text-stone-600 dark:text-stone-300">
-                  Nur für experimentelle Flatlays: Bund oben, zwei natürliche Knicke pro Bein und
-                  unten berühren sich die Beinöffnungen. Ein falsches Ergebnis wird abgelehnt.
+                  Bund oben, zwei echte Knicke pro Bein, unten berühren sich die Beinöffnungen.
+                  FLUX erhält eine separate neutrale Umrissvorlage ohne fremde Taschen, Etiketten oder Waschungen.
+                  Bei Gemini bleibt die vorhandene Foto-Vorlage verfügbar. Kein Modell garantiert perfekte Übereinstimmung.
                 </p>
               </div>
-              <div className="flex flex-wrap gap-2 items-center">
+              {provider==="gemini" && <div className="flex flex-wrap gap-2 items-center">
                 <label className="inline-flex items-center gap-1.5 cursor-pointer text-xs rounded-lg border border-stone-300 dark:border-stone-700 px-3 py-2 font-semibold text-stone-800 dark:text-stone-200">
-                  <ImagePlus className="h-4 w-4"/> {savingReference?"Speichert…":"Andere Vorlage auswählen"}
+                  <ImagePlus className="h-4 w-4"/> {savingReference?"Speichert…":"Gemini-Vorlage auswählen"}
                   <input type="file" accept="image/*" className="hidden" disabled={busy||savingReference}
                     onChange={e=>{void onTemplateFile(e.target.files?.[0]);e.target.value="";}}/>
                 </label>
                 {reference && <button type="button" disabled={busy} onClick={()=>{clearFlatlayReference();setReference(null);}}
                   className="text-xs text-stone-600 dark:text-stone-300 underline">Zur Originalvorlage</button>}
-              </div>
+              </div>}
             </div>
           )}
 
@@ -229,9 +241,38 @@ export const FlatlayEditModal: React.FC<Props> = ({
 
           {error && <p role="alert" className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/30 text-xs text-rose-700 dark:text-rose-300">{error}</p>}
           {variant && <p className="text-xs text-rose-700 dark:text-rose-300">
-            Prüfe echte Beinweite, Waschung, Label, Knicke, Löcher, Flecken und Säume.
-            Bei einer falschen Hose nicht freigeben – lieber „Neu erstellen“ oder abbrechen.
+            Dieses Bild wurde von generativer KI erstellt und ist NICHT automatisch als echte
+            Produktdarstellung geprüft. Insbesondere hellere Stofffarbe, andere Etiketten,
+            fehlende Knicke oder vertauschte Vorder-/Rückseite sind Ablehnungsgründe.
           </p>}
+          {variant && isGenerated && (
+            <div className="rounded-xl border border-amber-300 dark:border-amber-700 p-3 space-y-2 text-xs">
+              <p className="font-bold text-amber-800 dark:text-amber-300">
+                Vor dem Übernehmen jedes Kriterium selbst am Original vergleichen.
+                Nur abhaken, wenn es wirklich stimmt.
+              </p>
+              {([
+                ["side","Die Vorder-/Rückseite bzw. der Detail-Ausschnitt stimmt."],
+                ["identity","Es ist genau dieselbe Jeans: Waschung, Farbe, echte Schäden, Taschen, Etiketten und Nähte stimmen."],
+                ...(requiresFlatlayChecks ? [
+                  ["bends","JEDES Hosenbein hat tatsächlich zwei deutliche Knicke in der Form, nicht nur Falten im Stoff."],
+                  ["hems","Die beiden unteren Beinöffnungen berühren sich an den inneren Kanten."]
+                ] : []),
+              ] as Array<[keyof typeof sellerChecks,string]>).map(([key,label])=>(
+                <label key={key} className="flex gap-2 items-start p-2 rounded-lg bg-white dark:bg-stone-900 text-stone-800 dark:text-stone-100">
+                  <input type="checkbox" checked={sellerChecks[key]}
+                    onChange={e=>setSellerChecks(old=>({...old,[key]:e.target.checked}))}
+                    className="mt-0.5 h-4 w-4 accent-teal-700"/>
+                  <span>{label}</span>
+                </label>
+              ))}
+              {!checksComplete && (
+                <p className="text-amber-800 dark:text-amber-300 font-semibold">
+                  Freigabe gesperrt, bis alle Punkte bestätigt sind. Bei Abweichungen abbrechen.
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         <footer className="flex flex-wrap justify-end gap-2 px-3 py-3 border-t border-stone-200 dark:border-stone-800">
@@ -242,7 +283,8 @@ export const FlatlayEditModal: React.FC<Props> = ({
             {busy?<Loader2 className="h-4 w-4 animate-spin"/>:variant?<RefreshCw className="h-4 w-4"/>:<Sparkles className="h-4 w-4"/>}
             {busy?"Wird erstellt…":variant?"Neu erstellen":"Foto verschönern"}
           </button>
-          <button type="button" disabled={busy||!variant} onClick={()=>{if(variant)onAccept(variant);}}
+          <button type="button" disabled={busy||!variant||!checksComplete}
+            onClick={()=>{if(variant&&checksComplete)onAccept(variant);}}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold disabled:opacity-40">
             <Check className="h-4 w-4"/> Nach Prüfung übernehmen
           </button>
