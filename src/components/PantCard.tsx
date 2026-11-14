@@ -24,8 +24,8 @@ import {
   Share2,
   Wand2,
 } from "lucide-react";
-import { ImageEditModal } from "./ImageEditModal";
 import { FlatlayEditModal } from "./FlatlayEditModal";
+import { generateJeansFlatlay, type BeautifyMode, type BeautifyResult } from "../lib/flatlay";
 import { compressImageFile } from "../lib/imageCompressor";
 import { shareVintedPhotos } from "../lib/vintedShare";
 import { formatTitleWithArticleNumber } from "../lib/titleUtils";
@@ -77,12 +77,11 @@ export const PantCard: React.FC<PantCardProps> = ({
   const [showPhotoWarning, setShowPhotoWarning] = useState(false);
   const [isPreparingPhotos, setIsPreparingPhotos] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
-  const [editingImageState, setEditingImageState] = useState<{
-    imageId: string;
-    dataUrl: string;
-  } | null>(null);
-  const [flatlaySourceId, setFlatlaySourceId] = useState<string | null>(null);
-  const flatlaySource = pant.images.find(img => img.id === flatlaySourceId) || null;
+  const [flatlayEditor, setFlatlayEditor] = useState<{ imageId: string; mode: BeautifyMode } | null>(null);
+  const flatlaySource = pant.images.find(img => img.id === flatlayEditor?.imageId) || null;
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{done:number;total:number;errors:string[]}|null>(null);
+  const bulkStop = useRef(false);
 
   // Vinted photo sharing handler
   const handleShareVintedPhotos = async () => {
@@ -167,50 +166,65 @@ export const PantCard: React.FC<PantCardProps> = ({
     }
   };
 
-  // Accept background edit from ImageEditModal (replaces selected original image)
-  const handleAcceptEditedImage = (editedDataUrl: string) => {
-    if (!editingImageState) return;
-
-    const targetIdx = pant.images.findIndex((i) => i.id === editingImageState.imageId);
-    if (targetIdx === -1) return;
-
-    const targetImage = pant.images[targetIdx];
-    const updatedImage: PantImage = {
-      ...targetImage,
-      dataUrl: editedDataUrl,
-      size: Math.round(editedDataUrl.length * 0.75),
-      storagePath: undefined, // Reset storagePath so Supabase uploads edited content
-    };
-
-    const newImages = [...pant.images];
-    newImages[targetIdx] = updatedImage;
-
-    onUpdate({
-      ...pant,
-      images: newImages,
-      // The underlying garment image was changed. A previously generated
-      // flatlay no longer matches it and must be explicitly regenerated.
-      flatlays: (pant.flatlays || []).filter(f => f.sourceImageId !== targetImage.id),
-      updatedAt: Date.now(),
-    });
-
-    setEditingImageState(null);
-  };
-
-  // The seller explicitly approved this edited result in the comparison
-  // modal. Keep the authentic source photo untouched, including its position
-  // and article-number bag. A separate variant is stored in Supabase.
-  const handleAcceptFlatlay = (image: PantImage) => {
+  // Store AI variants separately: Original images are never edited or deleted
+  // by these actions. A failed generation has no effect on gallery state.
+  const handleAcceptFlatlay = (result: BeautifyResult) => {
     if (!flatlaySource || !pant.images.some(img => img.id === flatlaySource.id)) return;
     onUpdate({
       ...pant,
       flatlays: [
         ...(pant.flatlays || []).filter(f => f.sourceImageId !== flatlaySource.id),
-        { sourceImageId: flatlaySource.id, image, approved: true },
+        { sourceImageId: flatlaySource.id, image: result.image, approved: true,
+          mode: result.operation, kind: result.kind, background: result.background },
       ],
       updatedAt: Date.now(),
     });
-    setFlatlaySourceId(null);
+    setFlatlayEditor(null);
+  };
+
+  // Up to four real photos at once. Full-body and detail classification is
+  // performed independently for every image by the authenticated API.
+  // Batch results require human approval and are never published automatically.
+  const handleBeautifyAllPhotos = async () => {
+    if (bulkBusy || isAnalyzing) return;
+    const eligible = pant.images.slice(0, pant.images.length === 5 ? 4 : 5);
+    if (!eligible.length) return;
+    if (!window.confirm(
+      `Alle ${eligible.length} Produktfotos nacheinander per KI verschönern? Bund-/Detailfotos bleiben Detailfotos. Ergebnisse müssen einzeln geprüft werden. Dafür können Gemini-Kosten anfallen.`
+    )) return;
+
+    bulkStop.current = false;
+    setBulkBusy(true);
+    const errors:string[] = [];
+    let finished = 0;
+    let updated = [...(pant.flatlays || [])];
+    setBulkProgress({done:0,total:eligible.length,errors:[]});
+    try {
+      for (const original of eligible) {
+        if (bulkStop.current) break;
+        try {
+          const saved = updated.find(f => f.sourceImageId === original.id);
+          const result = await generateJeansFlatlay(original, pant, {
+            mode:"auto",
+            background:saved?.background || "rug",
+          });
+          updated = [
+            ...updated.filter(f => f.sourceImageId !== original.id),
+            { sourceImageId:original.id, image:result.image, approved:false,
+              mode:result.operation, kind:result.kind, background:result.background },
+          ];
+        } catch(e:any) {
+          errors.push(`Foto #${pant.images.findIndex(img=>img.id===original.id)+1}: ${e?.message || "KI fehlgeschlagen"}`);
+        }
+        finished++;
+        setBulkProgress({done:finished,total:eligible.length,errors:[...errors]});
+      }
+      // Persist all completed variants even if one photo failed or the batch
+      // was canceled. Existing variants for failed photos are preserved.
+      await Promise.resolve(onUpdate({...pant,flatlays:updated,updatedAt:Date.now()}));
+    } finally {
+      setBulkBusy(false);
+    }
   };
 
   // Delete an image
@@ -338,17 +352,11 @@ export const PantCard: React.FC<PantCardProps> = ({
           : "border-stone-200 dark:border-stone-800"
       }`}
     >
-      {/* Image Editing Modal */}
-      <ImageEditModal
-        isOpen={editingImageState !== null}
-        originalDataUrl={editingImageState?.dataUrl || ""}
-        imageName={`Hose #${pant.number} Foto`}
-        onClose={() => setEditingImageState(null)}
-        onAccept={handleAcceptEditedImage}
-      />
       <FlatlayEditModal
+        pant={pant}
         image={flatlaySource}
-        onClose={() => setFlatlaySourceId(null)}
+        initialMode={flatlayEditor?.mode || "auto"}
+        onClose={() => setFlatlayEditor(null)}
         onAccept={handleAcceptFlatlay}
       />
       {/* COLLAPSED HEADER / COMPACT SUMMARY ROW */}
@@ -671,6 +679,34 @@ export const PantCard: React.FC<PantCardProps> = ({
               </div>
             )}
 
+            {pant.images.length > 0 && (
+              <div className="mb-3 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button type="button" onClick={()=>void handleBeautifyAllPhotos()}
+                    disabled={bulkBusy || isAnalyzing || isCompressing}
+                    className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 text-xs font-bold disabled:opacity-50 min-h-[40px]">
+                    {bulkBusy ? <Loader2 className="h-4 w-4 animate-spin"/> : <Sparkles className="h-4 w-4"/>}
+                    {bulkBusy ? "Alle Bilder werden verschönert…" : "Alle Bilder verschönern"}
+                  </button>
+                  {bulkBusy && <button type="button" onClick={()=>{bulkStop.current=true;}}
+                    className="px-3 py-2 rounded-xl border border-stone-300 dark:border-stone-700 text-xs font-bold text-stone-700 dark:text-stone-200">
+                    Nach diesem Foto stoppen
+                  </button>}
+                </div>
+                <p className="text-[11px] text-stone-600 dark:text-stone-400">
+                  Ganze Hosen → Flatlay mit 2 Knicken pro Bein und aneinanderliegenden Beinöffnungen.
+                  Bund, Tasche oder Label → nur Detail optimieren. Für jedes Foto kannst du den Hintergrund separat wählen.
+                  Artikelnummer-Tüte bleibt original.
+                </p>
+                {bulkProgress && (
+                  <div role="status" className="rounded-xl border border-stone-200 dark:border-stone-700 p-2.5 text-xs text-stone-700 dark:text-stone-300 space-y-1">
+                    <span>{bulkBusy ? "KI bearbeitet" : "KI-Durchlauf beendet"}: {bulkProgress.done}/{bulkProgress.total} Fotos.</span>
+                    {!bulkBusy && <span> Ergebnisse unten einzeln vergleichen und freigeben.</span>}
+                    {bulkProgress.errors.map((err,i)=><p key={i} className="text-rose-700 dark:text-rose-300 break-words">{err}</p>)}
+                  </div>
+                )}
+              </div>
+            )}
             {/* Photo Preview Strip & Upload Button */}
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
               {pant.images.map((img, index) => (
@@ -689,37 +725,31 @@ export const PantCard: React.FC<PantCardProps> = ({
                     #{index + 1}
                   </div>
 
-                  {/* Top right buttons: Hintergrund ändern & Delete */}
+                  {/* Each photo: separate background preset / auto detail-aware beautifier. */}
                   <div className="absolute top-1.5 right-1.5 flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setEditingImageState({
-                          imageId: img.id,
-                          dataUrl: img.dataUrl,
-                        })
-                      }
-                      className="flex h-7 px-1.5 items-center justify-center gap-1 rounded-lg bg-stone-900/80 text-amber-300 hover:bg-stone-900 hover:text-amber-200 transition-colors backdrop-blur-xs min-h-[36px] text-[10px] font-bold"
-                      title="Bild bearbeiten -> Hintergrund ändern"
-                    >
-                      <Wand2 className="h-3.5 w-3.5" />
-                      <span className="hidden xs:inline">Hintergrund</span>
-                    </button>
-
-                    {/* Individual AI re-layout; never modify stock-number bag (#5). */}
                     {!(pant.images.length === 5 && index === 4) && (
-                      <button type="button" onClick={() => setFlatlaySourceId(img.id)}
-                        disabled={isAnalyzing || isCompressing}
-                        className="flex h-7 px-1.5 items-center justify-center gap-1 rounded-lg bg-stone-900/80 text-teal-300 hover:bg-stone-900 hover:text-teal-200 disabled:opacity-50 transition-colors backdrop-blur-xs min-h-[36px] text-[10px] font-bold"
-                        title="KI-Flatlay: Hose wie im Beispiel hinlegen und glätten">
-                        <Sparkles className="h-3.5 w-3.5" />
-                        <span className="hidden xs:inline">Flatlay</span>
-                      </button>
+                      <>
+                        <button type="button"
+                          disabled={bulkBusy || isAnalyzing}
+                          onClick={() => setFlatlayEditor({ imageId: img.id, mode:"background" })}
+                          className="flex h-9 px-1.5 items-center justify-center gap-1 rounded-lg bg-stone-900/85 text-amber-300 hover:bg-stone-900 min-h-[36px] text-[10px] font-bold disabled:opacity-40"
+                          title="Hintergrund für nur dieses Foto auswählen">
+                          <Wand2 className="h-3.5 w-3.5"/><span className="hidden sm:inline">BG</span>
+                        </button>
+                        <button type="button"
+                          disabled={bulkBusy || isAnalyzing}
+                          onClick={() => setFlatlayEditor({ imageId: img.id, mode:"auto" })}
+                          className="flex h-9 px-1.5 items-center justify-center gap-1 rounded-lg bg-stone-900/85 text-teal-300 hover:bg-stone-900 min-h-[36px] text-[10px] font-bold disabled:opacity-40"
+                          title="Dieses Hosenfoto oder Detail automatisch verschönern">
+                          <Sparkles className="h-3.5 w-3.5"/><span className="hidden sm:inline">KI</span>
+                        </button>
+                      </>
                     )}
 
                     <button
                       type="button"
                       onClick={() => handleDeleteImage(img.id)}
+                      disabled={bulkBusy}
                       className="flex h-7 w-7 items-center justify-center rounded-lg bg-stone-900/80 text-white hover:bg-rose-600 transition-colors backdrop-blur-xs min-h-[36px] min-w-[36px]"
                       title="Foto löschen"
                     >
@@ -786,10 +816,10 @@ export const PantCard: React.FC<PantCardProps> = ({
             {(pant.flatlays || []).length > 0 && (
               <div className="mt-3 rounded-xl border border-teal-200 dark:border-teal-800 bg-teal-50/50 dark:bg-teal-950/20 p-3 space-y-2">
                 <p className="text-xs font-bold text-stone-800 dark:text-stone-100">
-                  KI-Flatlays (Originalbilder bleiben erhalten)
+                  KI-optimierte Fotos (Originalbilder bleiben erhalten)
                 </p>
                 <p className="text-[11px] text-stone-600 dark:text-stone-400">
-                  Nur freigegebene Varianten werden für Vinted bevorzugt. Vergleiche jeden Mangel mit dem echten Bild.
+                  Ergebnisse der Sammelbearbeitung sind zunächst nicht freigegeben. Vergleiche jedes KI-Foto mit dem Original; nur bestätigte Varianten können in den Vinted-Export.
                 </p>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {(pant.flatlays || []).filter(entry => pant.images.some(img => img.id === entry.sourceImageId)).map(entry => (
@@ -797,7 +827,13 @@ export const PantCard: React.FC<PantCardProps> = ({
                       <img src={entry.image.dataUrl} alt="KI-Flatlay der Jeans" className="aspect-square w-full object-contain rounded bg-stone-100 dark:bg-stone-800" />
                       <p className="text-[11px] text-stone-700 dark:text-stone-300 font-semibold">
                         Foto #{pant.images.findIndex(img => img.id === entry.sourceImageId) + 1}
+                        {entry.mode === "detail" ? " · Detail" : entry.mode === "background" ? " · Hintergrund" : " · Flatlay"}
                       </p>
+                      <button type="button" onClick={() => setFlatlayEditor({imageId: entry.sourceImageId, mode: "background"})}
+                        disabled={bulkBusy}
+                        className="block text-left text-[11px] underline text-amber-700 dark:text-amber-300 min-h-[28px]">
+                        Hintergrund ändern
+                      </button>
                       <button type="button" onClick={() => onUpdate({
                         ...pant,
                         flatlays: (pant.flatlays || []).map(f => f.sourceImageId === entry.sourceImageId
