@@ -44,7 +44,7 @@ import {
   appendKeywordsToDescription,
 } from "./lib/titleUtils";
 import { sortPantsByArticleNumber, isValidArticleNumber } from "./lib/articleNumberUtils";
-import { generatePantFitpic, fitpicVariationForPant } from "./lib/fitpic";
+import { generatePantFitpic, fitpicVariationForPant, type FitpicGenerationOptions } from "./lib/fitpic";
 import { isPantMissingMeasurements } from "./lib/measurementUtils";
 import { Auth } from "./components/Auth";
 import { Header } from "./components/Header";
@@ -925,17 +925,20 @@ export default function App() {
   // Card trigger handler for single analysis
   const handleAnalyzeFromCard = async (pant: PantItem) => {
     if (isBatchRunning) return;
-    const success = await analyzeSinglePant(pant, customPrompt, true);
+    // The normal listing button should not silently incur paid FLUX
+    // generations without review of front/back and inventory photos.
+    // The explicit Fitpic button handles FLUX cost confirmation.
+    const success = await analyzeSinglePant(pant, customPrompt, false);
     if (success) {
       showToast(`Anzeige für Hose #${pant.number} fertiggestellt!`, "success");
     }
   };
 
-  const handleGenerateFitpic = async (pant: PantItem) => {
+  const handleGenerateFitpic = async (pant: PantItem, options:FitpicGenerationOptions) => {
     if (fitpicBusyIds.includes(pant.id)) return;
     setFitpicBusyIds((prev) => [...prev, pant.id]);
     try {
-      const generated = await generatePantFitpic(pant, session?.access_token || "");
+      const generated = await generatePantFitpic(pant, session?.access_token || "", options);
       await handleUpdatePant({
         ...pant,
         fitpic: generated.fitpic,
