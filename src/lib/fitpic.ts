@@ -1,5 +1,8 @@
 import type { PantImage, PantItem } from "../types";
 import { compressDataUrl } from "./imageCompressor";
+import { FLUX_FITPIC_RESERVED_USD, getLocalFluxCap, reserveLocalFluxAmount, releaseLocalFluxAmount, type FluxProvider } from "./fluxBudget";
+import { selectFitpicReferenceIndices, type TryonView, type TryonRole } from "./fitpicReferences";
+
 
 export type FitpicGender = "men" | "women";
 
@@ -31,98 +34,90 @@ export function fitpicVariationForPant(pant: PantItem): number {
   return Math.abs(hash) % 8;
 }
 
+export interface FitpicGenerationOptions {
+  provider?:FluxProvider;
+  view?:TryonView;
+  roles?:Record<string,TryonRole>;
+}
+
+/**
+ * The fitpic generator now uses Black Forest Labs FLUX only.
+ * No Gemini billing, no hidden background retries or extra QA models.
+ * Every result remains UNAPPROVED until manually verified in PantCard.
+ */
 export async function generatePantFitpic(
-  pant: PantItem,
-  accessToken: string,
-): Promise<{ fitpic: PantImage; variation: number }> {
-  const sources = fitpicSourceImages(pant);
-  if (sources.length < 2) {
-    throw new Error("Für ein möglichst originalgetreues Fitpic bitte mindestens zwei Jeans-Fotos (ganze Vorderseite und Rückseite) hochladen.");
-  }
-  if (!accessToken) throw new Error("Bitte erneut anmelden, um ein Fitpic zu erstellen.");
-
-  // Vercel's request limit is smaller than the server's per-image limits.
-  // Five independently compressed photos can still exceed the HTTP body cap.
-  // Recompress all photos at progressively smaller dimensions until the full
-  // inventory / front / back / detail evidence fits, rather than dropping a view.
-  const MAX_REFERENCES_JSON_CHARS = 3_400_000;
-  const compressionLevels = [
-    { maxDimension: 1200, quality: 0.76 },
-    { maxDimension: 1000, quality: 0.68 },
-    { maxDimension: 820, quality: 0.58 },
-    { maxDimension: 680, quality: 0.53 },
+  pant:PantItem,
+  accessToken:string,
+  options:FitpicGenerationOptions={},
+):Promise<{fitpic:PantImage;variation:number}> {
+  if(!accessToken)throw Error("Bitte erneut anmelden, um ein Fitpic zu erstellen.");
+  const provider=options.provider||"flux-klein";
+  if(provider!=="flux-klein"&&provider!=="flux-pro")throw Error("Unbekannter FLUX-Modus.");
+  const view=options.view||"front";
+  const selected=selectFitpicReferenceIndices(
+    (pant.images||[]).map(i=>i.id),options.roles||{},view,
+  );
+  const originalReferences=selected.map(({index,role})=>({photo:pant.images[index],role}));
+  const MAX_CHARS=3_200_000; // keep Vercel POST under ~4.5MB
+  const levels=[
+    {maxDimension:960,quality:0.73},
+    {maxDimension:800,quality:0.67},
+    {maxDimension:700,quality:0.60},
+    {maxDimension:600,quality:0.53},
   ];
-  let images: string[] = [];
-  for (const level of compressionLevels) {
-    images = await Promise.all(
-      sources.map((source) =>
-        compressDataUrl(source.dataUrl, level.maxDimension, level.quality)
-      )
-    );
-    if (images.some((prepared) => !/^data:image\/(?:jpeg|png|webp);base64,/.test(prepared))) {
-      throw new Error("Ein Originalfoto konnte nicht geladen werden. Bitte die Seite neu laden und erneut versuchen.");
-    }
-    // JSON adds only a small amount of overhead beyond these data URLs.
-    if (images.reduce((sum, prepared) => sum + prepared.length, 0) <= MAX_REFERENCES_JSON_CHARS) {
-      break;
-    }
+  let prepared:Array<{image:string;role:"front"|"back"|"detail"}>=[];
+  for(const level of levels){
+    prepared=await Promise.all(originalReferences.map(async ({photo,role})=>({
+      image:await compressDataUrl(photo.dataUrl,level.maxDimension,level.quality),
+      role,
+    })));
+    if(prepared.some(p=>!/^data:image\/(?:jpeg|png|webp);base64,/.test(p.image)))
+      throw Error("Ein Originalfoto konnte nicht geladen werden.");
+    if(prepared.reduce((acc,p)=>acc+p.image.length,0)<=MAX_CHARS)break;
   }
-  if (images.reduce((sum, prepared) => sum + prepared.length, 0) > MAX_REFERENCES_JSON_CHARS) {
-    throw new Error("Die Originalfotos sind zusammen zu groß. Bitte kleinere Fotos hochladen.");
-  }
+  if(prepared.reduce((acc,p)=>acc+p.image.length,0)>MAX_CHARS)
+    throw Error("Originalbilder sind noch zu groß; bitte kleiner hochladen.");
 
-  const variation = fitpicVariationForPant(pant);
-  const response = await fetch("/api/generate-fitpic", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({
-      images,
-      gender: detectFitpicGender(pant),
-      variation,
-      details: {
-        brand: pant.result?.detected.brand,
-        model: pant.result?.detected.model,
-        size: pant.result?.detected.size,
-        color: pant.result?.detected.color,
-        fit: pant.result?.detected.fit,
-      },
-    }),
-  });
-
-  // A Vercel runtime crash is often returned as HTML or plain text,
-  // not JSON. Surface its safe error code / request ID for diagnosis.
-  const raw = await response.text();
-  let data: { success?: boolean; image?: string; error?: string };
+  const reserveUsd=FLUX_FITPIC_RESERVED_USD[provider];
+  const variation=fitpicVariationForPant(pant);
+  reserveLocalFluxAmount(reserveUsd,getLocalFluxCap());
+  let response:Response;
   try {
-    data = JSON.parse(raw);
-  } catch {
-    const vercelCode = response.headers.get("x-vercel-error")
-      || ["FUNCTION_INVOCATION_FAILED", "FUNCTION_INVOCATION_TIMEOUT", "FUNCTION_PAYLOAD_TOO_LARGE"].find((code) => raw.includes(code));
-    const requestId = response.headers.get("x-vercel-id");
-    const errorCode = vercelCode ? ` – ${vercelCode}` : "";
-    const requestSuffix = requestId ? ` (Request-ID: ${requestId})` : "";
-    throw new Error(
-      `Fitpic-Serverfehler (HTTP ${response.status}${errorCode})${requestSuffix}. ` +
-      "Die Vercel-Funktion konnte keine gültige Antwort liefern. Bitte unter Vercel → Logs den Aufruf prüfen."
-    );
+    response=await fetch("/api/flux-edit",{
+      method:"POST",
+      headers:{"Content-Type":"application/json",Authorization:`Bearer ${accessToken}`},
+      body:JSON.stringify({
+        mode:"fitpic",provider,view,gender:detectFitpicGender(pant),
+        variation,background:"original",maxCostUsd:reserveUsd,
+        references:prepared,
+      }),
+    });
+  } catch(e:any) {
+    // An uncertain network error may occur after the paid provider accepted
+    // the job; never automatically refund or resubmit on uncertainty.
+    throw Error("Fitpic-Netzwerkfehler: "+String(e?.message||"Verbindung unterbrochen."));
   }
-
-  if (!response.ok || !data.success || !data.image?.startsWith("data:image/")) {
-    throw new Error(data.error || `Fitpic fehlgeschlagen (HTTP ${response.status}).`);
+  const raw=await response.text();
+  let data:{success?:boolean;image?:string;error?:string;chargeMayHaveOccurred?:boolean};
+  try{data=JSON.parse(raw);}
+  catch{
+    throw Error(`Fitpic-Serverfehler (HTTP ${response.status}). Prüfe Vercel-Logs; kein automatischer Neuanlauf.`);
   }
-  const comma = data.image.indexOf(",");
-  const mime = data.image.slice(5, comma).split(";")[0];
-  const extension = mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : "jpg";
-  const size = Math.floor((data.image.length - comma - 1) * 3 / 4);
+  if(!response.ok||!data.success||!data.image?.startsWith("data:image/")){
+    if(data.chargeMayHaveOccurred===false || [400,401,403,413,503].includes(response.status))
+      releaseLocalFluxAmount(reserveUsd);
+    throw Error(data.error||`Fitpic fehlgeschlagen (HTTP ${response.status}).`);
+  }
+  const mime=data.image.slice(5,data.image.indexOf(";"));
+  if(!["image/png","image/jpeg","image/webp"].includes(mime))
+    throw Error("Der Bildserver hat ein unzulässiges Format geliefert.");
+  const extension=mime==="image/png"?"png":mime==="image/webp"?"webp":"jpg";
   return {
-    fitpic: {
-      id: `fitpic-${pant.id}`,
-      dataUrl: data.image,
-      name: `fitpic.${extension}`,
-      size,
+    fitpic:{
+      id:`fitpic-${pant.id}`,
+      dataUrl:data.image,
+      name:`fitpic.${extension}`,
+      size:Math.floor((data.image.length-data.image.indexOf(",")-1)*0.75),
     },
     variation,
   };
