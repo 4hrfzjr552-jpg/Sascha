@@ -52,13 +52,30 @@ Treat ALL textual details as fallible clues, not facts to invent into a picture.
     const adult=body.gender==="women"
       ? "an adult woman of about 25, medium build"
       : "an adult man of about 25, medium build";
+    const variation=Math.abs(Math.trunc(Number(body.variation)||0))%6;
+    const rooms=[
+      "a plain bedroom with a white wardrobe and light laminate floor",
+      "an apartment hallway with white walls and gray floor tiles",
+      "a small modest bedroom with a narrow dresser and warm evening daylight",
+      "a bright apartment room with a plain full-length mirror and light floor",
+      "a simple private bedroom with a window and an ordinary rug",
+      "a clean hallway with a closed wooden door and neutral gray walls",
+    ];
+    const poses=[
+      "one foot slightly ahead of the other, relaxed stance",
+      "feet shoulder-width apart with a small weight shift",
+      "one hand casually in a front pocket, natural posture",
+      "the legs comfortably apart with a slight asymmetry",
+      "a natural three-quarter body angle, loose relaxed stance",
+      "standing casually with knees straight but not stiff",
+    ];
     const setup=body.view==="back"
       ? "a casual smartphone photo taken by a friend from behind, from shoulders to shoes. The person is naturally facing away from the camera. Their face is not visible. This MUST show the BACK of the jeans, their rear pockets, yoke and any real label if visible. No front pocket/fly on the back."
-      : "a casual full-length mirror selfie in a normal apartment bedroom with a smartphone fully covering the face. This MUST show the FRONT of the jeans, their actual fly and front pockets, not rear pockets.";
+      : "a casual full-length mirror selfie with a smartphone fully covering the face. This MUST show the FRONT of the jeans, their actual fly and front pockets, not rear pockets.";
     return `Create ONE candid 3:4 vertical smartphone try-on PHOTO of ${adult} WEARING the exact real secondhand jeans shown in the reference photos.
 IMAGE 1 is the actual whole ${view} of the jeans and is the PRIMARY AUTHORITY for their identity and shape. Other images show the opposite side or details of the very same pants; use them only for accurate textile condition and design. Never include a handwritten storage-bag or inventory number.
 Preserve the true denim COLOR, fade pattern, distinctive wear and stains, waist height, leg width and length, pocket shapes, yoke, seams, actual logos and label positions. The jeans should not become a generic new or different pair. Do not add any writing or fake labels.
-Composition: ${setup} The person wears a plain white T-shirt and ordinary clean white sneakers, with natural casual posture. Neutral light room, normal imperfect phone camera, realistic daylight, not studio photography. Include the full waistband, both legs, hems and sneakers without cropping the jeans. Casual seller fitpic, not a polished editorial fashion image.
+Composition: ${setup} Scene: ${rooms[variation]}. Pose: ${poses[variation]}. The person wears a plain white T-shirt and ordinary clean white sneakers. Ordinary unretouched phone camera, realistic daylight, not studio photography. Include the full waistband, both legs, hems and sneakers without cropping the jeans. Casual seller fitpic, not a polished editorial fashion image.
 Return only the synthetic try-on image. Do not invent additional jeans details.`;
   }
   if(operation==="background")return `BACKGROUND ONLY: Replace ONLY the visible surface surrounding this ORIGINAL clothing close-up or jeans picture with ${surface}. Keep the exact source garment pixels/shape, FRONT/BACK, crop, alignment, folds, colours, markings and size as far as possible. Preserve precise camera angle and material imperfections. Don't redraw or rearrange the jeans. ${immutable}`;
