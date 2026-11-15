@@ -26,7 +26,9 @@ import {
 } from "lucide-react";
 import { FlatlayEditModal } from "./FlatlayEditModal";
 import { BACKGROUND_OPTIONS, generateJeansFlatlay, type BeautifyBackground, type BeautifyMode, type BeautifyResult } from "../lib/flatlay";
-import { FLUX_BASE_COST_USD, FLUX_RESERVED_USD, capCanReserve, getLocalFluxCap, getLocalFluxUsage, type ImageProvider } from "../lib/fluxBudget";
+import { FLUX_BASE_COST_USD, FLUX_RESERVED_USD, FLUX_FITPIC_RESERVED_USD, capCanReserve, getLocalFluxCap, getLocalFluxUsage, type ImageProvider, type FluxProvider } from "../lib/fluxBudget";
+import { selectFitpicReferenceIndices, type TryonView } from "../lib/fitpicReferences";
+import type { FitpicGenerationOptions } from "../lib/fitpic";
 import { defaultListingPhotoRole, modeForListingRole, summarizeListingRoles, type ListingPhotoRole } from "../lib/flatlayBatchRoles";
 import { compressImageFile } from "../lib/imageCompressor";
 import { shareVintedPhotos } from "../lib/vintedShare";
@@ -43,7 +45,7 @@ interface PantCardProps {
   onDelete: (id: string) => void;
   onDuplicate: (pant: PantItem) => void;
   onAnalyze: (pant: PantItem) => void;
-  onGenerateFitpic?: (pant: PantItem) => void;
+  onGenerateFitpic?: (pant: PantItem, options:FitpicGenerationOptions) => void;
   isGeneratingFitpic?: boolean;
   onSaleStatusChange: (pant: PantItem, status: SaleStatus) => void;
   onEditSale: (pant: PantItem) => void;
@@ -84,6 +86,9 @@ export const PantCard: React.FC<PantCardProps> = ({
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkBackground, setBulkBackground] = useState<BeautifyBackground>("rug");
   const [bulkProvider,setBulkProvider] = useState<ImageProvider>("flux-klein");
+  const [fitpicProvider,setFitpicProvider] = useState<FluxProvider>("flux-klein");
+  const [fitpicView,setFitpicView] = useState<TryonView>("front");
+  const [fitpicChecks,setFitpicChecks] = useState({view:false,identity:false,transparency:false});
   const [bulkMode, setBulkMode] = useState<"flatlay" | "auto" | "background">("flatlay");
   const [photoRoles,setPhotoRoles] = useState<Record<string,ListingPhotoRole>>(()=>{
     try {
@@ -103,6 +108,33 @@ export const PantCard: React.FC<PantCardProps> = ({
     try {window.localStorage.setItem("sascha-flatlay-photo-roles-"+pant.id,JSON.stringify(next));}
     catch{/* No persistence, selection works during this session */}
   };
+  const startFluxFitpic=()=>{
+    if(!onGenerateFitpic||isGeneratingFitpic)return;
+    const roles=Object.fromEntries(pant.images.map((img,index)=>[img.id,getPhotoRole(img,index)]));
+    let selected;
+    try{
+      selected=selectFitpicReferenceIndices(pant.images.map(img=>img.id),roles,fitpicView);
+    }catch(e:any){
+      window.alert(e?.message || "Bitte Originalfotos zuordnen.");
+      return;
+    }
+    const estimate=FLUX_FITPIC_RESERVED_USD[fitpicProvider];
+    if(!capCanReserve(getLocalFluxUsage(),getLocalFluxCap(),estimate)){
+      window.alert("Dein lokales FLUX-Budget reicht für dieses Fitpic nicht. Bitte im Einzelbildeditor das Monatsbudget anpassen.");
+      return;
+    }
+    const wording=fitpicView==="back"?"von HINTEN mit den echten Gesäßtaschen":"von VORNE mit der echten Vorderseite";
+    if(!window.confirm(
+      `Ein FLUX-Fitpic ${wording} erstellen? Modell: ${fitpicProvider}, ${selected.length} echte Referenzbilder. `+
+      `Kostenrahmen ca. ${estimate.toFixed(3)} pro Versuch (Schätzung, BFL-Guthaben entscheidend). `+
+      "Nur EIN kostenpflichtiger Versuch, keine automatische KI-Prüfung. " +
+      "Stimmen die gewählten Foto-Rollen (unten) und sind Tütenbilder ausgeschlossen? " +
+      "Das Bild ist eine KI-Simulation und muss vor Vinted auf Originaltreue geprüft werden?"
+    ))return;
+    setFitpicChecks({view:false,identity:false,transparency:false});
+    onGenerateFitpic(pant,{provider:fitpicProvider,view:fitpicView,roles});
+  };
+
   const [bulkProgress, setBulkProgress] = useState<{done:number;total:number;errors:string[]}|null>(null);
   const [batchChecks,setBatchChecks]=useState<Record<string,{side:boolean;identity:boolean;bends:boolean;hems:boolean}>>({});
   const canApproveBatch=(entry:{sourceImageId:string;mode?:string;provider?:string;approved:boolean}):boolean=>{
@@ -721,25 +753,68 @@ export const PantCard: React.FC<PantCardProps> = ({
                     </p>
                     {pant.fitpicError && <p className="text-xs text-rose-700 dark:text-rose-300">{pant.fitpicError}</p>}
                     {onGenerateFitpic && pant.status === "done" && (
-                      <button
-                        type="button"
-                        disabled={isGeneratingFitpic || isAnalyzing}
-                        onClick={() => onGenerateFitpic(pant)}
-                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-semibold disabled:opacity-50"
-                      >
-                        {isGeneratingFitpic ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
-                        {isGeneratingFitpic ? "Fitpic entsteht…" : pant.fitpic ? "Fitpic neu erstellen" : "Fitpic erstellen"}
-                      </button>
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <label className="block text-xs font-semibold">
+                            Fitpic-Anbieter
+                            <select value={fitpicProvider} disabled={isGeneratingFitpic}
+                              onChange={e=>setFitpicProvider(e.target.value as FluxProvider)}
+                              className="w-full mt-1 px-2 py-2 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-900">
+                              <option value="flux-klein">FLUX Klein · günstig</option>
+                              <option value="flux-pro">FLUX Pro · Qualität</option>
+                            </select>
+                          </label>
+                          <label className="block text-xs font-semibold">
+                            Das Fitpic soll zeigen
+                            <select value={fitpicView} disabled={isGeneratingFitpic}
+                              onChange={e=>setFitpicView(e.target.value as TryonView)}
+                              className="w-full mt-1 px-2 py-2 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-900">
+                              <option value="front">Vorderseite · Spiegelselfie</option>
+                              <option value="back">Rückseite · Foto von hinten</option>
+                            </select>
+                          </label>
+                        </div>
+                        <p className="text-[11px] text-stone-600 dark:text-stone-300">
+                          Foto-Zuordnung weiter unten prüfen: Ganze Vorder- und Rückseite, Details,
+                          Tütenfoto überspringen. FLUX nutzt keine Gemini-Credits.
+                          Vorgemerkt ca. ${FLUX_FITPIC_RESERVED_USD[fitpicProvider].toFixed(3)}
+                          je Versuch; dein Browser-Monatsbudget gilt auch hier.
+                        </p>
+                        <button type="button" disabled={isGeneratingFitpic || isAnalyzing}
+                          onClick={startFluxFitpic}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-semibold disabled:opacity-50">
+                          {isGeneratingFitpic ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
+                          {isGeneratingFitpic ? "FLUX-Fitpic entsteht…" : pant.fitpic ? "Fitpic mit FLUX neu erstellen" : "FLUX-Fitpic erstellen"}
+                        </button>
+                      </div>
                     )}
                     {pant.fitpic && !pant.fitpicApproved && (
-                      <button
-                        type="button"
-                        onClick={() => onUpdate({ ...pant, fitpicApproved: true, fitpicError: undefined })}
-                        className="block px-3 py-2 rounded-lg bg-emerald-700 text-white text-xs font-semibold"
-                        title="Nur wählen, wenn die KI-Jeans mit den Originalfotos übereinstimmt"
-                      >
-                        Geprüft – als Titelbild verwenden
-                      </button>
+                      <div className="space-y-2 rounded-xl border border-amber-300 dark:border-amber-800 p-2">
+                        <p className="text-[11px] font-bold text-amber-800 dark:text-amber-300">
+                          Fitpic ist KI-generiert, kein echtes Tragefoto. Vor Veröffentlichung prüfen:
+                        </p>
+                        {([
+                          ["view","Vorder-/Rückseite und sichtbare Taschen stimmen mit dem Original überein."],
+                          ["identity","Farbe, Waschung, Schnitt, Labels, Löcher und Gebrauchsspuren sind dieselben."],
+                          ["transparency","Mir ist klar, dass das Bild eine KI-Simulation ist und nicht den Zustand beweist."],
+                        ] as Array<[keyof typeof fitpicChecks,string]>).map(([key,label])=>(
+                          <label key={key} className="flex gap-2 items-start text-[11px] text-stone-800 dark:text-stone-200">
+                            <input type="checkbox" className="mt-0.5" checked={fitpicChecks[key]}
+                              onChange={e=>setFitpicChecks(old=>({...old,[key]:e.target.checked}))}/>
+                            <span>{label}</span>
+                          </label>
+                        ))}
+                        <button type="button"
+                          disabled={!fitpicChecks.view||!fitpicChecks.identity||!fitpicChecks.transparency}
+                          onClick={()=>{
+                            if(fitpicChecks.view&&fitpicChecks.identity&&fitpicChecks.transparency)
+                              onUpdate({...pant,fitpicApproved:true,fitpicError:undefined});
+                          }}
+                          className="block px-3 py-2 rounded-lg bg-emerald-700 text-white text-xs font-semibold disabled:opacity-40"
+                          title="Nur wenn die generierte Jeans vollständig mit dem Original übereinstimmt">
+                          Nach Prüfung als KI-Fitpic verwenden
+                        </button>
+                      </div>
                     )}
                     {pant.fitpic && (
                       <button
