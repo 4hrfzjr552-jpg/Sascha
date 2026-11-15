@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 
 export const config={maxDuration:300};
 type Provider="flux-klein"|"flux-pro";
-type Operation="flatlay"|"detail"|"background";
+type Operation="flatlay"|"detail"|"background"|"fitpic";
 const paths: Record<Provider,string>={
   "flux-klein":"flux-2-klein-4b",
   "flux-pro":"flux-2-pro",
@@ -47,6 +47,37 @@ Size: ${safeText(details.size,50)}. Measurements: ${safeText(details.measurement
 Treat ALL textual details as fallible clues, not facts to invent into a picture.`;
   const immutable=`The supplied FIRST image is the exact real second-hand jeans (or close-up) for sale. Preserve EXACT visible garment identity: same front or back view, pockets, cut, wash/fading, wrinkles that represent authentic wear, sewn-in labels and their text/positions, buttons, stitching, hems, fraying, rips, stains and damage. DO NOT invent a new garment or alter any brand logos or numbers. Do not hide defects. NO person, caption, watermarks, newly invented labels, or other garment. Realistic product photograph. ${identity}`;
   const surface=surfaces[body.background]||surfaces.rug;
+  if(operation==="fitpic") {
+    const view=body.view==="back"?"BACK":"FRONT";
+    const adult=body.gender==="women"
+      ? "an adult woman of about 25, medium build"
+      : "an adult man of about 25, medium build";
+    const variation=Math.abs(Math.trunc(Number(body.variation)||0))%6;
+    const rooms=[
+      "a plain bedroom with a white wardrobe and light laminate floor",
+      "an apartment hallway with white walls and gray floor tiles",
+      "a small modest bedroom with a narrow dresser and warm evening daylight",
+      "a bright apartment room with a plain full-length mirror and light floor",
+      "a simple private bedroom with a window and an ordinary rug",
+      "a clean hallway with a closed wooden door and neutral gray walls",
+    ];
+    const poses=[
+      "one foot slightly ahead of the other, relaxed stance",
+      "feet shoulder-width apart with a small weight shift",
+      "one hand casually in a front pocket, natural posture",
+      "the legs comfortably apart with a slight asymmetry",
+      "a natural three-quarter body angle, loose relaxed stance",
+      "standing casually with knees straight but not stiff",
+    ];
+    const setup=body.view==="back"
+      ? "a casual smartphone photo taken by a friend from behind, from shoulders to shoes. The person is naturally facing away from the camera. Their face is not visible. This MUST show the BACK of the jeans, their rear pockets, yoke and any real label if visible. No front pocket/fly on the back."
+      : "a casual full-length mirror selfie with a smartphone fully covering the face. This MUST show the FRONT of the jeans, their actual fly and front pockets, not rear pockets.";
+    return `Create ONE candid 3:4 vertical smartphone try-on PHOTO of ${adult} WEARING the exact real secondhand jeans shown in the reference photos.
+IMAGE 1 is the actual whole ${view} of the jeans and is the PRIMARY AUTHORITY for their identity and shape. Other images show the opposite side or details of the very same pants; use them only for accurate textile condition and design. Never include a handwritten storage-bag or inventory number.
+Preserve the true denim COLOR, fade pattern, distinctive wear and stains, waist height, leg width and length, pocket shapes, yoke, seams, actual logos and label positions. The jeans should not become a generic new or different pair. Do not add any writing or fake labels.
+Composition: ${setup} Scene: ${rooms[variation]}. Pose: ${poses[variation]}. The person wears a plain white T-shirt and ordinary clean white sneakers. Ordinary unretouched phone camera, realistic daylight, not studio photography. Include the full waistband, both legs, hems and sneakers without cropping the jeans. Casual seller fitpic, not a polished editorial fashion image.
+Return only the synthetic try-on image. Do not invent additional jeans details.`;
+  }
   if(operation==="background")return `BACKGROUND ONLY: Replace ONLY the visible surface surrounding this ORIGINAL clothing close-up or jeans picture with ${surface}. Keep the exact source garment pixels/shape, FRONT/BACK, crop, alignment, folds, colours, markings and size as far as possible. Preserve precise camera angle and material imperfections. Don't redraw or rearrange the jeans. ${immutable}`;
   if(operation==="detail")return `CLOSE-UP JEANS DETAIL: The ORIGINAL is a close-up of real denim (waistband, patch, stitching, pocket or hem). Keep EXACT same close-up framing and subject; do NOT produce complete trousers. Improve subtle light and background (${surface}) without modifying printed text, labels, wash, wear, tears or embroidery. ${immutable}`;
   const view=body.sourceView==="front"?"front":"back";
@@ -132,17 +163,38 @@ export default async function handler(req:any,res:any) {
   if(!body||typeof body!=="object")return res.status(400).json({success:false,error:"Bilddaten fehlen."});
   const provider:Provider=body.provider;
   const mode:Operation=body.mode;
-  const source=imageDataUrl(body.image,2_000_000);
+  const isFitpic=mode==="fitpic";
+  const references: Array<{data:string;role:"front"|"back"|"detail"}>=[];
+  if(isFitpic){
+    if(!Array.isArray(body.references)||body.references.length<1||body.references.length>4)
+      return res.status(400).json({success:false,error:"Fitpic benötigt 1 bis 4 ausgewählte Original-Jeansfotos ohne Tüte."});
+    if(body.view!=="front"&&body.view!=="back")
+      return res.status(400).json({success:false,error:"Für das Fitpic bitte Vorderseite oder Rückseite auswählen."});
+    for(const ref of body.references){
+      if(!ref||!["front","back","detail"].includes(ref.role))
+        return res.status(400).json({success:false,error:"Originalfoto ohne gültige Seite/Detailangabe."});
+      const data=imageDataUrl(ref.image,1_000_000);
+      if(!data)return res.status(413).json({success:false,error:"Ein Referenzfoto ist ungültig oder zu groß."});
+      references.push({data,role:ref.role});
+    }
+    if(references[0].role!==body.view)
+      return res.status(400).json({success:false,error:"Das erste Referenzfoto muss die gewählte Vorder- oder Rückseite vollständig zeigen."});
+  }
+  const source=isFitpic?references[0]?.data:imageDataUrl(body.image,2_000_000);
   if(!source)return res.status(413).json({success:false,error:"Originalfoto ungültig oder zu groß."});
   const guide=mode==="flatlay" && body.poseGuide ? imageDataUrl(body.poseGuide,350_000) : null;
   if(mode==="flatlay" && body.poseGuide && !guide)
     return res.status(400).json({success:false,error:"Neutrale Flatlay-Formvorlage ist ungültig. Bitte Sascha AI neu öffnen."});
-  if(!["flatlay","detail","background"].includes(mode))return res.status(400).json({success:false,error:"Ungültiger Bearbeitungsmodus."});
+  if(!["flatlay","detail","background","fitpic"].includes(mode))return res.status(400).json({success:false,error:"Ungültiger Bearbeitungsmodus."});
   if(mode==="flatlay" && !["front","back"].includes(body.sourceView))
     return res.status(400).json({success:false,error:"Bitte vor dem Flatlay Vorderseite oder Rückseite des Originalfotos auswählen."});
   if(!Object.hasOwn(surfaces,body.background))return res.status(400).json({success:false,error:"Ungültiger Hintergrund."});
-  const serverMax=Number(process.env.BFL_MAX_REQUEST_USD||0.06);
-  if(!priceAllowed(provider,body.maxCostUsd,serverMax))
+  // 3:4 fitpic output is <=1MP (768x1024). Up to four <=1MP
+  // references: Pro $0.03 + 4*$0.015 = $0.09; Klein $0.014 +4*$0.001=$0.018.
+  const fitpicReserveUsd=provider==="flux-pro"?0.11:0.03;
+  const serverMax=Number(isFitpic?process.env.BFL_FITPIC_MAX_REQUEST_USD||0.11:process.env.BFL_MAX_REQUEST_USD||0.06);
+  if(!priceAllowed(provider,body.maxCostUsd,serverMax)||
+      (isFitpic && (typeof body.maxCostUsd!=="number" || body.maxCostUsd<fitpicReserveUsd || serverMax<fitpicReserveUsd)))
     return res.status(402).json({success:false,error:"Der gewählte FLUX-Modus überschreitet das Preislimit pro Foto."});
 
   // FLUX image 1: actual real item. FLUX image 2: black-and-white abstract
@@ -161,8 +213,9 @@ export default async function handler(req:any,res:any) {
         prompt:makePrompt(body),
         input_image:source,
         ...(mode==="flatlay" && guide ? {input_image_2:guide} : {}),
+        ...(isFitpic ? Object.fromEntries(references.slice(1).map((ref,i)=>["input_image_"+(i+2),ref.data])) : {}),
         ...(provider==="flux-pro"?{disable_pup:true}:{}),
-        width:992,height:992,output_format:"jpeg",
+        width:isFitpic?768:992,height:isFitpic?1024:992,output_format:"jpeg",
         safety_tolerance:2,
       }),
     });
@@ -193,7 +246,7 @@ export default async function handler(req:any,res:any) {
         return res.status(200).json({
           success:true,image:`data:${type};base64,${buffer.toString("base64")}`,
           provider,operation:mode,background:body.background,
-          kind:mode==="detail"?"detail":body.sourceView==="front"?"full_front":"full_back",
+          kind:isFitpic?"fitpic":mode==="detail"?"detail":body.sourceView==="front"?"full_front":"full_back",
           notice:"FLUX ist generative KI. Vor dem Vinted-Export Original und Markenmerkmale genau prüfen.",
         });
       }
