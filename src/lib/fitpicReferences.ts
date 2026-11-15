@@ -1,7 +1,7 @@
 /**
  * Explicit seller photo roles for paid FLUX try-ons. The order below is ONLY a
  * starting suggestion, never AI image recognition. Require seller review
- * before submitting references (and never send the inventory-bag slot #5).
+ * before submitting references (default inventory bag at #5; users can move it).
  */
 export type TryonView="front"|"back";
 export type TryonRole="front"|"back"|"detail"|"skip";
@@ -20,8 +20,9 @@ export function selectFitpicReferenceIndices(
   if(view!=="front"&&view!=="back")throw Error("Bitte Vorder- oder Rückansicht für das Fitpic auswählen.");
   const entries=imageIds.slice(0,5).map((id,index)=>({
     index,
-    // The 5th photo of a 5-slot listing is always the inventory-bag photo.
-    role:(imageIds.length===5&&index===4?"skip":roleMap[id]||suggestedFitpicRole(index,imageIds.length)) as TryonRole,
+    // #5 is only the default bag position. The seller can override it
+    // if a real jeans photo is there and the bag is elsewhere.
+    role:(roleMap[id]||suggestedFitpicRole(index,imageIds.length)) as TryonRole,
   })).filter((entry):entry is FitpicReferenceSelection=>entry.role!=="skip");
   const ranked=entries.sort((a,b)=>{
     const score=(role:TryonRole)=>role===view?0:role==="detail"?1:2;
