@@ -19,6 +19,11 @@ export const FLUX_RESERVED_USD: Record<FluxProvider,number> = {
   "flux-klein": 0.025,
   "flux-pro": 0.060,
 };
+/** Conservative estimate for one FLUX try-on: <=1MP 3:4 and <=4 photos. */
+export const FLUX_FITPIC_RESERVED_USD:Record<FluxProvider,number>={
+  "flux-klein":0.03,
+  "flux-pro":0.11,
+};
 export const DEFAULT_LOCAL_MONTHLY_CAP_USD = 1.00;
 export const LOCAL_BUDGET_KEY_PREFIX = "sascha-flux-estimate-v1-";
 
@@ -87,4 +92,19 @@ export function setLocalFluxCap(next:number) {
   if(!Number.isFinite(next)||next<0.1||next>10)throw Error("Budget muss zwischen $0,10 und $10 liegen.");
   try { window.localStorage.setItem(LOCAL_CAP_KEY,String(next)); }
   catch { throw new Error("Dein Browser kann das lokale Budget nicht speichern."); }
+}
+
+/** Share monthly browser-based budget with flatlays, backgrounds and fitpics. */
+export function reserveLocalFluxAmount(estimatedUsd:number,cap:number,when:Date=new Date()) {
+  const used=getLocalFluxUsage(when);
+  if(!capCanReserve(used,cap,estimatedUsd))
+    throw new Error(`Dein lokales FLUX-Monatsbudget ist erreicht (ca. $${used.toFixed(2)} von $${cap.toFixed(2)}). Bitte Kostenlimit prüfen.`);
+  try{window.localStorage.setItem(LOCAL_BUDGET_KEY_PREFIX+utcMonthKey(when),String(Number((used+estimatedUsd).toFixed(4))));}
+  catch{throw new Error("Budgetschutz kann in diesem Browser nicht gespeichert werden.");}
+}
+export function releaseLocalFluxAmount(estimatedUsd:number,when:Date=new Date()) {
+  if(!Number.isFinite(estimatedUsd)||estimatedUsd<=0)return;
+  const used=getLocalFluxUsage(when);
+  try{window.localStorage.setItem(LOCAL_BUDGET_KEY_PREFIX+utcMonthKey(when),String(Number(Math.max(0,used-estimatedUsd).toFixed(4))));}
+  catch{/* Leave reservations untouched if browser storage is disabled. */}
 }
