@@ -97,7 +97,6 @@ export const PantCard: React.FC<PantCardProps> = ({
     } catch {return {};}
   });
   const getPhotoRole=(img:PantImage,index:number):ListingPhotoRole=>{
-    if(pant.images.length===5 && index===4)return "skip";
     const saved=photoRoles[img.id];
     return saved==="front"||saved==="back"||saved==="detail"||saved==="skip"
       ? saved : defaultListingPhotoRole(index,pant.images.length);
@@ -775,11 +774,30 @@ export const PantCard: React.FC<PantCardProps> = ({
                           </label>
                         </div>
                         <p className="text-[11px] text-stone-600 dark:text-stone-300">
-                          Foto-Zuordnung weiter unten prüfen: Ganze Vorder- und Rückseite, Details,
-                          Tütenfoto überspringen. FLUX nutzt keine Gemini-Credits.
-                          Vorgemerkt ca. ${FLUX_FITPIC_RESERVED_USD[fitpicProvider].toFixed(3)}
-                          je Versuch; dein Browser-Monatsbudget gilt auch hier.
+                          Vor der Generierung jedes Originalfoto zuordnen. Tüte immer auf
+                          „Tüte / überspringen“ setzen, auch wenn sie nicht auf Platz 5 liegt.
+                          FLUX braucht keine Gemini-Credits. Je Versuch ca.
+                          $${FLUX_FITPIC_RESERVED_USD[fitpicProvider].toFixed(3)} vorgemerkt.
                         </p>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                          {pant.images.map((img,index)=>(
+                            <label key={img.id} className="rounded-lg border border-stone-200 dark:border-stone-700 p-1.5 text-[11px] font-semibold">
+                              <span className="flex gap-2 items-center mb-1">
+                                <img src={img.dataUrl} alt={`Foto ${index+1} auswählen`}
+                                  className="w-9 h-9 rounded object-cover"/>
+                                Foto #{index+1}
+                              </span>
+                              <select value={getPhotoRole(img,index)} disabled={isGeneratingFitpic}
+                                onChange={e=>changePhotoRole(img,e.target.value as ListingPhotoRole)}
+                                className="w-full rounded border border-stone-300 dark:border-stone-600 p-1.5 bg-white dark:bg-stone-900 text-stone-800 dark:text-stone-100">
+                                <option value="front">Ganz vorne</option>
+                                <option value="back">Ganz hinten</option>
+                                <option value="detail">Detail</option>
+                                <option value="skip">Tüte / überspringen</option>
+                              </select>
+                            </label>
+                          ))}
+                        </div>
                         <button type="button" disabled={isGeneratingFitpic || isAnalyzing}
                           onClick={startFluxFitpic}
                           className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-xs font-semibold disabled:opacity-50">
