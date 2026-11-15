@@ -49,3 +49,17 @@ test("one 1MP fitpic with four references fits conservative capped rates",()=>{
   assert.equal(priceAllowed("flux-pro",0.11,0.11),true);
   assert.equal(priceAllowed("flux-klein",0.03,0.11),true);
 });
+
+test("a real jeans back photo in fifth slot remains usable if bag is first",()=>{
+  const ids=["bag","front","detail1","detail2","realback"];
+  const roles={bag:"skip",front:"front",detail1:"detail",detail2:"detail",realback:"back"};
+  const rear=selectFitpicReferenceIndices(ids,roles,"back");
+  assert.equal(rear[0].index,4);
+  assert.equal(rear[0].role,"back");
+  assert.ok(rear.every(x=>x.index!==0));
+});
+test("last-slot bag remains skipped by default without manual override",()=>{
+  const ids=["front","waist","label","back","bag"];
+  const refs=selectFitpicReferenceIndices(ids,{},"front");
+  assert.ok(refs.every(x=>x.index!==4));
+});
