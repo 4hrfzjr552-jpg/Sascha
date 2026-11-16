@@ -45,6 +45,8 @@ import {
 } from "./lib/titleUtils";
 import { sortPantsByArticleNumber, isValidArticleNumber } from "./lib/articleNumberUtils";
 import { generatePantFitpic, fitpicVariationForPant, type FitpicGenerationOptions } from "./lib/fitpic";
+import { SALE_STATUS_OPTIONS, getSaleStatusLabel } from "./lib/saleStatus";
+import { planBulkSaleStatusChange, type BulkStatusScope } from "./lib/bulkSaleStatus";
 import { isPantMissingMeasurements } from "./lib/measurementUtils";
 import { Auth } from "./components/Auth";
 import { Header } from "./components/Header";
@@ -110,6 +112,10 @@ export default function App() {
 
   // Selection state (UI-only, resets on reload)
   const [selectedPantIds, setSelectedPantIds] = useState<Set<string>>(new Set());
+  const [bulkStatusScope, setBulkStatusScope] = useState<BulkStatusScope>("visible");
+  const [bulkStatusTarget, setBulkStatusTarget] = useState<Exclude<SaleStatus,"sold">>("draft");
+  const [bulkStatusBusy, setBulkStatusBusy] = useState(false);
+  const [bulkStatusProgress, setBulkStatusProgress] = useState<{done:number;total:number}|null>(null);
 
   // Modal states
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -1192,6 +1198,91 @@ export default function App() {
     });
   };
 
+  // One deliberate, confirmed status action for the filtered category or
+  // the explicit cross-filter selection. Save every item to Supabase, and
+  // only display the new status after its server write succeeded.
+  const handleBulkSaleStatusChange = async () => {
+    if (bulkStatusBusy || !session?.user?.id || isBatchRunning) return;
+    const userId = session.user.id;
+    const visibleIds = new Set(filteredPants.map((pant) => pant.id));
+    let planned: ReturnType<typeof planBulkSaleStatusChange>;
+    try {
+      planned = planBulkSaleStatusChange(pants, visibleIds, selectedPantIds,
+        bulkStatusScope, bulkStatusTarget);
+    } catch (e:any) {
+      showToast(e?.message || "Statuswechsel nicht möglich.", "error");
+      return;
+    }
+    if(planned.inScope===0) {
+      showToast(bulkStatusScope==="selected"
+        ? "Bitte zuerst Hosen auswählen."
+        : "Keine Hosen im aktuellen Filter.", "info");
+      return;
+    }
+    if(planned.updates.length===0) {
+      showToast("Alle passenden Hosen haben diesen Status bereits oder sind verkauft.", "info");
+      return;
+    }
+    const scopeText=bulkStatusScope==="visible"
+      ? "mit den aktuell aktiven Filtern sichtbar"
+      : "explizit ausgewählt (auch außerhalb der aktuellen Filter)";
+    const extra=planned.skippedSold>0
+      ? ` ${planned.skippedSold} verkaufte Hosen bleiben unverändert.` : "";
+    if(!window.confirm(
+      `${planned.updates.length} Hosen auf „${getSaleStatusLabel(bulkStatusTarget)}“ setzen?`+
+      `\nBereich: ${scopeText}. ${planned.unchanged} bereits passend.${extra}`+
+      "\nTitel, Fotos, Artikelnummern und Beschreibungen bleiben erhalten."+
+      "\nDiese Änderung wird in deinem Sascha-AI-Konto gespeichert."
+    ))return;
+
+    setBulkStatusBusy(true);
+    setBulkStatusProgress({done:0,total:planned.updates.length});
+    const successfulIds:string[]=[];
+    let failures=0;
+    try {
+      // Small batches avoid flooding Supabase with simultaneous full
+      // garment-document upserts/storage operations.
+      for(let i=0;i<planned.updates.length;i+=3) {
+        const chunk=planned.updates.slice(i,i+3);
+        const results=await Promise.allSettled(chunk.map(async updated=>{
+          const saved=await savePantToSupabase(userId,updated);
+          await savePantToDB(saved).catch(err=>{
+            console.warn("Local backup failed for bulk status update:",err);
+          });
+          return saved;
+        }));
+        const savedPants:PantItem[]=[];
+        results.forEach((r,idx)=>{
+          if(r.status==="fulfilled") {
+            savedPants.push(r.value);
+            successfulIds.push(r.value.id);
+          } else {
+            failures++;
+            console.error("Bulk status save failed for pant",chunk[idx].id,r.reason);
+          }
+        });
+        if(savedPants.length) {
+          const savedById=new Map(savedPants.map(p=>[p.id,p]));
+          setPants(prev=>prev.map(p=>savedById.get(p.id)||p));
+        }
+        setBulkStatusProgress({done:Math.min(i+chunk.length,planned.updates.length),
+          total:planned.updates.length});
+      }
+      if(successfulIds.length) {
+        const doneIds=new Set(successfulIds);
+        setSelectedPantIds(prev=>new Set([...prev].filter(id=>!doneIds.has(id))));
+      }
+      if(failures) {
+        showToast(`${successfulIds.length} Hosen gespeichert, ${failures} fehlgeschlagen. Bitte erneut versuchen.`,"error");
+      } else {
+        showToast(`${successfulIds.length} Hosen nach „${getSaleStatusLabel(bulkStatusTarget)}“ verschoben.`,"success");
+      }
+    } finally {
+      setBulkStatusBusy(false);
+      setBulkStatusProgress(null);
+    }
+  };
+
   // Calculate batch modal pre-selection stats based on currently filtered pants
   const batchModalStats = useMemo(() => {
     const visiblePants = filteredPants;
@@ -1623,6 +1714,42 @@ export default function App() {
                 className="text-xs font-bold text-stone-700 dark:text-stone-300 px-2.5 py-1 rounded-lg bg-stone-100 dark:bg-stone-800"
               >
                 {selectedPantIds.size} {selectedPantIds.size === 1 ? "Hose" : "Hosen"} ausgewählt
+              </span>
+            </div>
+
+            <div className="flex items-end gap-2 flex-wrap" id="bulk-sale-status-controls">
+              <label className="text-xs font-semibold text-stone-700 dark:text-stone-200">
+                Status ändern für
+                <select id="bulk-status-scope" value={bulkStatusScope}
+                  disabled={bulkStatusBusy||isBatchRunning}
+                  onChange={e=>setBulkStatusScope(e.target.value as BulkStatusScope)}
+                  className="block mt-1 min-h-[38px] max-w-[200px] rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 px-2 text-xs text-stone-900 dark:text-stone-100">
+                  <option value="visible">Alle sichtbaren ({filteredPants.length})</option>
+                  <option value="selected">Ausgewählte ({selectedPantIds.size})</option>
+                </select>
+              </label>
+              <label className="text-xs font-semibold text-stone-700 dark:text-stone-200">
+                Neuer Status
+                <select id="bulk-status-target" value={bulkStatusTarget}
+                  disabled={bulkStatusBusy||isBatchRunning}
+                  onChange={e=>setBulkStatusTarget(e.target.value as Exclude<SaleStatus,"sold">)}
+                  className="block mt-1 min-h-[38px] rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 px-2 text-xs text-stone-900 dark:text-stone-100">
+                  {SALE_STATUS_OPTIONS.filter(o=>o.id!=="sold").map(o=>(
+                    <option key={o.id} value={o.id}>{o.label}</option>
+                  ))}
+                </select>
+              </label>
+              <button id="bulk-status-apply-btn" type="button"
+                disabled={bulkStatusBusy||isBatchRunning||(bulkStatusScope==="visible"?filteredPants.length===0:selectedPantIds.size===0)}
+                onClick={handleBulkSaleStatusChange}
+                className="inline-flex items-center gap-1.5 px-3 py-2 min-h-[38px] rounded-xl bg-sky-700 hover:bg-sky-800 text-white text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed">
+                {bulkStatusBusy?<Loader2 className="w-4 h-4 animate-spin"/>:<CheckSquare className="w-4 h-4"/>}
+                {bulkStatusBusy && bulkStatusProgress
+                  ? `Speichere ${bulkStatusProgress.done}/${bulkStatusProgress.total}…`
+                  : "Status übernehmen"}
+              </button>
+              <span className="text-[11px] text-stone-500 dark:text-stone-400">
+                Verkauft bleibt geschützt
               </span>
             </div>
 
